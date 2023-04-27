@@ -40,7 +40,7 @@ type FullSyncTester struct {
 
 // RegisterFullSyncTester registers the full-sync tester service into the node
 // stack for launching and stopping the service controlled by node.
-func RegisterFullSyncTester(stack *node.Node, backend *eth.Ethereum, block *types.Block) (*FullSyncTester, error) {
+func RegisterFullSyncTester(stack *node.Node, backend *eth.Calcium, block *types.Block) (*FullSyncTester, error) {
 	cl := &FullSyncTester{
 		api:    NewConsensusAPI(backend),
 		block:  block,

@@ -54,7 +54,7 @@ func (s Storage) Copy() Storage {
 	return cpy
 }
 
-// stateObject represents an Ethereum account which is being modified.
+// stateObject represents an Calcium account which is being modified.
 //
 // The usage pattern is as follows:
 // First you need to obtain a state object.

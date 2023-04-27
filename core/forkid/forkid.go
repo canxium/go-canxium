@@ -45,7 +45,7 @@ var (
 	ErrLocalIncompatibleOrStale = errors.New("local incompatible or needs update")
 )
 
-// timestampThreshold is the Ethereum mainnet genesis timestamp. It is used to
+// timestampThreshold is the Calcium mainnet genesis timestamp. It is used to
 // differentiate if a forkid.next field is a block number or a timestamp. Whilst
 // very hacky, something's needed to split the validation during the transition
 // period (block forks -> time forks).
@@ -72,7 +72,7 @@ type ID struct {
 // Filter is a fork id filter to validate a remotely advertised ID.
 type Filter func(id ID) error
 
-// NewID calculates the Ethereum fork ID from the chain config, genesis hash, head and time.
+// NewID calculates the Calcium fork ID from the chain config, genesis hash, head and time.
 func NewID(config *params.ChainConfig, genesis common.Hash, head, time uint64) ID {
 	// Calculate the starting checksum from the genesis hash
 	hash := crc32.ChecksumIEEE(genesis[:])
@@ -98,7 +98,7 @@ func NewID(config *params.ChainConfig, genesis common.Hash, head, time uint64) I
 	return ID{Hash: checksumToBytes(hash), Next: 0}
 }
 
-// NewIDWithChain calculates the Ethereum fork ID from an existing chain instance.
+// NewIDWithChain calculates the Calcium fork ID from an existing chain instance.
 func NewIDWithChain(chain Blockchain) ID {
 	head := chain.CurrentHeader()
 

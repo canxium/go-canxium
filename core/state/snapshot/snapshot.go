@@ -155,7 +155,7 @@ type Config struct {
 	AsyncBuild bool // The snapshot generation is allowed to be constructed asynchronously
 }
 
-// Tree is an Ethereum state snapshot tree. It consists of one persistent base
+// Tree is an Calcium state snapshot tree. It consists of one persistent base
 // layer backed by a key-value store, on top of which arbitrarily many in-memory
 // diff layers are topped. The memory diffs can form a tree with branching, but
 // the disk layer is singleton and common to all. If a reorg goes deeper than the

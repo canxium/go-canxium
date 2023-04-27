@@ -35,7 +35,7 @@ import (
 func newClient(ctx *cli.Context) *ethclient.Client {
 	client, err := ethclient.Dial(ctx.String(nodeURLFlag.Name))
 	if err != nil {
-		utils.Fatalf("Failed to connect to Ethereum node: %v", err)
+		utils.Fatalf("Failed to connect to Calcium node: %v", err)
 	}
 	return client
 }
@@ -44,7 +44,7 @@ func newClient(ctx *cli.Context) *ethclient.Client {
 func newRPCClient(url string) *rpc.Client {
 	client, err := rpc.Dial(url)
 	if err != nil {
-		utils.Fatalf("Failed to connect to Ethereum node: %v", err)
+		utils.Fatalf("Failed to connect to Calcium node: %v", err)
 	}
 	return client
 }

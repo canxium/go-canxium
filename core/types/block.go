@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-// Package types contains data types related to Ethereum consensus.
+// Package types contains data types related to Calcium consensus.
 package types
 
 import (
@@ -61,7 +61,7 @@ func (n *BlockNonce) UnmarshalText(input []byte) error {
 //go:generate go run github.com/fjl/gencodec -type Header -field-override headerMarshaling -out gen_header_json.go
 //go:generate go run ../../rlp/rlpgen -type Header -out gen_header_rlp.go
 
-// Header represents a block header in the Ethereum blockchain.
+// Header represents a block header in the Calcium blockchain.
 type Header struct {
 	ParentHash  common.Hash    `json:"parentHash"       gencodec:"required"`
 	UncleHash   common.Hash    `json:"sha3Uncles"       gencodec:"required"`
@@ -171,7 +171,7 @@ type Body struct {
 	Withdrawals  []*Withdrawal `rlp:"optional"`
 }
 
-// Block represents an entire block in the Ethereum blockchain.
+// Block represents an entire block in the Calcium blockchain.
 type Block struct {
 	header       *Header
 	uncles       []*Header
@@ -288,7 +288,7 @@ func CopyHeader(h *Header) *Header {
 	return &cpy
 }
 
-// DecodeRLP decodes the Ethereum
+// DecodeRLP decodes the Calcium
 func (b *Block) DecodeRLP(s *rlp.Stream) error {
 	var eb extblock
 	_, size, _ := s.Kind()
@@ -300,7 +300,7 @@ func (b *Block) DecodeRLP(s *rlp.Stream) error {
 	return nil
 }
 
-// EncodeRLP serializes b into the Ethereum RLP block format.
+// EncodeRLP serializes b into the Calcium RLP block format.
 func (b *Block) EncodeRLP(w io.Writer) error {
 	return rlp.Encode(w, extblock{
 		Header:      b.header,

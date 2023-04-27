@@ -47,7 +47,7 @@ type filter struct {
 }
 
 // FilterAPI offers support to create and manage filters. This will allow external clients to retrieve various
-// information related to the Ethereum protocol such as blocks, transactions and logs.
+// information related to the Calcium protocol such as blocks, transactions and logs.
 type FilterAPI struct {
 	sys       *FilterSystem
 	events    *EventSystem

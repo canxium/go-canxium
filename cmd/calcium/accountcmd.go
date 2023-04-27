@@ -31,7 +31,7 @@ import (
 var (
 	walletCommand = &cli.Command{
 		Name:      "wallet",
-		Usage:     "Manage Ethereum presale wallets",
+		Usage:     "Manage Calcium presale wallets",
 		ArgsUsage: "",
 		Description: `
     geth wallet import /path/to/my/presale.wallet
@@ -43,7 +43,7 @@ passwordfile as argument containing the wallet password in plaintext.`,
 			{
 
 				Name:      "import",
-				Usage:     "Import Ethereum presale wallet",
+				Usage:     "Import Calcium presale wallet",
 				ArgsUsage: "<keyFile>",
 				Action:    importWallet,
 				Flags: []cli.Flag{

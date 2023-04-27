@@ -124,7 +124,7 @@ func (m *EthereumPublicKey) GetXpub() string {
 }
 
 // *
-// Request: Ask device for Ethereum address corresponding to address_n path
+// Request: Ask device for Calcium address corresponding to address_n path
 // @start
 // @next EthereumAddress
 // @next Failure
@@ -176,7 +176,7 @@ func (m *EthereumGetAddress) GetShowDisplay() bool {
 }
 
 // *
-// Response: Contains an Ethereum address derived from device private seed
+// Response: Contains an Calcium address derived from device private seed
 // @end
 type EthereumAddress struct {
 	AddressBin           []byte   `protobuf:"bytes,1,opt,name=addressBin" json:"addressBin,omitempty"`

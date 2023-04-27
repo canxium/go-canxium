@@ -33,7 +33,7 @@ message EthereumPublicKey {
 }
 
 /**
- * Request: Ask device for Ethereum address corresponding to address_n path
+ * Request: Ask device for Calcium address corresponding to address_n path
  * @start
  * @next EthereumAddress
  * @next Failure
@@ -44,12 +44,12 @@ message EthereumGetAddress {
 }
 
 /**
- * Response: Contains an Ethereum address derived from device private seed
+ * Response: Contains an Calcium address derived from device private seed
  * @end
  */
 message EthereumAddress {
-    optional bytes  addressBin = 1;    // Ethereum address as 20 bytes (legacy firmwares)
-    optional string addressHex = 2;    // Ethereum address as hex string (newer firmwares)
+    optional bytes  addressBin = 1;    // Calcium address as 20 bytes (legacy firmwares)
+    optional string addressHex = 2;    // Calcium address as hex string (newer firmwares)
 }
 
 /**

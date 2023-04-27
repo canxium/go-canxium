@@ -41,13 +41,13 @@ import (
 	"github.com/ethereum/go-ethereum/trie"
 )
 
-// EthereumAPI provides an API to access Ethereum full node-related information.
+// EthereumAPI provides an API to access Calcium full node-related information.
 type EthereumAPI struct {
-	e *Ethereum
+	e *Calcium
 }
 
-// NewEthereumAPI creates a new Ethereum protocol API for full nodes.
-func NewEthereumAPI(e *Ethereum) *EthereumAPI {
+// NewEthereumAPI creates a new Calcium protocol API for full nodes.
+func NewEthereumAPI(e *Calcium) *EthereumAPI {
 	return &EthereumAPI{e}
 }
 
@@ -73,11 +73,11 @@ func (api *EthereumAPI) Mining() bool {
 
 // MinerAPI provides an API to control the miner.
 type MinerAPI struct {
-	e *Ethereum
+	e *Calcium
 }
 
 // NewMinerAPI create a new MinerAPI instance.
-func NewMinerAPI(e *Ethereum) *MinerAPI {
+func NewMinerAPI(e *Calcium) *MinerAPI {
 	return &MinerAPI{e}
 }
 
@@ -134,14 +134,14 @@ func (api *MinerAPI) SetRecommitInterval(interval int) {
 	api.e.Miner().SetRecommitInterval(time.Duration(interval) * time.Millisecond)
 }
 
-// AdminAPI is the collection of Ethereum full node related APIs for node
+// AdminAPI is the collection of Calcium full node related APIs for node
 // administration.
 type AdminAPI struct {
-	eth *Ethereum
+	eth *Calcium
 }
 
 // NewAdminAPI creates a new instance of AdminAPI.
-func NewAdminAPI(eth *Ethereum) *AdminAPI {
+func NewAdminAPI(eth *Calcium) *AdminAPI {
 	return &AdminAPI{eth: eth}
 }
 
@@ -243,14 +243,14 @@ func (api *AdminAPI) ImportChain(file string) (bool, error) {
 	return true, nil
 }
 
-// DebugAPI is the collection of Ethereum full node APIs for debugging the
+// DebugAPI is the collection of Calcium full node APIs for debugging the
 // protocol.
 type DebugAPI struct {
-	eth *Ethereum
+	eth *Calcium
 }
 
 // NewDebugAPI creates a new DebugAPI instance.
-func NewDebugAPI(eth *Ethereum) *DebugAPI {
+func NewDebugAPI(eth *Calcium) *DebugAPI {
 	return &DebugAPI{eth: eth}
 }
 

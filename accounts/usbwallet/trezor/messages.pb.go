@@ -96,7 +96,7 @@ const (
 	MessageType_MessageType_DebugLinkMemory      MessageType = 111
 	MessageType_MessageType_DebugLinkMemoryWrite MessageType = 112
 	MessageType_MessageType_DebugLinkFlashErase  MessageType = 113
-	// Ethereum
+	// Calcium
 	MessageType_MessageType_EthereumGetPublicKey     MessageType = 450
 	MessageType_MessageType_EthereumPublicKey        MessageType = 451
 	MessageType_MessageType_EthereumGetAddress       MessageType = 56

@@ -93,7 +93,7 @@ type ethNode struct {
 	stack      *node.Node
 	enode      *enode.Node
 	api        *ethcatalyst.ConsensusAPI
-	ethBackend *eth.Ethereum
+	ethBackend *eth.Calcium
 	lapi       *lescatalyst.ConsensusAPI
 	lesBackend *les.LightEthereum
 }
@@ -104,7 +104,7 @@ func newNode(typ nodetype, genesis *core.Genesis, enodes []*enode.Node) *ethNode
 		api        *ethcatalyst.ConsensusAPI
 		lapi       *lescatalyst.ConsensusAPI
 		stack      *node.Node
-		ethBackend *eth.Ethereum
+		ethBackend *eth.Calcium
 		lesBackend *les.LightEthereum
 	)
 	// Start the node and wait until it's up
@@ -461,8 +461,8 @@ func makeGenesis(faucets []*ecdsa.PrivateKey) *core.Genesis {
 	return genesis
 }
 
-func makeFullNode(genesis *core.Genesis) (*node.Node, *eth.Ethereum, *ethcatalyst.ConsensusAPI, error) {
-	// Define the basic configurations for the Ethereum node
+func makeFullNode(genesis *core.Genesis) (*node.Node, *eth.Calcium, *ethcatalyst.ConsensusAPI, error) {
+	// Define the basic configurations for the Calcium node
 	datadir, _ := os.MkdirTemp("", "")
 
 	config := &node.Config{
@@ -476,7 +476,7 @@ func makeFullNode(genesis *core.Genesis) (*node.Node, *eth.Ethereum, *ethcatalys
 		},
 		UseLightweightKDF: true,
 	}
-	// Create the node and configure a full Ethereum node on it
+	// Create the node and configure a full Calcium node on it
 	stack, err := node.New(config)
 	if err != nil {
 		return nil, nil, nil, err
@@ -513,7 +513,7 @@ func makeFullNode(genesis *core.Genesis) (*node.Node, *eth.Ethereum, *ethcatalys
 }
 
 func makeLightNode(genesis *core.Genesis) (*node.Node, *les.LightEthereum, *lescatalyst.ConsensusAPI, error) {
-	// Define the basic configurations for the Ethereum node
+	// Define the basic configurations for the Calcium node
 	datadir, _ := os.MkdirTemp("", "")
 
 	config := &node.Config{
@@ -527,7 +527,7 @@ func makeLightNode(genesis *core.Genesis) (*node.Node, *les.LightEthereum, *lesc
 		},
 		UseLightweightKDF: true,
 	}
-	// Create the node and configure a full Ethereum node on it
+	// Create the node and configure a full Calcium node on it
 	stack, err := node.New(config)
 	if err != nil {
 		return nil, nil, nil, err

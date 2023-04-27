@@ -166,14 +166,14 @@ type backfiller interface {
 // skeleton represents a header chain synchronized after the merge where blocks
 // aren't validated any more via PoW in a forward fashion, rather are dictated
 // and extended at the head via the beacon chain and backfilled on the original
-// Ethereum block sync protocol.
+// Calcium block sync protocol.
 //
 // Since the skeleton is grown backwards from head to genesis, it is handled as
 // a separate entity, not mixed in with the logical sequential transition of the
 // blocks. Once the skeleton is connected to an existing, validated chain, the
 // headers will be moved into the main downloader for filling and execution.
 //
-// Opposed to the original Ethereum block synchronization which is trustless (and
+// Opposed to the original Calcium block synchronization which is trustless (and
 // uses a master peer to minimize the attack surface), post-merge block sync starts
 // from a trusted head. As such, there is no need for a master peer any more and
 // headers can be requested fully concurrently (though some batches might be
@@ -182,7 +182,7 @@ type backfiller interface {
 // Although a skeleton is part of a sync cycle, it is not recreated, rather stays
 // alive throughout the lifetime of the downloader. This allows it to be extended
 // concurrently with the sync cycle, since extensions arrive from an API surface,
-// not from within (vs. legacy Ethereum sync).
+// not from within (vs. legacy Calcium sync).
 //
 // Since the skeleton tracks the entire header chain until it is consumed by the
 // forward block filling, it needs 0.5KB/block storage. At current mainnet sizes

@@ -96,7 +96,7 @@ func (api *SignerAPI) SignData(ctx context.Context, contentType string, addr com
 func (api *SignerAPI) determineSignatureFormat(ctx context.Context, contentType string, addr common.MixedcaseAddress, data interface{}) (*SignDataRequest, bool, error) {
 	var (
 		req          *SignDataRequest
-		useEthereumV = true // Default to use V = 27 or 28, the legacy Ethereum format
+		useEthereumV = true // Default to use V = 27 or 28, the legacy Calcium format
 	)
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err != nil {
@@ -135,7 +135,7 @@ func (api *SignerAPI) determineSignatureFormat(ctx context.Context, contentType 
 		}
 		req = &SignDataRequest{ContentType: mediaType, Rawdata: []byte(msg), Messages: messages, Hash: sighash}
 	case apitypes.ApplicationClique.Mime:
-		// Clique is the Ethereum PoA standard
+		// Clique is the Calcium PoA standard
 		cliqueData, err := fromHex(data)
 		if err != nil {
 			return nil, useEthereumV, err
@@ -172,7 +172,7 @@ func (api *SignerAPI) determineSignatureFormat(ctx context.Context, contentType 
 			return nil, useEthereumV, err
 		}
 	default: // also case TextPlain.Mime:
-		// Calculates an Ethereum ECDSA signature for:
+		// Calculates an Calcium ECDSA signature for:
 		// hash = keccak256("\x19Ethereum Signed Message:\n${message length}${message}")
 		// We expect input to be a hex-encoded string
 		textData, err := fromHex(data)
@@ -307,7 +307,7 @@ func (api *SignerAPI) EcRecover(ctx context.Context, data hexutil.Bytes, sig hex
 		return common.Address{}, fmt.Errorf("signature must be 65 bytes long")
 	}
 	if sig[64] != 27 && sig[64] != 28 {
-		return common.Address{}, fmt.Errorf("invalid Ethereum signature (V is not 27 or 28)")
+		return common.Address{}, fmt.Errorf("invalid Calcium signature (V is not 27 or 28)")
 	}
 	sig[64] -= 27 // Transform yellow paper V from 27/28 to 0/1
 	hash := accounts.TextHash(data)

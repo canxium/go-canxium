@@ -258,7 +258,7 @@ The account is saved in encrypted format, you are prompted for a password.
 `}
 )
 
-var app = flags.NewApp("Manage Ethereum account operations")
+var app = flags.NewApp("Manage Calcium account operations")
 
 func init() {
 	app.Name = "Clef"

@@ -24,7 +24,7 @@ import (
 // ethPeerInfo represents a short summary of the `eth` sub-protocol metadata known
 // about a connected peer.
 type ethPeerInfo struct {
-	Version uint `json:"version"` // Ethereum protocol version negotiated
+	Version uint `json:"version"` // Calcium protocol version negotiated
 }
 
 // ethPeer is a wrapper around eth.Peer to maintain a few extra metadata.

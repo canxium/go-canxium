@@ -107,7 +107,7 @@ enum MessageType {
     MessageType_DebugLinkMemoryWrite = 112 [(wire_debug_in) = true];
     MessageType_DebugLinkFlashErase = 113 [(wire_debug_in) = true];
 
-    // Ethereum
+    // Calcium
     MessageType_EthereumGetPublicKey = 450 [(wire_in) = true];
     MessageType_EthereumPublicKey = 451 [(wire_out) = true];
     MessageType_EthereumGetAddress = 56 [(wire_in) = true];

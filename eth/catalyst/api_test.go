@@ -52,7 +52,7 @@ var (
 	// testKey is a private key to use for funding a tester account.
 	testKey, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 
-	// testAddr is the Ethereum address of the tester account.
+	// testAddr is the Calcium address of the tester account.
 	testAddr = crypto.PubkeyToAddress(testKey.PublicKey)
 
 	testBalance = big.NewInt(2e18)
@@ -427,7 +427,7 @@ func TestEth2DeepReorg(t *testing.T) {
 }
 
 // startEthService creates a full node instance for testing.
-func startEthService(t *testing.T, genesis *core.Genesis, blocks []*types.Block) (*node.Node, *eth.Ethereum) {
+func startEthService(t *testing.T, genesis *core.Genesis, blocks []*types.Block) (*node.Node, *eth.Calcium) {
 	t.Helper()
 
 	n, err := node.New(&node.Config{
@@ -478,7 +478,7 @@ func TestFullAPI(t *testing.T) {
 	setupBlocks(t, ethservice, 10, parent, callback, nil)
 }
 
-func setupBlocks(t *testing.T, ethservice *eth.Ethereum, n int, parent *types.Header, callback func(parent *types.Header), withdrawals [][]*types.Withdrawal) []*types.Header {
+func setupBlocks(t *testing.T, ethservice *eth.Calcium, n int, parent *types.Header, callback func(parent *types.Header), withdrawals [][]*types.Withdrawal) []*types.Header {
 	api := NewConsensusAPI(ethservice)
 	var blocks []*types.Header
 	for i := 0; i < n; i++ {
@@ -1255,7 +1255,7 @@ func TestNilWithdrawals(t *testing.T) {
 	}
 }
 
-func setupBodies(t *testing.T) (*node.Node, *eth.Ethereum, []*types.Block) {
+func setupBodies(t *testing.T) (*node.Node, *eth.Calcium, []*types.Block) {
 	genesis, blocks := generateMergeChain(10, true)
 	// enable shanghai on the last block
 	time := blocks[len(blocks)-1].Header().Time + 1

@@ -66,7 +66,7 @@ func main() {
 
 	var (
 		stacks []*node.Node
-		nodes  []*eth.Ethereum
+		nodes  []*eth.Calcium
 		enodes []*enode.Node
 	)
 	for _, sealer := range sealers {
@@ -180,8 +180,8 @@ func makeGenesis(faucets []*ecdsa.PrivateKey, sealers []*ecdsa.PrivateKey) *core
 	return genesis
 }
 
-func makeSealer(genesis *core.Genesis) (*node.Node, *eth.Ethereum, error) {
-	// Define the basic configurations for the Ethereum node
+func makeSealer(genesis *core.Genesis) (*node.Node, *eth.Calcium, error) {
+	// Define the basic configurations for the Calcium node
 	datadir, _ := os.MkdirTemp("", "")
 
 	config := &node.Config{
@@ -194,7 +194,7 @@ func makeSealer(genesis *core.Genesis) (*node.Node, *eth.Ethereum, error) {
 			MaxPeers:    25,
 		},
 	}
-	// Start the node and configure a full Ethereum node on it
+	// Start the node and configure a full Calcium node on it
 	stack, err := node.New(config)
 	if err != nil {
 		return nil, nil, err

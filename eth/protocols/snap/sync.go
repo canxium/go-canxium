@@ -397,7 +397,7 @@ type SyncPeer interface {
 	Log() log.Logger
 }
 
-// Syncer is an Ethereum account and storage trie syncer based on snapshots and
+// Syncer is an Calcium account and storage trie syncer based on snapshots and
 // the  snap protocol. It's purpose is to download all the accounts and storage
 // slots from remote peers and reassemble chunks of the state trie, on top of
 // which a state sync can be run to fix any gaps / overlaps.
@@ -476,7 +476,7 @@ type Syncer struct {
 	lock sync.RWMutex   // Protects fields that can change outside of sync (peers, reqs, root)
 }
 
-// NewSyncer creates a new snapshot syncer to download the Ethereum state over the
+// NewSyncer creates a new snapshot syncer to download the Calcium state over the
 // snap protocol.
 func NewSyncer(db ethdb.KeyValueStore, scheme string) *Syncer {
 	return &Syncer{

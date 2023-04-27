@@ -64,7 +64,7 @@ func main() {
 
 	var (
 		stacks []*node.Node
-		nodes  []*eth.Ethereum
+		nodes  []*eth.Calcium
 		enodes []*enode.Node
 	)
 	for i := 0; i < 4; i++ {
@@ -149,8 +149,8 @@ func makeGenesis(faucets []*ecdsa.PrivateKey) *core.Genesis {
 	return genesis
 }
 
-func makeMiner(genesis *core.Genesis) (*node.Node, *eth.Ethereum, error) {
-	// Define the basic configurations for the Ethereum node
+func makeMiner(genesis *core.Genesis) (*node.Node, *eth.Calcium, error) {
+	// Define the basic configurations for the Calcium node
 	datadir, _ := os.MkdirTemp("", "")
 
 	config := &node.Config{
@@ -164,7 +164,7 @@ func makeMiner(genesis *core.Genesis) (*node.Node, *eth.Ethereum, error) {
 		},
 		UseLightweightKDF: true,
 	}
-	// Create the node and configure a full Ethereum node on it
+	// Create the node and configure a full Calcium node on it
 	stack, err := node.New(config)
 	if err != nil {
 		return nil, nil, err
