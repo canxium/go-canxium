@@ -44,7 +44,7 @@ var (
 	ConstantinopleBlockReward = big.NewInt(2e+18) // Block reward in wei for successfully mining a block upward from Constantinople
 	CalciumBlockRewardPerHash = big.NewInt(1000)  // Block reward in wei per difficulty hash for successfully mining a block upward from Calcium
 
-	CalciumFoundationRewardPercent = big.NewInt(5) // Foudation reward: 0.5%
+	CalciumFoundationRewardPercent = big.NewInt(1) // Foudation reward: 0.5%
 
 	maxUncles                     = 2        // Maximum number of uncles allowed in a single block
 	allowedFutureBlockTimeSeconds = int64(7) // Max seconds from current time allowed for blocks, before they're considered future blocks
@@ -322,7 +322,7 @@ var (
 	big6          = big.NewInt(6)
 	big9          = big.NewInt(9)
 	big10         = big.NewInt(10)
-	big1000       = big.NewInt(1000)
+	big100        = big.NewInt(100)
 	bigMinus99    = big.NewInt(-99)
 )
 
@@ -659,9 +659,9 @@ func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header 
 	blockReward := new(big.Int).Mul(CalciumBlockRewardPerHash, header.Difficulty)
 	// Accumulate the rewards for the miner
 	reward := new(big.Int).Set(blockReward)
-	// send 0.5% reward to foundation wallet
+	// send 1% reward to foundation wallet
 	foundation := new(big.Int).Mul(CalciumFoundationRewardPercent, reward)
-	foundation.Div(foundation, big1000)
+	foundation.Div(foundation, big100)
 	reward.Sub(reward, foundation)
 
 	state.AddBalance(header.Coinbase, reward)
