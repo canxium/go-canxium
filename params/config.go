@@ -423,6 +423,7 @@ type ChainConfig struct {
 	ArrowGlacierBlock   *big.Int `json:"arrowGlacierBlock,omitempty"`   // Eip-4345 (bomb delay) switch block (nil = no fork, 0 = already activated)
 	GrayGlacierBlock    *big.Int `json:"grayGlacierBlock,omitempty"`    // Eip-5133 (bomb delay) switch block (nil = no fork, 0 = already activated)
 	MergeNetsplitBlock  *big.Int `json:"mergeNetsplitBlock,omitempty"`  // Virtual fork after The Merge to use as a network splitter
+	CalciumBlock        *big.Int `json:"calciumBlock,omitempty"`        // Calcium blockchain block
 
 	// Fork scheduling was switched from blocks to timestamps here
 
@@ -442,6 +443,9 @@ type ChainConfig struct {
 	// Various consensus engines
 	Ethash *EthashConfig `json:"ethash,omitempty"`
 	Clique *CliqueConfig `json:"clique,omitempty"`
+
+	// Calcium foundation wallet
+	Foundation common.Address `json:"foundation,omitempty"`
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
@@ -498,7 +502,7 @@ func (c *ChainConfig) Description() string {
 	// Create a list of forks with a short description of them. Forks that only
 	// makes sense for mainnet should be optional at printing to avoid bloating
 	// the output for testnets and private networks.
-	banner += "Pre-Merge hard forks (block based):\n"
+	banner += "Hard forks (block based):\n"
 	banner += fmt.Sprintf(" - Homestead:                   #%-8v (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/homestead.md)\n", c.HomesteadBlock)
 	if c.DAOForkBlock != nil {
 		banner += fmt.Sprintf(" - DAO Fork:                    #%-8v (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/dao-fork.md)\n", c.DAOForkBlock)
@@ -521,6 +525,11 @@ func (c *ChainConfig) Description() string {
 	if c.GrayGlacierBlock != nil {
 		banner += fmt.Sprintf(" - Gray Glacier:                #%-8v (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/gray-glacier.md)\n", c.GrayGlacierBlock)
 	}
+
+	if c.CalciumBlock != nil {
+		banner += fmt.Sprintf(" - Calcium Chain:               #%-8v \n", c.CalciumBlock)
+	}
+
 	banner += "\n"
 
 	// Add a special section for the merge as it's non-obvious
@@ -645,6 +654,11 @@ func (c *ChainConfig) IsCancun(time uint64) bool {
 // IsPrague returns whether num is either equal to the Prague fork time or greater.
 func (c *ChainConfig) IsPrague(time uint64) bool {
 	return isTimestampForked(c.PragueTime, time)
+}
+
+// IsCalcium returns whether num is either equal to the calcium blockchain.
+func (c *ChainConfig) IsCalcium(num *big.Int) bool {
+	return isBlockForked(c.CalciumBlock, num)
 }
 
 // CheckCompatible checks whether scheduled fork transitions have been imported
