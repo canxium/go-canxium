@@ -225,7 +225,7 @@ func (st *StateTransition) to() common.Address {
 	return *st.msg.To
 }
 
-func (st *StateTransition) buyGas() error {
+func (st *StateTransition) buyGas(contractCreation bool) error {
 	mgval := new(big.Int).SetUint64(st.msg.GasLimit)
 	mgval = mgval.Mul(mgval, st.msg.GasPrice)
 	balanceCheck := mgval
@@ -237,6 +237,11 @@ func (st *StateTransition) buyGas() error {
 	if have, want := st.state.GetBalance(st.msg.From), balanceCheck; have.Cmp(want) < 0 {
 		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, st.msg.From.Hex(), have, want)
 	}
+	if contractCreation {
+		if have, want := st.state.GetBalance(st.msg.From), params.CalciumContractCreationFee; have.Cmp(want) < 0 {
+			return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFundsForContractCreate, st.msg.From.Hex(), have, want)
+		}
+	}
 	if err := st.gp.SubGas(st.msg.GasLimit); err != nil {
 		return err
 	}
@@ -247,7 +252,13 @@ func (st *StateTransition) buyGas() error {
 	return nil
 }
 
-func (st *StateTransition) preCheck() error {
+func (st *StateTransition) payContractCreationFee() error {
+	st.state.SubBalance(st.msg.From, params.CalciumContractCreationFee)
+	st.state.AddBalance(st.evm.ChainConfig().Foundation, params.CalciumContractCreationFee)
+	return nil
+}
+
+func (st *StateTransition) preCheck(contractCreation bool) error {
 	// Only check transactions that are not fake
 	msg := st.msg
 	if !msg.SkipAccountChecks {
@@ -295,7 +306,7 @@ func (st *StateTransition) preCheck() error {
 			}
 		}
 	}
-	return st.buyGas()
+	return st.buyGas(contractCreation)
 }
 
 // TransitionDb will transition the state by applying the current message and
@@ -318,9 +329,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// 4. the purchased gas is enough to cover intrinsic usage
 	// 5. there is no overflow when calculating intrinsic gas
 	// 6. caller has enough balance to cover asset transfer for **topmost** call
+	var contractCreation = st.msg.To == nil
 
 	// Check clauses 1-3, buy gas if everything is correct
-	if err := st.preCheck(); err != nil {
+	if err := st.preCheck(contractCreation); err != nil {
 		return nil, err
 	}
 
@@ -332,10 +344,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	}
 
 	var (
-		msg              = st.msg
-		sender           = vm.AccountRef(msg.From)
-		rules            = st.evm.ChainConfig().Rules(st.evm.Context.BlockNumber, st.evm.Context.Random != nil, st.evm.Context.Time)
-		contractCreation = msg.To == nil
+		msg    = st.msg
+		sender = vm.AccountRef(msg.From)
+		rules  = st.evm.ChainConfig().Rules(st.evm.Context.BlockNumber, st.evm.Context.Random != nil, st.evm.Context.Time)
 	)
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
@@ -395,6 +406,13 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		fee := new(big.Int).SetUint64(st.gasUsed())
 		fee.Mul(fee, effectiveTip)
 		st.state.AddBalance(st.evm.Context.Coinbase, fee)
+	}
+
+	// charge contract creation fee
+	if contractCreation {
+		if err := st.payContractCreationFee(); err != nil {
+			return nil, err
+		}
 	}
 
 	return &ExecutionResult{
