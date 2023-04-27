@@ -47,7 +47,7 @@ var (
 	CalciumFoundationRewardPercent = big.NewInt(5) // Foudation reward: 0.5%
 
 	maxUncles                     = 2        // Maximum number of uncles allowed in a single block
-	allowedFutureBlockTimeSeconds = int64(5) // Max seconds from current time allowed for blocks, before they're considered future blocks
+	allowedFutureBlockTimeSeconds = int64(7) // Max seconds from current time allowed for blocks, before they're considered future blocks
 )
 
 // Various error messages to mark blocks invalid. These should be private to
