@@ -82,6 +82,10 @@ type Header struct {
 	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
 	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
 
+	// Block reward was added in calcium chain
+	MinerReward *big.Int `json:"minerReward" rlp:"optional"`
+	FundReward  *big.Int `json:"fundReward" rlp:"optional"`
+
 	// WithdrawalsHash was added by EIP-4895 and is ignored in legacy headers.
 	WithdrawalsHash *common.Hash `json:"withdrawalsRoot" rlp:"optional"`
 
@@ -97,14 +101,16 @@ type Header struct {
 
 // field type overrides for gencodec
 type headerMarshaling struct {
-	Difficulty *hexutil.Big
-	Number     *hexutil.Big
-	GasLimit   hexutil.Uint64
-	GasUsed    hexutil.Uint64
-	Time       hexutil.Uint64
-	Extra      hexutil.Bytes
-	BaseFee    *hexutil.Big
-	Hash       common.Hash `json:"hash"` // adds call to Hash() in MarshalJSON
+	Difficulty  *hexutil.Big
+	Number      *hexutil.Big
+	GasLimit    hexutil.Uint64
+	GasUsed     hexutil.Uint64
+	Time        hexutil.Uint64
+	Extra       hexutil.Bytes
+	BaseFee     *hexutil.Big
+	MinerReward *hexutil.Big
+	FundReward  *hexutil.Big
+	Hash        common.Hash `json:"hash"` // adds call to Hash() in MarshalJSON
 }
 
 // Hash returns the block hash of the header, which is simply the keccak256 hash of its
@@ -144,6 +150,16 @@ func (h *Header) SanityCheck() error {
 	if h.BaseFee != nil {
 		if bfLen := h.BaseFee.BitLen(); bfLen > 256 {
 			return fmt.Errorf("too large base fee: bitlen %d", bfLen)
+		}
+	}
+	if h.MinerReward != nil {
+		if bfLen := h.MinerReward.BitLen(); bfLen > 256 {
+			return fmt.Errorf("too large miner reward: bitlen %d", bfLen)
+		}
+	}
+	if h.FundReward != nil {
+		if bfLen := h.FundReward.BitLen(); bfLen > 256 {
+			return fmt.Errorf("too large fund reward: bitlen %d", bfLen)
 		}
 	}
 	return nil
@@ -285,6 +301,12 @@ func CopyHeader(h *Header) *Header {
 		cpy.WithdrawalsHash = new(common.Hash)
 		*cpy.WithdrawalsHash = *h.WithdrawalsHash
 	}
+	if h.MinerReward != nil {
+		cpy.MinerReward = new(big.Int).Set(h.MinerReward)
+	}
+	if h.FundReward != nil {
+		cpy.FundReward = new(big.Int).Set(h.FundReward)
+	}
 	return &cpy
 }
 
@@ -347,6 +369,20 @@ func (b *Block) BaseFee() *big.Int {
 		return nil
 	}
 	return new(big.Int).Set(b.header.BaseFee)
+}
+
+func (b *Block) MinerReward() *big.Int {
+	if b.header.MinerReward == nil {
+		return nil
+	}
+	return new(big.Int).Set(b.header.MinerReward)
+}
+
+func (b *Block) FundReward() *big.Int {
+	if b.header.FundReward == nil {
+		return nil
+	}
+	return new(big.Int).Set(b.header.FundReward)
 }
 
 func (b *Block) Withdrawals() Withdrawals {

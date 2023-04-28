@@ -439,18 +439,20 @@ func (g *Genesis) ToBlock() *types.Block {
 		panic(err)
 	}
 	head := &types.Header{
-		Number:     new(big.Int).SetUint64(g.Number),
-		Nonce:      types.EncodeNonce(g.Nonce),
-		Time:       g.Timestamp,
-		ParentHash: g.ParentHash,
-		Extra:      g.ExtraData,
-		GasLimit:   g.GasLimit,
-		GasUsed:    g.GasUsed,
-		BaseFee:    g.BaseFee,
-		Difficulty: g.Difficulty,
-		MixDigest:  g.Mixhash,
-		Coinbase:   g.Coinbase,
-		Root:       root,
+		Number:      new(big.Int).SetUint64(g.Number),
+		Nonce:       types.EncodeNonce(g.Nonce),
+		Time:        g.Timestamp,
+		ParentHash:  g.ParentHash,
+		Extra:       g.ExtraData,
+		GasLimit:    g.GasLimit,
+		GasUsed:     g.GasUsed,
+		BaseFee:     g.BaseFee,
+		Difficulty:  g.Difficulty,
+		MixDigest:   g.Mixhash,
+		Coinbase:    g.Coinbase,
+		Root:        root,
+		MinerReward: big.NewInt(0),
+		FundReward:  big.NewInt(0),
 	}
 	if g.GasLimit == 0 {
 		head.GasLimit = params.GenesisGasLimit
