@@ -1214,6 +1214,14 @@ func RPCMarshalHeader(head *types.Header) map[string]interface{} {
 		result["baseFeePerGas"] = (*hexutil.Big)(head.BaseFee)
 	}
 
+	if head.MinerReward != nil {
+		result["minerReward"] = (*hexutil.Big)(head.MinerReward)
+	}
+
+	if head.FundReward != nil {
+		result["fundReward"] = (*hexutil.Big)(head.FundReward)
+	}
+
 	if head.WithdrawalsHash != nil {
 		result["withdrawalsRoot"] = head.WithdrawalsHash
 	}

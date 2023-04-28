@@ -639,6 +639,12 @@ func (ethash *Ethash) SealHash(header *types.Header) (hash common.Hash) {
 	if header.BaseFee != nil {
 		enc = append(enc, header.BaseFee)
 	}
+	if header.MinerReward != nil {
+		enc = append(enc, header.MinerReward)
+	}
+	if header.FundReward != nil {
+		enc = append(enc, header.FundReward)
+	}
 	if header.WithdrawalsHash != nil {
 		panic("withdrawal hash set on ethash")
 	}
@@ -666,4 +672,6 @@ func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header 
 
 	state.AddBalance(header.Coinbase, reward)
 	state.AddBalance(config.Foundation, foundation)
+	header.MinerReward = reward
+	header.FundReward = foundation
 }
