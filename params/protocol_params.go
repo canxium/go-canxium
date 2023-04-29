@@ -120,9 +120,9 @@ const (
 	// Introduced in Tangerine Whistle (Eip 150)
 	CreateBySelfdestructGas uint64 = 25000
 
-	DefaultBaseFeeChangeDenominator = 8           // Bounds the amount the base fee can change between blocks.
-	DefaultElasticityMultiplier     = 2           // Bounds the maximum gas limit an EIP-1559 block may have.
-	InitialBaseFee                  = 15000000000 // Initial base fee for EIP-1559 blocks.
+	DefaultBaseFeeChangeDenominator = 8          // Bounds the amount the base fee can change between blocks.
+	DefaultElasticityMultiplier     = 2          // Bounds the maximum gas limit an EIP-1559 block may have.
+	InitialBaseFee                  = 5000000000 // Initial base fee for EIP-1559 blocks.
 
 	MaxCodeSize     = 49152           // Maximum bytecode to permit for a contract
 	MaxInitCodeSize = 2 * MaxCodeSize // Maximum initcode to permit in a creation transaction and create instructions
@@ -174,9 +174,9 @@ var (
 	DurationLimit          = big.NewInt(13)     // The decision boundary on the blocktime duration used to determine whether difficulty should go up or not.
 
 	// Calcium params
-	CalciumInitialBaseFeeDifficulty = big.NewInt(14e14) // Difficulty where base fee = initbasefee in calcium chain
-	CalciumBaseFeePer10Kh           = big.NewInt(2)     // Base fee in wei per 10 KH difficulty
-	Big10Kh                         = big.NewInt(10000) // 10 KH to Hash
+	CalciumInitialBaseFeeDifficulty = big.NewInt(1e16)   // 10P ~ Difficulty where base fee = initbasefee in calcium chain
+	CalciumBaseFeePer100Kh          = big.NewInt(2)      // Base fee in wei per 100 KH difficulty
+	Big100Kh                        = big.NewInt(100000) // 100 KH to Hash
 
 	CalciumContractCreationFee = new(big.Int).Exp(big.NewInt(10), big.NewInt(20), big.NewInt(0)) // 1e20 ~ 100 CA
 )

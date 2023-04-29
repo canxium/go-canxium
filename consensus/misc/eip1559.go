@@ -64,9 +64,9 @@ func CalcBaseFee(config *params.ChainConfig, parent *types.Header) *big.Int {
 	// difficulty is < 1P, then increase the base fee base on difficulty hash
 	difficulty := new(big.Int).Set(params.CalciumInitialBaseFeeDifficulty)
 	difficulty.Sub(difficulty, parent.Difficulty)
-	// convert difficulty in hash to 10KH
-	difficulty.Div(difficulty, params.Big10Kh)
-	baseFee := new(big.Int).Set(params.CalciumBaseFeePer10Kh)
+	// convert difficulty in hash to 100KH
+	difficulty.Div(difficulty, params.Big100Kh)
+	baseFee := new(big.Int).Set(params.CalciumBaseFeePer100Kh)
 	baseFee.Mul(baseFee, difficulty)
 	if baseFee.Cmp(initialBaseFee) < 0 {
 		return initialBaseFee
