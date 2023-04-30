@@ -16,7 +16,7 @@
     "hydroBlock": 4204800,
     "ethash": {}
   },
-  "difficulty": "10000000",
+  "difficulty": "400000",
   "gasLimit": "100000000",
   "alloc" : {}
 }
