@@ -425,6 +425,7 @@ type ChainConfig struct {
 	GrayGlacierBlock    *big.Int `json:"grayGlacierBlock,omitempty"`    // Eip-5133 (bomb delay) switch block (nil = no fork, 0 = already activated)
 	MergeNetsplitBlock  *big.Int `json:"mergeNetsplitBlock,omitempty"`  // Virtual fork after The Merge to use as a network splitter
 	CalciumBlock        *big.Int `json:"calciumBlock,omitempty"`        // Calcium blockchain block
+	HydroBlock          *big.Int `json:"hydroBlock,omitempty"`          // First hardfork for calcium chain, to reset first year block reward
 
 	// Fork scheduling was switched from blocks to timestamps here
 
@@ -445,7 +446,7 @@ type ChainConfig struct {
 	Ethash *EthashConfig `json:"ethash,omitempty"`
 	Clique *CliqueConfig `json:"clique,omitempty"`
 
-	// Calcium foundation wallet
+	// Calcium foundation wallet, should change to multi sig wallet in the future fork
 	Foundation common.Address `json:"foundation,omitempty"`
 }
 
@@ -529,6 +530,10 @@ func (c *ChainConfig) Description() string {
 
 	if c.CalciumBlock != nil {
 		banner += fmt.Sprintf(" - Calcium Chain:               #%-8v \n", c.CalciumBlock)
+	}
+
+	if c.HydroBlock != nil {
+		banner += fmt.Sprintf(" - Hydro Fork:                  #%-8v \n", c.HydroBlock)
 	}
 
 	banner += "\n"
@@ -634,6 +639,11 @@ func (c *ChainConfig) IsPrague(time uint64) bool {
 // IsCalcium returns whether num is either equal to the calcium blockchain.
 func (c *ChainConfig) IsCalcium(num *big.Int) bool {
 	return isBlockForked(c.CalciumBlock, num)
+}
+
+// IsHydro returns whether num is either equal to the hydro fork time or greater.
+func (c *ChainConfig) IsHydro(num *big.Int) bool {
+	return isBlockForked(c.HydroBlock, num)
 }
 
 // CheckCompatible checks whether scheduled fork transitions have been imported
