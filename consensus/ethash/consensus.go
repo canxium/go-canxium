@@ -43,7 +43,7 @@ var (
 	ByzantiumBlockReward        = big.NewInt(3e+18) // Block reward in wei for successfully mining a block upward from Byzantium
 	ConstantinopleBlockReward   = big.NewInt(2e+18) // Block reward in wei for successfully mining a block upward from Constantinople
 	CalciumBlockRewardPerHash   = big.NewInt(500)   // Block reward in wei per difficulty hash for successfully mining a block upward from Calcium
-	CalciumBlockFirstYearReward = big.NewInt(5e+17) // First year reward per block in calcium chain
+	CalciumBlockFirstYearReward = big.NewInt(25e16) // First year reward per block in calcium chain: 0.25 CLI
 
 	CalciumFoundationRewardPercent          = big.NewInt(2)  // Foudation reward: 2%
 	CalciumFoundationFirstYearRewardPercent = big.NewInt(25) // First year Foudation reward: 25%
