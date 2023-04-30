@@ -39,12 +39,14 @@ import (
 
 // Ethash proof-of-work protocol constants.
 var (
-	FrontierBlockReward       = big.NewInt(5e+18) // Block reward in wei for successfully mining a block
-	ByzantiumBlockReward      = big.NewInt(3e+18) // Block reward in wei for successfully mining a block upward from Byzantium
-	ConstantinopleBlockReward = big.NewInt(2e+18) // Block reward in wei for successfully mining a block upward from Constantinople
-	CalciumBlockRewardPerHash = big.NewInt(500)   // Block reward in wei per difficulty hash for successfully mining a block upward from Calcium
+	FrontierBlockReward         = big.NewInt(5e+18) // Block reward in wei for successfully mining a block
+	ByzantiumBlockReward        = big.NewInt(3e+18) // Block reward in wei for successfully mining a block upward from Byzantium
+	ConstantinopleBlockReward   = big.NewInt(2e+18) // Block reward in wei for successfully mining a block upward from Constantinople
+	CalciumBlockRewardPerHash   = big.NewInt(500)   // Block reward in wei per difficulty hash for successfully mining a block upward from Calcium
+	CalciumBlockFirstYearReward = big.NewInt(5e+17) // First year reward per block in calcium chain
 
-	CalciumFoundationRewardPercent = big.NewInt(1) // Foudation reward: 1%
+	CalciumFoundationRewardPercent          = big.NewInt(2)  // Foudation reward: 2%
+	CalciumFoundationFirstYearRewardPercent = big.NewInt(25) // First year Foudation reward: 25%
 
 	maxUncles                     = 2        // Maximum number of uncles allowed in a single block
 	allowedFutureBlockTimeSeconds = int64(7) // Max seconds from current time allowed for blocks, before they're considered future blocks
@@ -662,11 +664,18 @@ func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header 
 		return
 	}
 
-	blockReward := new(big.Int).Mul(CalciumBlockRewardPerHash, header.Difficulty)
+	blockReward := CalciumBlockFirstYearReward
+	foundationPercent := CalciumFoundationFirstYearRewardPercent
+	// hydro hard fork, reduce reward and foundation percent
+	if config.IsHydro(header.Number) {
+		blockReward = new(big.Int).Mul(CalciumBlockRewardPerHash, header.Difficulty)
+		foundationPercent = CalciumFoundationRewardPercent
+	}
+
 	// Accumulate the rewards for the miner
 	reward := new(big.Int).Set(blockReward)
-	// send 1% reward to foundation wallet
-	foundation := new(big.Int).Mul(CalciumFoundationRewardPercent, reward)
+	// send reward to foundation wallet
+	foundation := new(big.Int).Mul(foundationPercent, reward)
 	foundation.Div(foundation, big100)
 	reward.Sub(reward, foundation)
 
