@@ -26,6 +26,8 @@ or, to build the full suite of utilities:
 make all
 ```
 
+`calcium` binary is availabled at `./build/bin/calcium`.
+
 ## Executables
 
 The go-calcium project comes with several wrappers/executables found in the `cmd`
@@ -64,105 +66,16 @@ Recommended:
 * High-performance SSD with at least 1TB of free space
 * 25+ MBit/sec download Internet service
 
-### Full node on the main Calcium network
+### Init Calcium node with genesis
 
-By far the most common scenario is people wanting to simply interact with the Calcium
-network: create accounts; transfer funds; deploy and interact with contracts. For this
-particular use case, the user doesn't care about years-old historical data, so we can
-sync quickly to the current state of the network. To do so:
+Before run your own calcium node or miner, you have to init the genesis block or else you can't
+connect to the network.
 
 ```shell
-$ calcium console
+$ calcium --db.engine=pebble init ./genesis/mainnet.genesis.json
 ```
 
-This command will:
- * Start `calcium` in snap sync mode (default, can be changed with the `--syncmode` flag),
-   causing it to download more data in exchange for avoiding processing the entire history
-   of the Calcium network, which is very CPU intensive.
- * Start the built-in interactive [JavaScript console](https://geth.ethereum.org/docs/interacting-with-geth/javascript-console),
-   (via the trailing `console` subcommand) through which you can interact using [`web3` methods](https://github.com/ChainSafe/web3.js/blob/0.20.7/DOCUMENTATION.md) 
-   (note: the `web3` version bundled within `calcium` is very old, and not up to date with official docs),
-   as well as `calcium`'s own [management APIs](https://geth.ethereum.org/docs/interacting-with-geth/rpc).
-   This tool is optional and if you leave it out you can always attach it to an already running
-   `calcium` instance with `calcium attach`.
-
-### Configuration
-
-As an alternative to passing the numerous flags to the `calcium` binary, you can also pass a
-configuration file via:
-
-```shell
-$ calcium --config /path/to/your_config.toml
-```
-
-To get an idea of how the file should look like you can use the `dumpconfig` subcommand to
-export your existing configuration:
-
-```shell
-$ calcium --your-favourite-flags dumpconfig
-```
-
-*Note: This works only with `calcium` v1.6.0 and above.*
-
-### Programmatically interfacing `calcium` nodes
-
-As a developer, sooner rather than later you'll want to start interacting with `calcium` and the
-Calcium network via your own programs and not manually through the console. To aid
-this, `calcium` has built-in support for a JSON-RPC based APIs ([standard APIs](https://ethereum.github.io/execution-apis/api-documentation/)
-and [`calcium` specific APIs](https://geth.ethereum.org/docs/interacting-with-geth/rpc)).
-These can be exposed via HTTP, WebSockets and IPC (UNIX sockets on UNIX based
-platforms, and named pipes on Windows).
-
-The IPC interface is enabled by default and exposes all the APIs supported by `calcium`,
-whereas the HTTP and WS interfaces need to manually be enabled and only expose a
-subset of APIs due to security reasons. These can be turned on/off and configured as
-you'd expect.
-
-HTTP based JSON-RPC API options:
-
-  * `--http` Enable the HTTP-RPC server
-  * `--http.addr` HTTP-RPC server listening interface (default: `localhost`)
-  * `--http.port` HTTP-RPC server listening port (default: `8545`)
-  * `--http.api` API's offered over the HTTP-RPC interface (default: `eth,net,web3`)
-  * `--http.corsdomain` Comma separated list of domains from which to accept cross origin requests (browser enforced)
-  * `--ws` Enable the WS-RPC server
-  * `--ws.addr` WS-RPC server listening interface (default: `localhost`)
-  * `--ws.port` WS-RPC server listening port (default: `8546`)
-  * `--ws.api` API's offered over the WS-RPC interface (default: `eth,net,web3`)
-  * `--ws.origins` Origins from which to accept WebSocket requests
-  * `--ipcdisable` Disable the IPC-RPC server
-  * `--ipcapi` API's offered over the IPC-RPC interface (default: `admin,debug,eth,miner,net,personal,txpool,web3`)
-  * `--ipcpath` Filename for IPC socket/pipe within the datadir (explicit paths escape it)
-
-You'll need to use your own programming environments' capabilities (libraries, tools, etc) to
-connect via HTTP, WS or IPC to a `calcium` node configured with the above flags and you'll
-need to speak [JSON-RPC](https://www.jsonrpc.org/specification) on all transports. You
-can reuse the same connection for multiple requests!
-
-**Note: Please understand the security implications of opening up an HTTP/WS based
-transport before doing so! Hackers on the internet are actively trying to subvert
-Calcium nodes with exposed APIs! Further, all browser tabs can access locally
-running web servers, so malicious web pages could try to subvert locally available
-APIs!**
-
-#### Creating the rendezvous point
-
-With all nodes that you want to run initialized to the desired genesis state, you'll need to
-start a bootstrap node that others can use to find each other in your network and/or over
-the internet. The clean way is to configure and run a dedicated bootnode:
-
-```shell
-$ bootnode --genkey=boot.key
-$ bootnode --nodekey=boot.key
-```
-
-With the bootnode online, it will display an [`enode` URL](https://ethereum.org/en/developers/docs/networking-layer/network-addresses/#enode)
-that other nodes can use to connect to it and exchange peer information. Make sure to
-replace the displayed IP address information (most probably `[::]`) with your externally
-accessible IP to get the actual `enode` URL.
-
-*Note: You could also use a full-fledged `calcium` node as a bootnode, but it's the less
-recommended way.*
+By default, calcium will create new folder under your home: `~/.calcium`
 
 #### Starting up your member nodes
 
@@ -173,14 +86,10 @@ probably also be desirable to keep the data directory of your private network se
 do also specify a custom `--datadir` flag.
 
 ```shell
-$ calcium --datadir=path/to/custom/data/folder --bootnodes=<bootnode-enode-url-from-above>
+$ calcium --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@34.27.223.16:30303
 ```
 
-*Note: Since your network will be completely cut off from the main and test networks, you'll
-also need to configure a miner to process transactions and create new blocks for you.*
-
 #### Running a calcium miner
-
 
 In a private network setting a single CPU miner instance is more than enough for
 practical purposes as it can produce a stable stream of blocks at the correct intervals
@@ -189,7 +98,7 @@ ones either). To start a `calcium` instance for mining, run it with all your usu
 by:
 
 ```shell
-$ calcium <usual-flags> --mine --miner.threads=1 --miner.etherbase=0x0000000000000000000000000000000000000000
+$ calcium <usual-flags> --mine --miner.threads=1 --miner.etherbase=0x0000000000000000000000000000000000000000 --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@34.27.223.16:30303
 ```
 
 Which will start mining blocks and transactions on a single CPU thread, crediting all
