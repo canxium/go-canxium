@@ -75,19 +75,19 @@ func DefaultDataDir() string {
 	if home != "" {
 		switch runtime.GOOS {
 		case "darwin":
-			return filepath.Join(home, "Library", "Calcium")
+			return filepath.Join(home, "Library", "Canxium")
 		case "windows":
 			// We used to put everything in %HOME%\AppData\Roaming, but this caused
 			// problems with non-typical setups. If this fallback location exists and
 			// is non-empty, use it, otherwise DTRT and check %LOCALAPPDATA%.
-			fallback := filepath.Join(home, "AppData", "Roaming", "Calcium")
+			fallback := filepath.Join(home, "AppData", "Roaming", "Canxium")
 			appdata := windowsAppData()
 			if appdata == "" || isNonEmptyDir(fallback) {
 				return fallback
 			}
-			return filepath.Join(appdata, "Calcium")
+			return filepath.Join(appdata, "Canxium")
 		default:
-			return filepath.Join(home, ".calcium")
+			return filepath.Join(home, ".canxium")
 		}
 	}
 	// As we cannot guess a stable location, return empty and handle later

@@ -345,7 +345,7 @@ var NetworkNames = map[string]string{
 	RinkebyChainConfig.ChainID.String():       "rinkeby",
 	GoerliChainConfig.ChainID.String():        "goerli",
 	SepoliaChainConfig.ChainID.String():       "sepolia",
-	AllEthashProtocolChanges.ChainID.String(): "calcium",
+	AllEthashProtocolChanges.ChainID.String(): "canxium",
 }
 
 // TrustedCheckpoint represents a set of post-processed trie roots (CHT and
@@ -424,8 +424,8 @@ type ChainConfig struct {
 	ArrowGlacierBlock   *big.Int `json:"arrowGlacierBlock,omitempty"`   // Eip-4345 (bomb delay) switch block (nil = no fork, 0 = already activated)
 	GrayGlacierBlock    *big.Int `json:"grayGlacierBlock,omitempty"`    // Eip-5133 (bomb delay) switch block (nil = no fork, 0 = already activated)
 	MergeNetsplitBlock  *big.Int `json:"mergeNetsplitBlock,omitempty"`  // Virtual fork after The Merge to use as a network splitter
-	CalciumBlock        *big.Int `json:"calciumBlock,omitempty"`        // Calcium blockchain block
-	HydroBlock          *big.Int `json:"hydroBlock,omitempty"`          // First hardfork for calcium chain, to reset first year block reward
+	CanxiumBlock        *big.Int `json:"canxiumBlock,omitempty"`        // Canxium blockchain block
+	HydroBlock          *big.Int `json:"hydroBlock,omitempty"`          // First hardfork for canxium chain, to reset first year block reward
 
 	// Fork scheduling was switched from blocks to timestamps here
 
@@ -446,7 +446,7 @@ type ChainConfig struct {
 	Ethash *EthashConfig `json:"ethash,omitempty"`
 	Clique *CliqueConfig `json:"clique,omitempty"`
 
-	// Calcium foundation wallet, should change to multi sig wallet in the future fork
+	// Canxium foundation wallet, should change to multi sig wallet in the future fork
 	Foundation common.Address `json:"foundation,omitempty"`
 }
 
@@ -528,8 +528,8 @@ func (c *ChainConfig) Description() string {
 		banner += fmt.Sprintf(" - Gray Glacier:                #%-8v (https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/gray-glacier.md)\n", c.GrayGlacierBlock)
 	}
 
-	if c.CalciumBlock != nil {
-		banner += fmt.Sprintf(" - Calcium Chain:               #%-8v \n", c.CalciumBlock)
+	if c.CanxiumBlock != nil {
+		banner += fmt.Sprintf(" - Canxium Chain:               #%-8v \n", c.CanxiumBlock)
 	}
 
 	if c.HydroBlock != nil {
@@ -636,9 +636,9 @@ func (c *ChainConfig) IsPrague(time uint64) bool {
 	return isTimestampForked(c.PragueTime, time)
 }
 
-// IsCalcium returns whether num is either equal to the calcium blockchain.
-func (c *ChainConfig) IsCalcium(num *big.Int) bool {
-	return isBlockForked(c.CalciumBlock, num)
+// IsCanxium returns whether num is either equal to the canxium blockchain.
+func (c *ChainConfig) IsCanxium(num *big.Int) bool {
+	return isBlockForked(c.CanxiumBlock, num)
 }
 
 // IsHydro returns whether num is either equal to the hydro fork time or greater.

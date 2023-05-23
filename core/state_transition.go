@@ -238,7 +238,7 @@ func (st *StateTransition) buyGas(contractCreation bool) error {
 		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, st.msg.From.Hex(), have, want)
 	}
 	if contractCreation {
-		if have, want := st.state.GetBalance(st.msg.From), params.CalciumContractCreationFee; have.Cmp(want) < 0 {
+		if have, want := st.state.GetBalance(st.msg.From), params.CanxiumContractCreationFee; have.Cmp(want) < 0 {
 			return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFundsForContractCreate, st.msg.From.Hex(), have, want)
 		}
 	}
@@ -253,8 +253,8 @@ func (st *StateTransition) buyGas(contractCreation bool) error {
 }
 
 func (st *StateTransition) payContractCreationFee() error {
-	st.state.SubBalance(st.msg.From, params.CalciumContractCreationFee)
-	st.state.AddBalance(st.evm.ChainConfig().Foundation, params.CalciumContractCreationFee)
+	st.state.SubBalance(st.msg.From, params.CanxiumContractCreationFee)
+	st.state.AddBalance(st.evm.ChainConfig().Foundation, params.CanxiumContractCreationFee)
 	return nil
 }
 

@@ -82,7 +82,7 @@ type Header struct {
 	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
 	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
 
-	// Block reward was added in calcium chain
+	// Block reward was added in canxium chain
 	MinerReward *big.Int `json:"minerReward" rlp:"optional"`
 	FundReward  *big.Int `json:"fundReward" rlp:"optional"`
 
