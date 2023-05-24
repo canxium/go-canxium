@@ -49,6 +49,7 @@ type Config struct {
 	Notify     []string       `toml:",omitempty"` // HTTP URL list to be notified of new work packages (only useful in ethash).
 	NotifyFull bool           `toml:",omitempty"` // Notify with pending block headers instead of work packages
 	ExtraData  hexutil.Bytes  `toml:",omitempty"` // Block extra data set by the miner
+	Difficulty *big.Int       `toml:",omitempty"` // Offline mining difficulty set by the miner
 	GasFloor   uint64         // Target gas floor for mined blocks.
 	GasCeil    uint64         // Target gas ceiling for mined blocks.
 	GasPrice   *big.Int       // Minimum gas price for mining a transaction

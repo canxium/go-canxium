@@ -94,6 +94,12 @@ func (tx *DynamicFeeTx) value() *big.Int        { return tx.Value }
 func (tx *DynamicFeeTx) nonce() uint64          { return tx.Nonce }
 func (tx *DynamicFeeTx) to() *common.Address    { return tx.To }
 
+func (tx *DynamicFeeTx) algorithm() byte                           { return NoneAlgorithm }
+func (tx *DynamicFeeTx) difficulty() *big.Int                      { return big.NewInt(0) }
+func (tx *DynamicFeeTx) seed() uint64                              { return 0 }
+func (tx *DynamicFeeTx) mixDigest() common.Hash                    { return common.Hash{} }
+func (tx *DynamicFeeTx) setPow(seed uint64, mixDigest common.Hash) {}
+
 func (tx *DynamicFeeTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		return dst.Set(tx.GasFeeCap)

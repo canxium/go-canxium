@@ -103,6 +103,13 @@ func (tx *LegacyTx) value() *big.Int        { return tx.Value }
 func (tx *LegacyTx) nonce() uint64          { return tx.Nonce }
 func (tx *LegacyTx) to() *common.Address    { return tx.To }
 
+// mining
+func (tx *LegacyTx) algorithm() byte                           { return NoneAlgorithm }
+func (tx *LegacyTx) difficulty() *big.Int                      { return big.NewInt(0) }
+func (tx *LegacyTx) seed() uint64                              { return 0 }
+func (tx *LegacyTx) mixDigest() common.Hash                    { return common.Hash{} }
+func (tx *LegacyTx) setPow(seed uint64, mixDigest common.Hash) {}
+
 func (tx *LegacyTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	return dst.Set(tx.GasPrice)
 }

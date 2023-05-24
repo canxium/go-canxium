@@ -30,6 +30,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/beacon"
+	"github.com/ethereum/go-ethereum/consensus/canxium"
 	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/bloombits"
@@ -141,7 +142,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if err != nil {
 		return nil, err
 	}
-	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, config.Miner.Notify, config.Miner.Noverify, chainDb)
+	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, &config.Miner, chainDb)
 
 	eth := &Ethereum{
 		config:            config,
@@ -260,7 +261,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	// Register the backend on the node
 	stack.RegisterAPIs(eth.APIs())
 	stack.RegisterProtocols(eth.Protocols())
-	stack.RegisterLifecycle(eth)
+	// stack.RegisterLifecycle(eth)
 
 	// Successful startup; push a marker and check previous unclean shutdowns.
 	eth.shutdownTracker.MarkStartup()
@@ -425,12 +426,15 @@ func (s *Ethereum) StartMining(threads int) error {
 			return fmt.Errorf("etherbase missing: %v", err)
 		}
 		var cli *clique.Clique
+		var cau *canxium.Canxium
 		if c, ok := s.engine.(*clique.Clique); ok {
 			cli = c
 		} else if cl, ok := s.engine.(*beacon.Beacon); ok {
 			if c, ok := cl.InnerEngine().(*clique.Clique); ok {
 				cli = c
 			}
+		} else if ca, ok := s.engine.(*canxium.Canxium); ok {
+			cau = ca
 		}
 		if cli != nil {
 			wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
@@ -439,6 +443,14 @@ func (s *Ethereum) StartMining(threads int) error {
 				return fmt.Errorf("signer missing: %v", err)
 			}
 			cli.Authorize(eb, wallet.SignData)
+		}
+		if cau != nil {
+			wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
+			if wallet == nil || err != nil {
+				log.Error("Etherbase account unavailable locally", "err", err)
+				return fmt.Errorf("signer missing: %v", err)
+			}
+			cau.Authorize(eb, wallet.SignTx)
 		}
 		// If mining is started, we can disable the transaction rejection mechanism
 		// introduced to speed sync times.

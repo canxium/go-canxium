@@ -45,6 +45,14 @@ const (
 	LegacyTxType = iota
 	AccessListTxType
 	DynamicFeeTxType
+	MiningTxType
+)
+
+// Transaction mining algorithm.
+const (
+	NoneAlgorithm = iota
+	EthashAlgorithm
+	Sha256Algorithm
 )
 
 // Transaction is an Ethereum transaction.
@@ -53,9 +61,10 @@ type Transaction struct {
 	time  time.Time // Time first seen locally (spam avoidance)
 
 	// caches
-	hash atomic.Value
-	size atomic.Value
-	from atomic.Value
+	hash       atomic.Value
+	miningHash atomic.Value
+	size       atomic.Value
+	from       atomic.Value
 }
 
 // NewTx creates a new transaction.
@@ -93,6 +102,13 @@ type TxData interface {
 	// copy of the computed value, i.e. callers are allowed to mutate the result.
 	// Method implementations can use 'dst' to store the result.
 	effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int
+
+	// mining functions
+	algorithm() byte
+	difficulty() *big.Int
+	seed() uint64
+	mixDigest() common.Hash
+	setPow(seed uint64, mixDigest common.Hash)
 }
 
 // EncodeRLP implements rlp.Encoder
@@ -287,6 +303,21 @@ func (tx *Transaction) Value() *big.Int { return new(big.Int).Set(tx.inner.value
 // Nonce returns the sender account nonce of the transaction.
 func (tx *Transaction) Nonce() uint64 { return tx.inner.nonce() }
 
+// Algorithm returns the mining algorithm of transaction which miner choosed
+func (tx *Transaction) Algorithm() uint8 { return tx.inner.algorithm() }
+
+// Difficulty returns the mining diffculty of transaction
+func (tx *Transaction) Difficulty() *big.Int { return tx.inner.difficulty() }
+
+// Seed returns the mining seed of transaction which solve the pow
+func (tx *Transaction) Seed() uint64 { return tx.inner.seed() }
+
+// Seed returns the mining seed of transaction which solve the pow
+func (tx *Transaction) MixDigest() common.Hash { return tx.inner.mixDigest() }
+
+// Seed returns the mining seed of transaction which solve the pow
+func (tx *Transaction) SetPow(seed uint64, mixDigest common.Hash) { tx.inner.setPow(seed, mixDigest) }
+
 // To returns the recipient address of the transaction.
 // For contract-creation transactions, To returns nil.
 func (tx *Transaction) To() *common.Address {
@@ -377,6 +408,36 @@ func (tx *Transaction) Hash() common.Hash {
 		h = prefixedRlpHash(tx.Type(), tx.inner)
 	}
 	tx.hash.Store(h)
+	return h
+}
+
+// Mining Hash returns the transaction hash used for mining operation
+func (tx *Transaction) MiningHash() common.Hash {
+	if tx.Type() != MiningTxType {
+		return common.Hash{}
+	}
+
+	if hash := tx.miningHash.Load(); hash != nil {
+		return hash.(common.Hash)
+	}
+
+	var h common.Hash
+	h = prefixedRlpHash(tx.Type(), []interface{}{
+		tx.ChainId(),
+		tx.Nonce(),
+		tx.GasTipCap(),
+		tx.GasFeeCap(),
+		tx.Gas(),
+		tx.To(),
+		tx.Value(),
+		tx.Data(),
+		tx.Algorithm(),
+		tx.Difficulty(),
+		tx.Seed(),
+	})
+
+	tx.miningHash.Store(h)
+
 	return h
 }
 
