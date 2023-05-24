@@ -100,16 +100,16 @@ func init() {
 		}
 	}
 	if runtime.GOOS == "darwin" {
-		Defaults.Ethash.DatasetDir = filepath.Join(home, "Library", "Calcium", "Ethash")
+		Defaults.Ethash.DatasetDir = filepath.Join(home, "Library", "Canxium", "Ethash")
 	} else if runtime.GOOS == "windows" {
 		localappdata := os.Getenv("LOCALAPPDATA")
 		if localappdata != "" {
-			Defaults.Ethash.DatasetDir = filepath.Join(localappdata, "Calcium", "Ethash")
+			Defaults.Ethash.DatasetDir = filepath.Join(localappdata, "Canxium", "Ethash")
 		} else {
-			Defaults.Ethash.DatasetDir = filepath.Join(home, "AppData", "Local", "Calcium", "Ethash")
+			Defaults.Ethash.DatasetDir = filepath.Join(home, "AppData", "Local", "Canxium", "Ethash")
 		}
 	} else {
-		Defaults.Ethash.DatasetDir = filepath.Join(home, ".calcium", "ethash")
+		Defaults.Ethash.DatasetDir = filepath.Join(home, ".canxium", "ethash")
 	}
 }
 

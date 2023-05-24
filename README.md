@@ -1,6 +1,6 @@
-## Go Calcium
+## Go Canxium
 
-Official Golang execution layer implementation of the Calcium protocol.
+Official Golang execution layer implementation of the Canxium protocol.
 
 [![API Reference](
 https://camo.githubusercontent.com/915b7be44ada53c290eb157634330494ebe3e30a/68747470733a2f2f676f646f632e6f72672f6769746875622e636f6d2f676f6c616e672f6764646f3f7374617475732e737667
@@ -13,11 +13,11 @@ https://camo.githubusercontent.com/915b7be44ada53c290eb157634330494ebe3e30a/6874
 
 For prerequisites and detailed build instructions please read the [Installation Instructions](https://geth.ethereum.org/docs/getting-started/installing-geth).
 
-Building `calcium` requires both a Go (version 1.19 or later) and a C compiler. You can install
+Building `canxium` requires both a Go (version 1.19 or later) and a C compiler. You can install
 them using your favourite package manager. Once the dependencies are installed, run
 
 ```shell
-make calcium
+make canxium
 ```
 
 or, to build the full suite of utilities:
@@ -26,29 +26,29 @@ or, to build the full suite of utilities:
 make all
 ```
 
-`calcium` binary is availabled at `./build/bin/calcium`.
+`canxium` binary is availabled at `./build/bin/canxium`.
 
 ## Executables
 
-The go-calcium project comes with several wrappers/executables found in the `cmd`
+The go-canxium project comes with several wrappers/executables found in the `cmd`
 directory.
 
 |  Command   | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | :--------: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`calcium`** | Our main Calcium CLI client. It is the entry point into the Calcium network (main-, test- or private net), capable of running as a full node (default), archive node (retaining all historical state) or a light node (retrieving data live). It can be used by other processes as a gateway into the Calcium network via JSON RPC endpoints exposed on top of HTTP, WebSocket and/or IPC transports. `calcium --help` and the [CLI page](https://geth.ethereum.org/docs/fundamentals/command-line-options) for command line options. |
-|   `clef`   | Stand-alone signing tool, which can be used as a backend signer for `calcium`.                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| **`canxium`** | Our main Canxium CLI client. It is the entry point into the Canxium network (main-, test- or private net), capable of running as a full node (default), archive node (retaining all historical state) or a light node (retrieving data live). It can be used by other processes as a gateway into the Canxium network via JSON RPC endpoints exposed on top of HTTP, WebSocket and/or IPC transports. `canxium --help` and the [CLI page](https://geth.ethereum.org/docs/fundamentals/command-line-options) for command line options. |
+|   `clef`   | Stand-alone signing tool, which can be used as a backend signer for `canxium`.                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 |  `devp2p`  | Utilities to interact with nodes on the networking layer, without running a full blockchain.                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-|  `abigen`  | Source code generator to convert Calcium contract definitions into easy-to-use, compile-time type-safe Go packages. It operates on plain [Calcium contract ABIs](https://docs.soliditylang.org/en/develop/abi-spec.html) with expanded functionality if the contract bytecode is also available. However, it also accepts Solidity source files, making development much more streamlined. Please see our [Native DApps](https://geth.ethereum.org/docs/developers/dapp-developer/native-bindings) page for details.                                  |
-| `bootnode` | Stripped down version of our Calcium client implementation that only takes part in the network node discovery protocol, but does not run any of the higher level application protocols. It can be used as a lightweight bootstrap node to aid in finding peers in private networks.                                                                                                                                                                                                                                               |
-|   `evm`    | Developer utility version of the EVM (Calcium Virtual Machine) that is capable of running bytecode snippets within a configurable environment and execution mode. Its purpose is to allow isolated, fine-grained debugging of EVM opcodes (e.g. `evm --code 60ff60ff --debug run`).                                                                                                                                                                                                                                               |
-| `rlpdump`  | Developer utility tool to convert binary RLP ([Recursive Length Prefix](https://ethereum.org/en/developers/docs/data-structures-and-encoding/rlp)) dumps (data encoding used by the Calcium protocol both network as well as consensus wise) to user-friendlier hierarchical representation (e.g. `rlpdump --hex CE0183FFFFFFC4C304050583616263`).                                                                                                                                                                                |
+|  `abigen`  | Source code generator to convert Canxium contract definitions into easy-to-use, compile-time type-safe Go packages. It operates on plain [Canxium contract ABIs](https://docs.soliditylang.org/en/develop/abi-spec.html) with expanded functionality if the contract bytecode is also available. However, it also accepts Solidity source files, making development much more streamlined. Please see our [Native DApps](https://geth.ethereum.org/docs/developers/dapp-developer/native-bindings) page for details.                                  |
+| `bootnode` | Stripped down version of our Canxium client implementation that only takes part in the network node discovery protocol, but does not run any of the higher level application protocols. It can be used as a lightweight bootstrap node to aid in finding peers in private networks.                                                                                                                                                                                                                                               |
+|   `evm`    | Developer utility version of the EVM (Canxium Virtual Machine) that is capable of running bytecode snippets within a configurable environment and execution mode. Its purpose is to allow isolated, fine-grained debugging of EVM opcodes (e.g. `evm --code 60ff60ff --debug run`).                                                                                                                                                                                                                                               |
+| `rlpdump`  | Developer utility tool to convert binary RLP ([Recursive Length Prefix](https://ethereum.org/en/developers/docs/data-structures-and-encoding/rlp)) dumps (data encoding used by the Canxium protocol both network as well as consensus wise) to user-friendlier hierarchical representation (e.g. `rlpdump --hex CE0183FFFFFFC4C304050583616263`).                                                                                                                                                                                |
 
-## Running `calcium`
+## Running `canxium`
 
 Going through all the possible command line flags is out of scope here (please consult our
 [CLI Wiki page](https://geth.ethereum.org/docs/fundamentals/command-line-options)),
 but we've enumerated a few common parameter combos to get you up to speed quickly
-on how you can run your own `calcium` instance.
+on how you can run your own `canxium` instance.
 
 ### Hardware Requirements
 
@@ -66,39 +66,39 @@ Recommended:
 * High-performance SSD with at least 1TB of free space
 * 25+ MBit/sec download Internet service
 
-### Init Calcium node with genesis
+### Init Canxium node with genesis
 
-Before run your own calcium node or miner, you have to init the genesis block or else you can't
+Before run your own canxium node or miner, you have to init the genesis block or else you can't
 connect to the network.
 
 ```shell
-$ calcium --db.engine=pebble init ./genesis/mainnet.genesis.json
+$ canxium --db.engine=pebble init ./genesis/mainnet.genesis.json
 ```
 
-By default, calcium will create new folder under your home: `~/.calcium`
+By default, canxium will create new folder under your home: `~/.canxium`
 
 #### Starting up your member nodes
 
 With the bootnode operational and externally reachable (you can try
-`telnet <ip> <port>` to ensure it's indeed reachable), start every subsequent `calcium`
+`telnet <ip> <port>` to ensure it's indeed reachable), start every subsequent `canxium`
 node pointed to the bootnode for peer discovery via the `--bootnodes` flag. It will
 probably also be desirable to keep the data directory of your private network separated, so
 do also specify a custom `--datadir` flag.
 
 ```shell
-$ calcium --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@34.27.223.16:30303 --ethstats <node_name>:calcium@stats.calciumchain.org
+$ canxium --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@34.27.223.16:30303 --ethstats <node_name>:canxium@stats.canxiumchain.org
 ```
 
-#### Running a calcium miner
+#### Running a canxium miner
 
 In a private network setting a single CPU miner instance is more than enough for
 practical purposes as it can produce a stable stream of blocks at the correct intervals
 without needing heavy resources (consider running on a single thread, no need for multiple
-ones either). To start a `calcium` instance for mining, run it with all your usual flags, extended
+ones either). To start a `canxium` instance for mining, run it with all your usual flags, extended
 by:
 
 ```shell
-$ calcium <usual-flags> --mine --miner.threads=1 --miner.etherbase=0x0000000000000000000000000000000000000000 --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@34.27.223.16:30303 --ethstats <node_name>:calcium@stats.calciumchain.org
+$ canxium <usual-flags> --mine --miner.threads=1 --miner.etherbase=0x0000000000000000000000000000000000000000 --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@34.27.223.16:30303 --ethstats <node_name>:canxium@stats.canxiumchain.org
 ```
 
 Which will start mining blocks and transactions on a single CPU thread, crediting all

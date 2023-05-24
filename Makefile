@@ -2,16 +2,16 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-.PHONY: calcium android ios evm all test clean
+.PHONY: canxium android ios evm all test clean
 
 GOBIN = ./build/bin
 GO ?= latest
 GORUN = env GO111MODULE=on go run
 
-calcium:
-	$(GORUN) build/ci.go install ./cmd/calcium
+canxium:
+	$(GORUN) build/ci.go install ./cmd/canxium
 	@echo "Done building."
-	@echo "Run \"$(GOBIN)/calcium\" to launch calcium."
+	@echo "Run \"$(GOBIN)/canxium\" to launch canxium."
 
 all:
 	$(GORUN) build/ci.go install

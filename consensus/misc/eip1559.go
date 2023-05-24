@@ -52,21 +52,21 @@ func VerifyEip1559Header(config *params.ChainConfig, parent, header *types.Heade
 // CalcBaseFee calculates the basefee of the header.
 func CalcBaseFee(config *params.ChainConfig, parent *types.Header) *big.Int {
 	initialBaseFee := new(big.Int).SetUint64(params.InitialBaseFee)
-	if !config.IsCalcium(parent.Number) {
+	if !config.IsCanxium(parent.Number) {
 		return initialBaseFee
 	}
 
-	// If the difficulty is >= CalciumInitialBaseFeeDifficulty (1P), return zero
-	if parent.Difficulty.Cmp(params.CalciumInitialBaseFeeDifficulty) >= 0 {
+	// If the difficulty is >= CanxiumInitialBaseFeeDifficulty (1P), return zero
+	if parent.Difficulty.Cmp(params.CanxiumInitialBaseFeeDifficulty) >= 0 {
 		return initialBaseFee
 	}
 
 	// difficulty is < 1P, then increase the base fee base on difficulty hash
-	difficulty := new(big.Int).Set(params.CalciumInitialBaseFeeDifficulty)
+	difficulty := new(big.Int).Set(params.CanxiumInitialBaseFeeDifficulty)
 	difficulty.Sub(difficulty, parent.Difficulty)
 	// convert difficulty in hash to 100KH
 	difficulty.Div(difficulty, params.Big100Kh)
-	baseFee := new(big.Int).Set(params.CalciumBaseFeePer100Kh)
+	baseFee := new(big.Int).Set(params.CanxiumBaseFeePer100Kh)
 	baseFee.Mul(baseFee, difficulty)
 	if baseFee.Cmp(initialBaseFee) < 0 {
 		return initialBaseFee

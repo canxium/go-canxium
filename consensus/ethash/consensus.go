@@ -42,11 +42,11 @@ var (
 	FrontierBlockReward         = big.NewInt(5e+18) // Block reward in wei for successfully mining a block
 	ByzantiumBlockReward        = big.NewInt(3e+18) // Block reward in wei for successfully mining a block upward from Byzantium
 	ConstantinopleBlockReward   = big.NewInt(2e+18) // Block reward in wei for successfully mining a block upward from Constantinople
-	CalciumBlockRewardPerHash   = big.NewInt(500)   // Block reward in wei per difficulty hash for successfully mining a block upward from Calcium
-	CalciumBlockFirstYearReward = big.NewInt(25e16) // First year reward per block in calcium chain: 0.25 CLI
+	CanxiumBlockRewardPerHash   = big.NewInt(500)   // Block reward in wei per difficulty hash for successfully mining a block upward from Canxium
+	CanxiumBlockFirstYearReward = big.NewInt(25e16) // First year reward per block in canxium chain: 0.25 CLI
 
-	CalciumFoundationRewardPercent          = big.NewInt(2)  // Foudation reward: 2%
-	CalciumFoundationFirstYearRewardPercent = big.NewInt(25) // First year Foudation reward: 25%
+	CanxiumFoundationRewardPercent          = big.NewInt(2)  // Foudation reward: 2%
+	CanxiumFoundationFirstYearRewardPercent = big.NewInt(25) // First year Foudation reward: 25%
 
 	maxUncles                     = 2        // Maximum number of uncles allowed in a single block
 	allowedFutureBlockTimeSeconds = int64(7) // Max seconds from current time allowed for blocks, before they're considered future blocks
@@ -660,16 +660,16 @@ func (ethash *Ethash) SealHash(header *types.Header) (hash common.Hash) {
 // included uncles. The coinbase of each uncle block is also rewarded.
 func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header *types.Header, uncles []*types.Header) {
 	// Select the correct block reward based on chain progression
-	if !config.IsCalcium(header.Number) {
+	if !config.IsCanxium(header.Number) {
 		return
 	}
 
-	blockReward := CalciumBlockFirstYearReward
-	foundationPercent := CalciumFoundationFirstYearRewardPercent
+	blockReward := CanxiumBlockFirstYearReward
+	foundationPercent := CanxiumFoundationFirstYearRewardPercent
 	// hydro hard fork, reduce reward and foundation percent
 	if config.IsHydro(header.Number) {
-		blockReward = new(big.Int).Mul(CalciumBlockRewardPerHash, header.Difficulty)
-		foundationPercent = CalciumFoundationRewardPercent
+		blockReward = new(big.Int).Mul(CanxiumBlockRewardPerHash, header.Difficulty)
+		foundationPercent = CanxiumFoundationRewardPercent
 	}
 
 	// Accumulate the rewards for the miner
