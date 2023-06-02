@@ -86,7 +86,7 @@ probably also be desirable to keep the data directory of your private network se
 do also specify a custom `--datadir` flag.
 
 ```shell
-$ canxium --db.engine=pebble --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@34.27.223.16:30303 --ethstats <node_name>:canxium@stats.canxium.org
+$ canxium --db.engine=pebble --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@boot.canxium.net:30303 --ethstats <node_name>:canxium@stats.canxium.org
 ```
 
 #### Running a canxium miner
@@ -98,7 +98,7 @@ ones either). To start a `canxium` instance for mining, run it with all your usu
 by:
 
 ```shell
-./build/bin/calcium --http --http.api eth,net,web3 --ethstats <node_name>:canxium@stats.canxium.org --mine --miner.etherbase 0x0000000000000000000000000000000000000000 --miner.threads 1 --db.engine=pebble --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@34.27.223.16:30303
+./build/bin/calcium --http --http.api eth,net,web3 --ethstats <node_name>:canxium@stats.canxium.org --mine --miner.etherbase 0x0000000000000000000000000000000000000000 --miner.threads 1 --db.engine=pebble --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@boot.canxium.net:30303
 ```
 
 Which will start mining blocks and transactions on a single CPU thread, crediting all
