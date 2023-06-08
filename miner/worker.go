@@ -17,6 +17,7 @@
 package miner
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -27,6 +28,7 @@ import (
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -210,6 +212,7 @@ type worker struct {
 	chainSideSub event.Subscription
 
 	// Channels
+	commitCh           chan struct{}
 	newWorkCh          chan *newWorkReq
 	getWorkCh          chan *getWorkReq
 	taskCh             chan *task
@@ -268,6 +271,9 @@ type worker struct {
 	skipSealHook func(*task) bool                   // Method to decide whether skipping the sealing.
 	fullTaskHook func()                             // Method to call before pushing the full sealing task.
 	resubmitHook func(time.Duration, time.Duration) // Method to call upon updating resubmitting interval.
+
+	// offline mining
+	txNonce uint64
 }
 
 func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, isLocalBlock func(header *types.Header) bool, init bool) *worker {
@@ -288,6 +294,7 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		txsCh:              make(chan core.NewTxsEvent, txChanSize),
 		chainHeadCh:        make(chan core.ChainHeadEvent, chainHeadChanSize),
 		chainSideCh:        make(chan core.ChainSideEvent, chainSideChanSize),
+		commitCh:           make(chan struct{}),
 		newWorkCh:          make(chan *newWorkReq),
 		getWorkCh:          make(chan *getWorkReq),
 		taskCh:             make(chan *task),
@@ -514,7 +521,8 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 				}
 				commit(true, commitInterruptResubmit)
 			}
-
+		case <-w.commitCh:
+			commit(true, commitInterruptNone)
 		case interval := <-w.resubmitIntervalCh:
 			// Adjust resubmit interval explicitly by user.
 			if interval < minRecommitInterval {
@@ -618,6 +626,11 @@ func (w *worker) mainLoop() {
 			}
 
 		case ev := <-w.txsCh:
+			// Offline miner does not process incomming transactions
+			if w.config.IsOfflineMiner() {
+				continue
+			}
+
 			// Apply transactions to the pending state if we're not sealing
 			//
 			// Note all transactions received may not be continuous with transactions
@@ -689,7 +702,7 @@ func (w *worker) taskLoop() {
 			}
 			// Reject duplicate sealing work due to resubmitting.
 			sealHash := w.engine.SealHash(task.block.Header())
-			if sealHash == prev {
+			if !w.config.IsOfflineMiner() && sealHash == prev {
 				continue
 			}
 			// Interrupt previous sealing operation
@@ -727,6 +740,21 @@ func (w *worker) resultLoop() {
 			if block == nil {
 				continue
 			}
+
+			// extract the transaction only
+			if w.config.IsOfflineMiner() {
+				if len(block.Transactions()) != 1 {
+					log.Error("Invalid offline mining result, want 1 tx have", "txs", len(block.Transactions()))
+					continue
+				}
+
+				tx := block.Transactions()[0]
+				data, _ := json.Marshal(tx)
+				log.Info("Successfully sealed new transaction", "nonce", tx.Nonce(), "sealhash", tx.MiningHash(), "hash", tx.Hash(), "tx", string(data))
+				w.commitCh <- struct{}{}
+				continue
+			}
+
 			// Short circuit when receiving duplicate result caused by resubmitting.
 			if w.chain.HasBlock(block.Hash(), block.NumberU64()) {
 				continue
@@ -1055,26 +1083,50 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) error {
 	// Split the pending transactions into locals and remotes
 	// Fill the block with all available pending transactions.
-	pending := w.eth.TxPool().Pending(true)
-	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
-	for _, account := range w.eth.TxPool().Locals() {
-		if txs := remoteTxs[account]; len(txs) > 0 {
-			delete(remoteTxs, account)
-			localTxs[account] = txs
+	// block mining
+	if !w.config.IsOfflineMiner() {
+		pending := w.eth.TxPool().Pending(true)
+		localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
+		for _, account := range w.eth.TxPool().Locals() {
+			if txs := remoteTxs[account]; len(txs) > 0 {
+				delete(remoteTxs, account)
+				localTxs[account] = txs
+			}
 		}
-	}
-	if len(localTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
-		if err := w.commitTransactions(env, txs, interrupt); err != nil {
-			return err
+		if len(localTxs) > 0 {
+			txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
+			if err := w.commitTransactions(env, txs, interrupt); err != nil {
+				return err
+			}
 		}
-	}
-	if len(remoteTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
-		if err := w.commitTransactions(env, txs, interrupt); err != nil {
-			return err
+		if len(remoteTxs) > 0 {
+			txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
+			if err := w.commitTransactions(env, txs, interrupt); err != nil {
+				return err
+			}
 		}
+		return nil
 	}
+
+	// offline tx mining
+	miningTx := types.NewTx(&types.MiningTx{
+		ChainID:    w.chainConfig.ChainID,
+		Nonce:      w.txNonce,
+		GasTipCap:  big.NewInt(0), // this kind of tx is gas free
+		GasFeeCap:  big.NewInt(0),
+		Gas:        21000, // transfer only
+		To:         env.coinbase,
+		Value:      new(big.Int).Mul(ethash.CanxiumRewardPerHash, w.config.Difficulty),
+		Data:       nil,
+		Algorithm:  w.config.Algorithm,
+		Difficulty: w.config.Difficulty,
+	})
+
+	// for now, we can't commit the transaction because it is not final.
+	// just append to the list and let miner work on it
+	env.txs = append(env.txs, miningTx)
+	env.tcount++
+
 	return nil
 }
 
@@ -1086,7 +1138,7 @@ func (w *worker) generateWork(params *generateParams) (*types.Block, *big.Int, e
 	}
 	defer work.discard()
 
-	if !params.noTxs {
+	if !params.noTxs || w.config.Algorithm != types.NoneAlgorithm {
 		interrupt := new(atomic.Int32)
 		timer := time.AfterFunc(w.newpayloadTimeout, func() {
 			interrupt.Store(commitInterruptTimeout)
@@ -1098,6 +1150,7 @@ func (w *worker) generateWork(params *generateParams) (*types.Block, *big.Int, e
 			log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(w.newpayloadTimeout))
 		}
 	}
+
 	block, err := w.engine.FinalizeAndAssemble(w.chain, work.header, work.state, work.txs, work.unclelist(), work.receipts, params.withdrawals)
 	if err != nil {
 		return nil, nil, err
@@ -1270,6 +1323,10 @@ func (w *worker) postSideBlock(event core.ChainSideEvent) {
 func totalFees(block *types.Block, receipts []*types.Receipt) *big.Int {
 	feesWei := new(big.Int)
 	for i, tx := range block.Transactions() {
+		if tx.Type() == types.MiningTxType {
+			continue
+		}
+
 		minerFee, _ := tx.EffectiveGasTip(block.BaseFee())
 		feesWei.Add(feesWei, new(big.Int).Mul(new(big.Int).SetUint64(receipts[i].GasUsed), minerFee))
 	}

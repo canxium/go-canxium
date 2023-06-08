@@ -208,6 +208,10 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		var inner DynamicFeeTx
 		err := rlp.DecodeBytes(b[1:], &inner)
 		return &inner, err
+	case MiningTxType:
+		var inner MiningTx
+		err := rlp.DecodeBytes(b[1:], &inner)
+		return &inner, err
 	default:
 		return nil, ErrTxTypeNotSupported
 	}
@@ -433,7 +437,6 @@ func (tx *Transaction) MiningHash() common.Hash {
 		tx.Data(),
 		tx.Algorithm(),
 		tx.Difficulty(),
-		tx.Seed(),
 	})
 
 	tx.miningHash.Store(h)

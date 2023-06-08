@@ -129,6 +129,8 @@ var (
 		utils.MinerRecommitIntervalFlag,
 		utils.MinerNoVerifyFlag,
 		utils.MinerNewPayloadTimeout,
+		utils.MinerDifficulty,
+		utils.MinerAlgorithm,
 		utils.NATFlag,
 		utils.NoDiscoverFlag,
 		utils.DiscoveryV5Flag,

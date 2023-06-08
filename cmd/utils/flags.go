@@ -565,6 +565,17 @@ var (
 		Value:    ethconfig.Defaults.Miner.NewPayloadTimeout,
 		Category: flags.MinerCategory,
 	}
+	MinerDifficulty = &cli.Uint64Flag{
+		Name:     "miner.difficulty",
+		Usage:    "Specify the offline mining difficulty",
+		Category: flags.MinerCategory,
+	}
+	MinerAlgorithm = &cli.Uint64Flag{
+		Name:     "miner.algorithm",
+		Usage:    "Specify the offline mining algorithm",
+		Value:    types.NoneAlgorithm,
+		Category: flags.MinerCategory,
+	}
 
 	// Account settings
 	UnlockedAccountFlag = &cli.StringFlag{
@@ -1651,8 +1662,11 @@ func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	if ctx.IsSet(MinerNoVerifyFlag.Name) {
 		cfg.Noverify = ctx.Bool(MinerNoVerifyFlag.Name)
 	}
-	if ctx.IsSet(MinerNewPayloadTimeout.Name) {
-		cfg.NewPayloadTimeout = ctx.Duration(MinerNewPayloadTimeout.Name)
+	if ctx.IsSet(MinerDifficulty.Name) {
+		cfg.Difficulty = new(big.Int).SetUint64(ctx.Uint64(MinerDifficulty.Name))
+	}
+	if ctx.IsSet(MinerAlgorithm.Name) {
+		cfg.Algorithm = uint8(ctx.Uint64(MinerAlgorithm.Name))
 	}
 }
 

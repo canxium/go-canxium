@@ -94,7 +94,7 @@ func (tx *MiningTx) copy() TxData {
 }
 
 // accessors for innerTx.
-func (tx *MiningTx) txType() byte           { return DynamicFeeTxType }
+func (tx *MiningTx) txType() byte           { return MiningTxType }
 func (tx *MiningTx) chainID() *big.Int      { return tx.ChainID }
 func (tx *MiningTx) accessList() AccessList { return nil }
 func (tx *MiningTx) data() []byte           { return tx.Data }

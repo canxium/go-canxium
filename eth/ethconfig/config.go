@@ -216,9 +216,8 @@ func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, clique
 	var engine consensus.Engine
 	if cliqueConfig != nil {
 		engine = clique.New(cliqueConfig, db)
-	} else if miner != nil && miner.Difficulty != nil {
-		engine = canxium.New(miner, db)
-	} else {
+		return engine
+	} else if miner != nil {
 		notify, noverify := make([]string, 0), false
 		if miner != nil {
 			notify = miner.Notify
@@ -227,25 +226,51 @@ func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, clique
 
 		switch ethashConfig.PowMode {
 		case ethash.ModeFake:
-			log.Warn("Ethash used in fake mode")
+			log.Warn("Mining in fake mode")
 		case ethash.ModeTest:
-			log.Warn("Ethash used in test mode")
+			log.Warn("Mining in test mode")
 		case ethash.ModeShared:
-			log.Warn("Ethash used in shared mode")
+			log.Warn("Mining in shared mode")
 		}
-		engine = ethash.New(ethash.Config{
-			PowMode:          ethashConfig.PowMode,
-			CacheDir:         stack.ResolvePath(ethashConfig.CacheDir),
-			CachesInMem:      ethashConfig.CachesInMem,
-			CachesOnDisk:     ethashConfig.CachesOnDisk,
-			CachesLockMmap:   ethashConfig.CachesLockMmap,
-			DatasetDir:       ethashConfig.DatasetDir,
-			DatasetsInMem:    ethashConfig.DatasetsInMem,
-			DatasetsOnDisk:   ethashConfig.DatasetsOnDisk,
-			DatasetsLockMmap: ethashConfig.DatasetsLockMmap,
-			NotifyFull:       ethashConfig.NotifyFull,
-		}, notify, noverify)
-		engine.(*ethash.Ethash).SetThreads(-1) // Disable CPU mining
+
+		if miner.Difficulty != nil && miner.Algorithm != 0 {
+			log.Info("Mining using canxium consensus")
+			engine = canxium.New(canxium.Config{
+				PowMode:          canxium.Mode(ethashConfig.PowMode),
+				CacheDir:         stack.ResolvePath(ethashConfig.CacheDir),
+				CachesInMem:      ethashConfig.CachesInMem,
+				CachesOnDisk:     ethashConfig.CachesOnDisk,
+				CachesLockMmap:   ethashConfig.CachesLockMmap,
+				DatasetDir:       ethashConfig.DatasetDir,
+				DatasetsInMem:    ethashConfig.DatasetsInMem,
+				DatasetsOnDisk:   ethashConfig.DatasetsOnDisk,
+				DatasetsLockMmap: ethashConfig.DatasetsLockMmap,
+				Difficulty:       miner.Difficulty,
+				Algorithm:        miner.Algorithm,
+				NotifyFull:       ethashConfig.NotifyFull,
+			}, notify, noverify)
+
+			engine.(*canxium.Canxium).SetThreads(-1) // Disable CPU mining
+		} else {
+			log.Info("Mining using ethash consensus")
+			engine = ethash.New(ethash.Config{
+				PowMode:          ethashConfig.PowMode,
+				CacheDir:         stack.ResolvePath(ethashConfig.CacheDir),
+				CachesInMem:      ethashConfig.CachesInMem,
+				CachesOnDisk:     ethashConfig.CachesOnDisk,
+				CachesLockMmap:   ethashConfig.CachesLockMmap,
+				DatasetDir:       ethashConfig.DatasetDir,
+				DatasetsInMem:    ethashConfig.DatasetsInMem,
+				DatasetsOnDisk:   ethashConfig.DatasetsOnDisk,
+				DatasetsLockMmap: ethashConfig.DatasetsLockMmap,
+				NotifyFull:       ethashConfig.NotifyFull,
+			}, notify, noverify)
+
+			engine.(*ethash.Ethash).SetThreads(-1) // Disable CPU mining
+		}
+
+		return engine
 	}
+
 	return beacon.New(engine)
 }

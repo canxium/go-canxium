@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts"
@@ -29,35 +28,13 @@ import (
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/ethdb"
-	"github.com/ethereum/go-ethereum/miner"
-	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
 	"golang.org/x/crypto/sha3"
 )
 
 // SignerFn hashes and signs the data to be signed by a backing account.
 type SignerFn func(signer accounts.Account, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error)
-
-// Canxium is the offline mining consensus engine, used for transaction mining only.
-type Canxium struct {
-	cfg *miner.Config
-	db  ethdb.Database // Database to store and retrieve snapshot checkpoints
-
-	signer common.Address // Ethereum address of the signing key
-	signFn SignerFn       // Signer function to sign the transaction
-	lock   sync.RWMutex   // Protects the signer and proposals fields
-}
-
-// New creates a Canxium mining consensus engine with the initial
-// signers set to the ones provided by the user.
-func New(cfg *miner.Config, db ethdb.Database) *Canxium {
-	return &Canxium{
-		cfg: cfg,
-		db:  db,
-	}
-}
 
 // Author implements consensus.Engine, returning the verified author of the block.
 func (c *Canxium) Author(header *types.Header) (common.Address, error) {
@@ -104,6 +81,13 @@ func (c *Canxium) VerifyUncles(chain consensus.ChainReader, block *types.Block) 
 	return fmt.Errorf("no uncles is verified in canxium offline transaction consensus")
 }
 
+// verifySeal checks whether a block satisfies the PoW difficulty requirements,
+// either using the usual ethash cache for it, or alternatively using a full DAG
+// to make remote mining fast.
+func (c *Canxium) verifySeal(chain consensus.ChainHeaderReader, header *types.Header, fulldag bool) error {
+	return nil
+}
+
 // Prepare implements consensus.Engine, preparing all the consensus fields of the
 // header for running the transactions on top.
 func (c *Canxium) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
@@ -112,7 +96,7 @@ func (c *Canxium) Prepare(chain consensus.ChainHeaderReader, header *types.Heade
 	header.Nonce = types.BlockNonce{}
 
 	// Set the correct difficulty
-	header.Difficulty = c.cfg.Difficulty
+	header.Difficulty = c.config.Difficulty
 
 	// Mix digest is reserved for now, set to empty
 	header.MixDigest = common.Hash{}
@@ -132,6 +116,10 @@ func (c *Canxium) Finalize(chain consensus.ChainHeaderReader, header *types.Head
 func (c *Canxium) FinalizeAndAssemble(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt, withdrawals []*types.Withdrawal) (*types.Block, error) {
 	if len(withdrawals) > 0 {
 		return nil, errors.New("canxium does not support withdrawals")
+	}
+
+	if len(txs) != 1 {
+		return nil, errors.New("invalid block transactions for finalize")
 	}
 
 	// Finalize block
@@ -154,36 +142,42 @@ func (c *Canxium) Authorize(signer common.Address, signFn SignerFn) {
 	c.signFn = signFn
 }
 
-// Seal implements consensus.Engine, attempting to create a sealed transaction using
-// the local signing credentials.
-func (c *Canxium) Seal(chain consensus.ChainHeaderReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
-
-	return nil
-}
-
 func (c *Canxium) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
-	return c.cfg.Difficulty
+	return c.config.Difficulty
 }
 
 // SealHash returns the hash of a block prior to it being sealed.
-func (c *Canxium) SealHash(header *types.Header) common.Hash {
-	return SealHash(header)
-}
-
-// Close implements consensus.Engine. It's a noop for clique as there are no background threads.
-func (c *Canxium) Close() error {
-	return nil
-}
-
-// APIs implements consensus.Engine, returning the user facing RPC API to allow
-// controlling the signer voting.
-func (c *Canxium) APIs(chain consensus.ChainHeaderReader) []rpc.API {
-	return []rpc.API{}
-}
-
-// SealHash returns the hash of a block prior to it being sealed.
-func SealHash(header *types.Header) (hash common.Hash) {
+func (c *Canxium) SealHash(header *types.Header) (hash common.Hash) {
 	hasher := sha3.NewLegacyKeccak256()
-	hasher.(crypto.KeccakState).Read(hash[:])
+
+	enc := []interface{}{
+		header.ParentHash,
+		header.UncleHash,
+		header.Coinbase,
+		header.Root,
+		header.TxHash,
+		header.ReceiptHash,
+		header.Bloom,
+		header.Difficulty,
+		header.Number,
+		header.GasLimit,
+		header.GasUsed,
+		header.Time,
+		header.Extra,
+	}
+	if header.BaseFee != nil {
+		enc = append(enc, header.BaseFee)
+	}
+	if header.MinerReward != nil {
+		enc = append(enc, header.MinerReward)
+	}
+	if header.FundReward != nil {
+		enc = append(enc, header.FundReward)
+	}
+	if header.WithdrawalsHash != nil {
+		panic("withdrawal hash set on ethash")
+	}
+	rlp.Encode(hasher, enc)
+	hasher.Sum(hash[:0])
 	return hash
 }

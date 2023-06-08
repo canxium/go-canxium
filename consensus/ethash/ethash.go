@@ -402,6 +402,11 @@ func (d *dataset) finalizer() {
 	}
 }
 
+// finalizer closes any file handlers and memory maps open.
+func (d *dataset) Dataset() []uint32 {
+	return d.dataset
+}
+
 // MakeCache generates a new ethash cache and optionally stores it to disk.
 func MakeCache(block uint64, dir string) {
 	c := cache{epoch: block / epochLength}
@@ -622,6 +627,10 @@ func (ethash *Ethash) dataset(block uint64, async bool) *dataset {
 		}
 	}
 	return current
+}
+
+func (ethash *Ethash) Dataset(block uint64, async bool) *dataset {
+	return ethash.dataset(block, async)
 }
 
 // Threads returns the number of mining threads currently enabled. This doesn't
