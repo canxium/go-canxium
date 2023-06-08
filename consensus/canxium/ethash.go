@@ -59,7 +59,7 @@ search:
 			// Compute the PoW value of this nonce
 			digest, result := ethash.HashimotoFull(canxium.dataset, hash, nonce)
 			if powBuffer.SetBytes(result).Cmp(target) <= 0 {
-				canxium.config.Log.Info("Found nonce for mine transaction", "hash", transaction.Hash(), "none", nonce)
+				canxium.config.Log.Info("Found nonce for mine transaction", "hash", transaction.Hash(), "none", nonce, "digest", common.BytesToHash(digest))
 				transaction.SetPow(nonce, common.BytesToHash(digest))
 				select {
 				case found <- transaction:

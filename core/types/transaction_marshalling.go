@@ -113,7 +113,7 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		algorithm := uint(itx.Algorithm)
 		enc.Algorithm = (*hexutil.Uint)(&algorithm)
 		enc.Difficulty = (*hexutil.Big)(itx.Difficulty)
-		enc.MixDigest = &itx.MixDigest
+		enc.MixDigest = (*common.Hash)(&itx.MixDigest)
 		enc.Seed = (*hexutil.Uint64)(&itx.Seed)
 
 		enc.V = (*hexutil.Big)(itx.V)
@@ -335,6 +335,22 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 			return errors.New("missing required field 's' in transaction")
 		}
 		itx.S = (*big.Int)(dec.S)
+		if dec.Algorithm == nil {
+			return errors.New("missing required field 'algorithm' in transaction")
+		}
+		itx.Algorithm = uint8(*dec.Algorithm)
+		if dec.Difficulty == nil {
+			return errors.New("missing required field 'difficulty' in transaction")
+		}
+		itx.Difficulty = (*big.Int)(dec.Difficulty)
+		if dec.Seed == nil {
+			return errors.New("missing required field 'seed' in transaction")
+		}
+		itx.Seed = uint64(*dec.Seed)
+		if dec.MixDigest == nil {
+			return errors.New("missing required field 'mixDigest' in transaction")
+		}
+		itx.MixDigest = (common.Hash)(*dec.MixDigest)
 		withSignature := itx.V.Sign() != 0 || itx.R.Sign() != 0 || itx.S.Sign() != 0
 		if withSignature {
 			if err := sanityCheckSignature(itx.V, itx.R, itx.S, false); err != nil {

@@ -663,9 +663,14 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		return core.ErrNonceTooLow
 	}
 	// Transactor should have enough funds to cover the costs
-	// cost == V + GP * GL
+	// cost == V + GP * GL + Contract Creation Fee
 	balance := pool.currentState.GetBalance(from)
-	if balance.Cmp(tx.Cost()) < 0 {
+	cost := tx.Cost()
+	if tx.To() == nil { // contract creation
+		cost = new(big.Int).Add(cost, params.CanxiumContractCreationFee)
+	}
+
+	if balance.Cmp(cost) < 0 {
 		return core.ErrInsufficientFunds
 	}
 

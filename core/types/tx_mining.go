@@ -60,6 +60,7 @@ func (tx *MiningTx) copy() TxData {
 		Algorithm:  tx.Algorithm,
 		Difficulty: new(big.Int),
 		Seed:       tx.Seed,
+		MixDigest:  tx.MixDigest,
 		// signature
 		V: new(big.Int),
 		R: new(big.Int),
