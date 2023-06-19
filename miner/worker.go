@@ -17,7 +17,7 @@
 package miner
 
 import (
-	"encoding/json"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
@@ -749,8 +749,13 @@ func (w *worker) resultLoop() {
 				}
 
 				tx := block.Transactions()[0]
-				data, _ := json.Marshal(tx)
-				log.Info("Successfully sealed new transaction", "nonce", tx.Nonce(), "sealhash", tx.MiningHash(), "hash", tx.Hash(), "tx", string(data))
+				rawTx, err := tx.MarshalBinary()
+				if err != nil {
+					log.Error("Failed to marshal raw transaction", "err", err)
+				}
+
+				log.Info("🔨 Successfully sealed new transaction", "nonce", tx.Nonce(), "hash", tx.Hash(), "rawtx", "0x"+hex.EncodeToString(rawTx))
+				w.mux.Post(core.NewTxsEvent{Txs: []*types.Transaction{tx}})
 				w.commitCh <- struct{}{}
 				continue
 			}
@@ -1126,6 +1131,7 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 	// just append to the list and let miner work on it
 	env.txs = append(env.txs, miningTx)
 	env.tcount++
+	w.txNonce += 1
 
 	return nil
 }

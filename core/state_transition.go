@@ -17,15 +17,21 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
 	cmath "github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/consensus/canxium"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
+)
+
+var (
+	big100 = big.NewInt(100)
 )
 
 // ExecutionResult includes all output after executing given evm
@@ -140,6 +146,10 @@ type Message struct {
 	// account nonce in state. It also disables checking that the sender is an EOA.
 	// This field will be set to true for operations like RPC eth_call.
 	SkipAccountChecks bool
+
+	// is mining tx
+	IsMiningTx bool
+	Difficulty *big.Int
 }
 
 // TransactionToMessage converts a transaction into a Message.
@@ -155,6 +165,8 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 		Data:              tx.Data(),
 		AccessList:        tx.AccessList(),
 		SkipAccountChecks: false,
+		IsMiningTx:        tx.Type() == types.MiningTxType,
+		Difficulty:        tx.Difficulty(),
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	if baseFee != nil {
@@ -237,6 +249,10 @@ func (st *StateTransition) buyGas(contractCreation bool) error {
 	if contractCreation {
 		balanceCheck.Add(balanceCheck, params.CanxiumContractCreationFee)
 	}
+	if st.msg.IsMiningTx {
+		// mining tx is gas free
+		balanceCheck = big.NewInt(0)
+	}
 	if have, want := st.state.GetBalance(st.msg.From), balanceCheck; have.Cmp(want) < 0 {
 		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, st.msg.From.Hex(), have, want)
 	}
@@ -246,7 +262,9 @@ func (st *StateTransition) buyGas(contractCreation bool) error {
 	st.gasRemaining += st.msg.GasLimit
 
 	st.initialGas = st.msg.GasLimit
-	st.state.SubBalance(st.msg.From, mgval)
+	if !st.msg.IsMiningTx {
+		st.state.SubBalance(st.msg.From, mgval)
+	}
 	return nil
 }
 
@@ -283,7 +301,8 @@ func (st *StateTransition) preCheck(contractCreation bool) error {
 	// Make sure that transaction gasFeeCap is greater than the baseFee (post london)
 	if st.evm.ChainConfig().IsLondon(st.evm.Context.BlockNumber) {
 		// Skip the checks if gas fields are zero and baseFee was explicitly disabled (eth_call)
-		if !st.evm.Config.NoBaseFee || msg.GasFeeCap.BitLen() > 0 || msg.GasTipCap.BitLen() > 0 {
+		// Skip the checks if this is mining transaction
+		if !msg.IsMiningTx && !st.evm.Config.NoBaseFee || msg.GasFeeCap.BitLen() > 0 || msg.GasTipCap.BitLen() > 0 {
 			if l := msg.GasFeeCap.BitLen(); l > 256 {
 				return fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", ErrFeeCapVeryHigh,
 					msg.From.Hex(), l)
@@ -304,6 +323,13 @@ func (st *StateTransition) preCheck(contractCreation bool) error {
 			}
 		}
 	}
+
+	// do not buy gas for mining tx
+	if msg.IsMiningTx && msg.To == nil {
+		// contract creation in mining tx are not allowed
+		return errors.New("contract creation in mining transaction are not allowed")
+	}
+
 	return st.buyGas(contractCreation)
 }
 
@@ -357,7 +383,33 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	}
 	st.gasRemaining -= gas
 
-	// Check clause 6
+	if msg.IsMiningTx {
+		reward := new(big.Int)
+		foundationPercent := new(big.Int)
+		coinbasePercent := new(big.Int)
+		// offline mining are enabled by hydro hard fork
+		if st.evm.ChainConfig().IsHydro(st.evm.Context.BlockNumber) {
+			reward = new(big.Int).Mul(canxium.CanxiumMiningTxRewardPerHash, msg.Difficulty)
+			foundationPercent = canxium.CanxiumMiningTxFoundationPercent
+			coinbasePercent = canxium.CanxiumMiningTxCoinbasePercent
+		}
+
+		// Accumulate the rewards for the miner
+		txReward := new(big.Int).Set(reward)
+		// send reward to foundation wallet
+		foundation := new(big.Int).Mul(foundationPercent, reward)
+		foundation.Div(foundation, big100)
+		coinbase := new(big.Int).Mul(coinbasePercent, reward)
+		coinbase.Div(foundation, big100)
+		txReward.Sub(txReward, foundation)
+		txReward.Sub(txReward, coinbase)
+
+		st.state.AddBalance(msg.From, msg.Value)
+		st.state.AddBalance(st.evm.Context.Coinbase, coinbase)
+		st.state.AddBalance(st.evm.ChainConfig().Foundation, foundation)
+	}
+
+	// Check clause 6, skip if this is a mining transaction.
 	if msg.Value.Sign() > 0 && !st.evm.Context.CanTransfer(st.state, msg.From, msg.Value) {
 		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From.Hex())
 	}

@@ -322,6 +322,9 @@ func (tx *Transaction) MixDigest() common.Hash { return tx.inner.mixDigest() }
 // Seed returns the mining seed of transaction which solve the pow
 func (tx *Transaction) SetPow(seed uint64, mixDigest common.Hash) { tx.inner.setPow(seed, mixDigest) }
 
+// Difficulty returns the mining diffculty of transaction
+func (tx *Transaction) IsMiningTx() bool { return tx.Type() == MiningTxType }
+
 // To returns the recipient address of the transaction.
 // For contract-creation transactions, To returns nil.
 func (tx *Transaction) To() *common.Address {
@@ -330,6 +333,10 @@ func (tx *Transaction) To() *common.Address {
 
 // Cost returns gas * gasPrice + value.
 func (tx *Transaction) Cost() *big.Int {
+	if tx.IsMiningTx() {
+		return big.NewInt(0)
+	}
+
 	total := new(big.Int).Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
 	total.Add(total, tx.Value())
 	return total
@@ -365,6 +372,9 @@ func (tx *Transaction) GasTipCapIntCmp(other *big.Int) int {
 // Note: if the effective gasTipCap is negative, this method returns both error
 // the actual negative value, _and_ ErrGasFeeCapTooLow
 func (tx *Transaction) EffectiveGasTip(baseFee *big.Int) (*big.Int, error) {
+	if tx.IsMiningTx() {
+		return big.NewInt(0), nil
+	}
 	if baseFee == nil {
 		return tx.GasTipCap(), nil
 	}
@@ -415,8 +425,8 @@ func (tx *Transaction) Hash() common.Hash {
 	return h
 }
 
-// Mining Hash returns the transaction hash used for mining operation
-func (tx *Transaction) MiningHash() common.Hash {
+// Seal Hash returns the transaction hash used for mining operation
+func (tx *Transaction) SealHash() common.Hash {
 	if tx.Type() != MiningTxType {
 		return common.Hash{}
 	}

@@ -586,6 +586,70 @@ func (ethash *Ethash) verifySeal(chain consensus.ChainHeaderReader, header *type
 	return nil
 }
 
+// verifySeal checks whether a offline mining transaction satisfies the PoW difficulty requirements,
+// either using the usual ethash cache for it, or alternatively using a full DAG
+// to make remote mining fast.
+func (ethash *Ethash) VerifyTxSeal(tx *types.Transaction, fulldag bool) error {
+	// If we're running a fake PoW, accept any seal as valid
+	if ethash.config.PowMode == ModeFake || ethash.config.PowMode == ModeFullFake {
+		time.Sleep(ethash.fakeDelay)
+		return nil
+	}
+	// If we're running a shared PoW, delegate verification to it
+	if ethash.shared != nil {
+		return ethash.shared.VerifyTxSeal(tx, fulldag)
+	}
+	// Ensure that we have a valid difficulty for the block
+	if tx.Difficulty().Sign() <= 0 {
+		return errInvalidDifficulty
+	}
+	// Recompute the digest and PoW values, using tx nonce and the number of dataset
+	number := tx.Nonce()
+
+	var (
+		digest []byte
+		result []byte
+	)
+	// If fast-but-heavy PoW verification was requested, use an ethash dataset
+	if fulldag {
+		dataset := ethash.dataset(number, true)
+		if dataset.generated() {
+			digest, result = hashimotoFull(dataset.dataset, tx.SealHash().Bytes(), tx.Seed())
+
+			// Datasets are unmapped in a finalizer. Ensure that the dataset stays alive
+			// until after the call to hashimotoFull so it's not unmapped while being used.
+			runtime.KeepAlive(dataset)
+		} else {
+			// Dataset not yet generated, don't hang, use a cache instead
+			fulldag = false
+		}
+	}
+	// If slow-but-light PoW verification was requested (or DAG not yet ready), use an ethash cache
+	if !fulldag {
+		cache := ethash.cache(number)
+
+		size := datasetSize(number)
+		if ethash.config.PowMode == ModeTest {
+			size = 32 * 1024
+		}
+		digest, result = hashimotoLight(size, cache.cache, tx.SealHash().Bytes(), tx.Seed())
+
+		// Caches are unmapped in a finalizer. Ensure that the cache stays alive
+		// until after the call to hashimotoLight so it's not unmapped while being used.
+		runtime.KeepAlive(cache)
+	}
+	// Verify the calculated values against the ones provided in the header
+	mixDigest := tx.MixDigest()
+	if !bytes.Equal(mixDigest[:], digest) {
+		return errInvalidMixDigest
+	}
+	target := new(big.Int).Div(two256, tx.Difficulty())
+	if new(big.Int).SetBytes(result).Cmp(target) > 0 {
+		return errInvalidPoW
+	}
+	return nil
+}
+
 // Prepare implements consensus.Engine, initializing the difficulty field of a
 // header to conform to the ethash protocol. The changes are done inline.
 func (ethash *Ethash) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {

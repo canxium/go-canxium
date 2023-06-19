@@ -208,7 +208,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if config.TxPool.Journal != "" {
 		config.TxPool.Journal = stack.ResolvePath(config.TxPool.Journal)
 	}
-	eth.txPool = txpool.NewTxPool(config.TxPool, eth.blockchain.Config(), eth.blockchain)
+	eth.txPool = txpool.NewTxPool(config.TxPool, eth.blockchain.Config(), eth.blockchain, engine)
 
 	// Permit the downloader to use the trie cache allowance during fast sync
 	cacheLimit := cacheConfig.TrieCleanLimit + cacheConfig.TrieDirtyLimit + cacheConfig.SnapshotLimit
@@ -261,10 +261,15 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	// Register the backend on the node
 	stack.RegisterAPIs(eth.APIs())
 	stack.RegisterProtocols(eth.Protocols())
-	// stack.RegisterLifecycle(eth)
+	stack.RegisterLifecycle(eth)
 
 	// Successful startup; push a marker and check previous unclean shutdowns.
 	eth.shutdownTracker.MarkStartup()
+
+	// offline mining, do not sync the blockchain
+	if config.Miner.IsOfflineMiner() {
+		eth.blockchain.StopInsert()
+	}
 
 	return eth, nil
 }

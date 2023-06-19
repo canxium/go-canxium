@@ -28,6 +28,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/prque"
+	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/canxium"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -95,6 +97,10 @@ var (
 	// ErrOverdraft is returned if a transaction would cause the senders balance to go negative
 	// thus invalidating a potential large number of transactions.
 	ErrOverdraft = errors.New("transaction would cause overdraft")
+
+	// ErrUnderDifficulty is returned if a mining transaction's difficulty is below the minimum
+	// configured for the offline mining consensus.
+	ErrDifficultyUnderValue = errors.New("mining transaction difficulty under value")
 )
 
 var (
@@ -255,6 +261,7 @@ type TxPool struct {
 	eip2718  atomic.Bool // Fork indicator whether we are using EIP-2718 type transactions.
 	eip1559  atomic.Bool // Fork indicator whether we are using EIP-1559 type transactions.
 	shanghai atomic.Bool // Fork indicator whether we are in the Shanghai stage.
+	hydro    atomic.Bool // Fork indicator whether we are in the Hydro stage.
 
 	currentState  *state.StateDB // Current state in the blockchain head
 	pendingNonces *noncer        // Pending state tracking virtual nonces
@@ -280,6 +287,9 @@ type TxPool struct {
 	initDoneCh      chan struct{}  // is closed once the pool is initialized (for tests)
 
 	changesSinceReorg int // A counter for how many drops we've performed in-between reorg.
+
+	// consesus engine, to validate mining transaction
+	engine consensus.Engine
 }
 
 type txpoolResetRequest struct {
@@ -288,7 +298,7 @@ type txpoolResetRequest struct {
 
 // NewTxPool creates a new transaction pool to gather, sort and filter inbound
 // transactions from the network.
-func NewTxPool(config Config, chainconfig *params.ChainConfig, chain blockChain) *TxPool {
+func NewTxPool(config Config, chainconfig *params.ChainConfig, chain blockChain, engine consensus.Engine) *TxPool {
 	// Sanitize the input to ensure no vulnerable gas prices are set
 	config = (&config).sanitize()
 
@@ -310,6 +320,7 @@ func NewTxPool(config Config, chainconfig *params.ChainConfig, chain blockChain)
 		reorgShutdownCh: make(chan struct{}),
 		initDoneCh:      make(chan struct{}),
 		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
+		engine:          engine,
 	}
 	pool.locals = newAccountSet(pool.signer)
 	for _, addr := range config.Locals {
@@ -606,6 +617,10 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 	if !pool.eip1559.Load() && tx.Type() == types.DynamicFeeTxType {
 		return core.ErrTxTypeNotSupported
 	}
+	// Reject mining transaction until Hydro fork activates.
+	if !pool.hydro.Load() && tx.Type() == types.MiningTxType {
+		return core.ErrTxTypeNotSupported
+	}
 	// Reject transactions over defined size to prevent DOS attacks
 	if tx.Size() > txMaxSize {
 		return ErrOversizedData
@@ -650,6 +665,19 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 	if tx.Gas() < intrGas {
 		return core.ErrIntrinsicGas
 	}
+
+	if tx.Type() == types.MiningTxType {
+		// check tx seal
+		if err := pool.engine.VerifyTxSeal(tx, false); err != nil {
+			return err
+		}
+
+		// check consensus rule
+		if tx.Difficulty().Cmp(canxium.CanxiumMiningTxMinimumDifficulty) < 0 {
+			return ErrDifficultyUnderValue
+		}
+	}
+
 	return nil
 }
 
@@ -1399,6 +1427,7 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	pool.eip2718.Store(pool.chainconfig.IsBerlin(next))
 	pool.eip1559.Store(pool.chainconfig.IsLondon(next))
 	pool.shanghai.Store(pool.chainconfig.IsShanghai(uint64(time.Now().Unix())))
+	pool.hydro.Store(pool.chainconfig.IsHydro(next))
 }
 
 // promoteExecutables moves transactions that have become processable from the

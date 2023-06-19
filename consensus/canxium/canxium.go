@@ -34,6 +34,7 @@ import (
 )
 
 var ErrInvalidDumpMagic = errors.New("invalid dump magic")
+var ErrInvalidAlgorithm = errors.New("invalid offline mining algorithm")
 
 var (
 	// two256 is a big integer representing 2^256
@@ -47,6 +48,12 @@ var (
 
 	// dumpMagic is a dataset dump header to sanity check a data dump.
 	dumpMagic = []uint32{0xbaddcafe, 0xfee1dead}
+
+	// reward for offline mining transaction
+	CanxiumMiningTxRewardPerHash     = big.NewInt(500)     // Reward in wei per difficulty hash for successfully mining a transaction upward from Canxium
+	CanxiumMiningTxFoundationPercent = big.NewInt(20)      // Foudation reward: 20%,
+	CanxiumMiningTxCoinbasePercent   = big.NewInt(5)       // Block miner reward: 5%
+	CanxiumMiningTxMinimumDifficulty = big.NewInt(1000000) // 1GH
 )
 
 func init() {
@@ -102,7 +109,7 @@ type Config struct {
 type Canxium struct {
 	config Config
 
-	ehash *ethash.Ethash
+	ethash *ethash.Ethash
 
 	// Mining related fields
 	rand     *rand.Rand    // Properly seeded random source for nonces
@@ -143,7 +150,7 @@ func New(config Config, notify []string, noverify bool) *Canxium {
 		canxium.shared = sharedEthash
 	}
 	if config.Algorithm == types.EthashAlgorithm {
-		canxium.ehash = ethash.New(ethash.Config{
+		canxium.ethash = ethash.New(ethash.Config{
 			PowMode:          ethash.Mode(config.PowMode),
 			CacheDir:         config.CacheDir,
 			CachesInMem:      config.CachesInMem,
@@ -155,9 +162,8 @@ func New(config Config, notify []string, noverify bool) *Canxium {
 			DatasetsLockMmap: config.DatasetsLockMmap,
 			NotifyFull:       config.NotifyFull,
 		}, notify, noverify)
-
-		canxium.dataset = canxium.ehash.Dataset(0, false).Dataset()
 	}
+
 	canxium.remote = startRemoteSealer(canxium, notify, noverify)
 	return canxium
 }

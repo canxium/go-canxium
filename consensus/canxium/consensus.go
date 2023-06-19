@@ -33,6 +33,13 @@ import (
 	"golang.org/x/crypto/sha3"
 )
 
+var (
+	errInvalidDifficulty = errors.New("non-positive difficulty")
+	errInvalidMixDigest  = errors.New("invalid mix digest")
+	errInvalidPoW        = errors.New("invalid proof-of-work")
+	errInvalidTxType     = errors.New("invalid offline mining transaction type")
+)
+
 // SignerFn hashes and signs the data to be signed by a backing account.
 type SignerFn func(signer accounts.Account, tx *types.Transaction, chainID *big.Int) (*types.Transaction, error)
 
@@ -86,6 +93,22 @@ func (c *Canxium) VerifyUncles(chain consensus.ChainReader, block *types.Block) 
 // to make remote mining fast.
 func (c *Canxium) verifySeal(chain consensus.ChainHeaderReader, header *types.Header, fulldag bool) error {
 	return nil
+}
+
+// verifyTxSeal checks whether a offline mining transaction satisfies the PoW difficulty requirements,
+// either using the usual ethash cache for it, or alternatively using a full DAG
+// to make remote mining fast.
+func (c *Canxium) VerifyTxSeal(transaction *types.Transaction, fulldag bool) error {
+	if transaction.Type() != types.MiningTxType {
+		return errInvalidTxType
+	}
+
+	switch transaction.Algorithm() {
+	case types.EthashAlgorithm:
+		return c.ethash.VerifyTxSeal(transaction, fulldag)
+	default:
+		return fmt.Errorf("offline mining algorithm %d is not supported yet", transaction.Algorithm())
+	}
 }
 
 // Prepare implements consensus.Engine, preparing all the consensus fields of the

@@ -109,7 +109,6 @@ func (canxium *Canxium) Seal(chain consensus.ChainHeaderReader, block *types.Blo
 		pend.Add(1)
 		go func(id int, nonce uint64) {
 			defer pend.Done()
-			canxium.config.Log.Info("Start mining transaction", "hash", transaction.Hash())
 			canxium.mine(transaction, id, nonce, abort, locals)
 		}(i, uint64(canxium.rand.Int63()))
 	}
@@ -158,7 +157,7 @@ func (canxium *Canxium) mine(transaction *types.Transaction, id int, seed uint64
 
 	switch transaction.Algorithm() {
 	case types.EthashAlgorithm:
-		canxium.ethashMine(transaction, id, seed, abort, found)
+		canxium.ethash.MineTx(transaction, id, seed, abort, found)
 	case types.Sha256Algorithm:
 		canxium.config.Log.Error("Offline mining algorithm", "algorithm", transaction.Algorithm(), "is not supported yet.")
 	}
