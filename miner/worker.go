@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -77,6 +78,9 @@ const (
 
 	// staleThreshold is the maximum depth of the acceptable stale block.
 	staleThreshold = 7
+
+	// nonce prefix for mining account
+	accountNoncePrefix = "account.nonce"
 )
 
 var (
@@ -303,6 +307,7 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		exitCh:             make(chan struct{}),
 		resubmitIntervalCh: make(chan time.Duration),
 		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
+		txNonce:            config.Nonce,
 	}
 	// Subscribe NewTxsEvent for tx pool
 	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
@@ -328,6 +333,17 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		log.Warn("Low payload timeout may cause high amount of non-full blocks", "provided", newpayloadTimeout, "default", DefaultConfig.NewPayloadTimeout)
 	}
 	worker.newpayloadTimeout = newpayloadTimeout
+
+	// get saved nonce if any
+	// TODO incorrect value when read back
+	if config.IsOfflineMiner() {
+		if nonce, err := worker.chain.ChainDb().Get([]byte(fmt.Sprintf("%s.%s", accountNoncePrefix, worker.config.CauBase))); err == nil {
+			if n, e := strconv.ParseUint(string(nonce), 10, 64); e == nil && n > 0 {
+				log.Info("Mining new transaction, start from nonce", "nonce", n)
+				worker.txNonce = n
+			}
+		}
+	}
 
 	worker.wg.Add(4)
 	go worker.mainLoop()
@@ -754,8 +770,14 @@ func (w *worker) resultLoop() {
 					log.Error("Failed to marshal raw transaction", "err", err)
 				}
 
-				log.Info("🔨 Successfully sealed new transaction", "nonce", tx.Nonce(), "hash", tx.Hash(), "rawtx", "0x"+hex.EncodeToString(rawTx))
+				log.Info("🔨 Successfully mined transaction", "nonce", tx.Nonce(), "hash", tx.Hash(), "rawtx", "0x"+hex.EncodeToString(rawTx))
 				w.mux.Post(core.NewTxsEvent{Txs: []*types.Transaction{tx}})
+				w.txNonce += 1
+
+				if err := w.chain.ChainDb().Put([]byte(fmt.Sprintf("%s.%s", accountNoncePrefix, w.config.CauBase)), []byte(fmt.Sprintf("%d", w.txNonce))); err != nil {
+					log.Error("Failed to save latest tx nonce for offline miner", "nonce", tx.Nonce(), "err", err)
+				}
+
 				w.commitCh <- struct{}{}
 				continue
 			}
@@ -1131,7 +1153,6 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 	// just append to the list and let miner work on it
 	env.txs = append(env.txs, miningTx)
 	env.tcount++
-	w.txNonce += 1
 
 	return nil
 }
