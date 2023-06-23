@@ -849,7 +849,7 @@ func (w *worker) resultLoop() {
 }
 
 // makeEnv creates a new environment for the sealing block.
-func (w *worker) makeEnv(parent *types.Header, header *types.Header, coinbase common.Address) (*environment, error) {
+func (w *worker) makeEnv(parent *types.Header, header *types.Header, coinbase common.Address, miner common.Address) (*environment, error) {
 	// Retrieve the parent state to execute on top and start a prefetcher for
 	// the miner to speed block sealing up a bit.
 	state, err := w.chain.StateAt(parent.Root)
@@ -863,6 +863,7 @@ func (w *worker) makeEnv(parent *types.Header, header *types.Header, coinbase co
 		signer:    types.MakeSigner(w.chainConfig, header.Number),
 		state:     state,
 		coinbase:  coinbase,
+		miner:     miner,
 		ancestors: mapset.NewSet[common.Hash](),
 		family:    mapset.NewSet[common.Hash](),
 		header:    header,
@@ -1082,7 +1083,7 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 	// Could potentially happen if starting to mine in an odd state.
 	// Note genParams.coinbase can be different with header.Coinbase
 	// since clique algorithm can modify the coinbase field in header.
-	env, err := w.makeEnv(parent, header, genParams.coinbase)
+	env, err := w.makeEnv(parent, header, genParams.coinbase, w.miner)
 	if err != nil {
 		log.Error("Failed to create sealing context", "err", err)
 		return nil, err
