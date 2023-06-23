@@ -100,6 +100,7 @@ type environment struct {
 	tcount    int                     // tx count in cycle
 	gasPool   *core.GasPool           // available gas used to pack transactions
 	coinbase  common.Address
+	miner     common.Address
 
 	header   *types.Header
 	txs      []*types.Transaction
@@ -116,6 +117,7 @@ func (env *environment) copy() *environment {
 		family:    env.family.Clone(),
 		tcount:    env.tcount,
 		coinbase:  env.coinbase,
+		miner:     env.miner,
 		header:    types.CopyHeader(env.header),
 		receipts:  copyReceipts(env.receipts),
 	}
@@ -235,6 +237,7 @@ type worker struct {
 
 	mu       sync.RWMutex // The lock used to protect the coinbase and extra fields
 	coinbase common.Address
+	miner    common.Address // offline miner address
 	extra    []byte
 
 	pendingMu    sync.RWMutex
@@ -293,6 +296,7 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		remoteUncles:       make(map[common.Hash]*types.Block),
 		unconfirmed:        newUnconfirmedBlocks(eth.BlockChain(), sealingLogAtDepth),
 		coinbase:           config.Etherbase,
+		miner:              config.CauBase,
 		extra:              config.ExtraData,
 		pendingTasks:       make(map[common.Hash]*task),
 		txsCh:              make(chan core.NewTxsEvent, txChanSize),
@@ -770,7 +774,7 @@ func (w *worker) resultLoop() {
 					log.Error("Failed to marshal raw transaction", "err", err)
 				}
 
-				log.Info("🔨 Successfully mined transaction", "nonce", tx.Nonce(), "hash", tx.Hash(), "rawtx", "0x"+hex.EncodeToString(rawTx))
+				log.Info("🔨 Successfully mined transaction", "account_nonce", tx.Nonce(), "mined_nonce", tx.PowNonce(), "hash", tx.Hash(), "rawtx", "0x"+hex.EncodeToString(rawTx))
 				w.mux.Post(core.NewTxsEvent{Txs: []*types.Transaction{tx}})
 				w.txNonce += 1
 
@@ -1142,6 +1146,7 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 		GasTipCap:  big.NewInt(0), // this kind of tx is gas free
 		GasFeeCap:  big.NewInt(0),
 		Gas:        21000, // transfer only
+		From:       env.miner,
 		To:         env.coinbase,
 		Value:      new(big.Int).Mul(ethash.CanxiumBlockRewardPerHash, w.config.Difficulty),
 		Data:       nil,

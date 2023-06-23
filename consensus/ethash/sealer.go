@@ -222,7 +222,7 @@ search:
 			digest, result := hashimotoFull(dataset.dataset, hash, nonce)
 			if powBuffer.SetBytes(result).Cmp(target) <= 0 {
 				ethash.config.Log.Info("Found nonce for mine transaction", "hash", transaction.Hash(), "none", nonce, "digest", common.BytesToHash(digest))
-				transaction.SetPow(nonce, common.BytesToHash(digest))
+				transaction.SetEthashPow(nonce, common.BytesToHash(digest))
 				select {
 				case found <- transaction:
 					logger.Trace("Ethash nonce found and reported", "attempts", nonce-seed, "nonce", nonce)

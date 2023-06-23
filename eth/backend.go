@@ -266,11 +266,6 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	// Successful startup; push a marker and check previous unclean shutdowns.
 	eth.shutdownTracker.MarkStartup()
 
-	// offline mining, do not sync the blockchain
-	if config.Miner.IsOfflineMiner() {
-		eth.blockchain.StopInsert()
-	}
-
 	return eth, nil
 }
 

@@ -261,12 +261,13 @@ func (s londonSigner) Hash(tx *Transaction) common.Hash {
 				tx.GasTipCap(),
 				tx.GasFeeCap(),
 				tx.Gas(),
+				tx.From(),
 				tx.To(),
 				tx.Value(),
 				tx.Data(),
 				tx.Algorithm(),
 				tx.Difficulty(),
-				tx.Seed(),
+				tx.PowNonce(),
 				tx.MixDigest(),
 			})
 	}

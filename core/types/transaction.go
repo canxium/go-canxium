@@ -61,10 +61,10 @@ type Transaction struct {
 	time  time.Time // Time first seen locally (spam avoidance)
 
 	// caches
-	hash       atomic.Value
-	miningHash atomic.Value
-	size       atomic.Value
-	from       atomic.Value
+	hash     atomic.Value
+	sealHash atomic.Value
+	size     atomic.Value
+	from     atomic.Value
 }
 
 // NewTx creates a new transaction.
@@ -90,6 +90,7 @@ type TxData interface {
 	gasFeeCap() *big.Int
 	value() *big.Int
 	nonce() uint64
+	from() common.Address
 	to() *common.Address
 
 	rawSignatureValues() (v, r, s *big.Int)
@@ -106,9 +107,9 @@ type TxData interface {
 	// mining functions
 	algorithm() byte
 	difficulty() *big.Int
-	seed() uint64
+	powNonce() uint64
 	mixDigest() common.Hash
-	setPow(seed uint64, mixDigest common.Hash)
+	setEthashPow(seed uint64, mixDigest common.Hash)
 }
 
 // EncodeRLP implements rlp.Encoder
@@ -314,16 +315,22 @@ func (tx *Transaction) Algorithm() uint8 { return tx.inner.algorithm() }
 func (tx *Transaction) Difficulty() *big.Int { return tx.inner.difficulty() }
 
 // Seed returns the mining seed of transaction which solve the pow
-func (tx *Transaction) Seed() uint64 { return tx.inner.seed() }
+func (tx *Transaction) PowNonce() uint64 { return tx.inner.powNonce() }
 
 // Seed returns the mining seed of transaction which solve the pow
 func (tx *Transaction) MixDigest() common.Hash { return tx.inner.mixDigest() }
 
 // Seed returns the mining seed of transaction which solve the pow
-func (tx *Transaction) SetPow(seed uint64, mixDigest common.Hash) { tx.inner.setPow(seed, mixDigest) }
+func (tx *Transaction) SetEthashPow(nonce uint64, mixDigest common.Hash) {
+	tx.inner.setEthashPow(nonce, mixDigest)
+}
 
 // Difficulty returns the mining diffculty of transaction
 func (tx *Transaction) IsMiningTx() bool { return tx.Type() == MiningTxType }
+
+// To returns the sender address of the transaction.
+// For offline mining transaction only
+func (tx *Transaction) From() common.Address { return tx.inner.from() }
 
 // To returns the recipient address of the transaction.
 // For contract-creation transactions, To returns nil.
@@ -431,7 +438,7 @@ func (tx *Transaction) SealHash() common.Hash {
 		return common.Hash{}
 	}
 
-	if hash := tx.miningHash.Load(); hash != nil {
+	if hash := tx.sealHash.Load(); hash != nil {
 		return hash.(common.Hash)
 	}
 
@@ -442,6 +449,7 @@ func (tx *Transaction) SealHash() common.Hash {
 		tx.GasTipCap(),
 		tx.GasFeeCap(),
 		tx.Gas(),
+		tx.From(),
 		tx.To(),
 		tx.Value(),
 		tx.Data(),
@@ -449,7 +457,7 @@ func (tx *Transaction) SealHash() common.Hash {
 		tx.Difficulty(),
 	})
 
-	tx.miningHash.Store(h)
+	tx.sealHash.Store(h)
 
 	return h
 }

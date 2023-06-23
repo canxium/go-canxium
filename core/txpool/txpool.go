@@ -650,7 +650,8 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 		return core.ErrTipAboveFeeCap
 	}
 	// Make sure the transaction is signed properly.
-	if _, err := types.Sender(pool.signer, tx); err != nil {
+	sender, err := types.Sender(pool.signer, tx)
+	if err != nil {
 		return ErrInvalidSender
 	}
 	// Drop non-local transactions under our own minimal accepted gas price or tip
@@ -667,14 +668,17 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 	}
 
 	if tx.Type() == types.MiningTxType {
-		// check tx seal
-		if err := pool.engine.VerifyTxSeal(tx, false); err != nil {
-			return err
-		}
-
 		// check consensus rule
 		if tx.Difficulty().Cmp(canxium.CanxiumMiningTxMinimumDifficulty) < 0 {
 			return ErrDifficultyUnderValue
+		}
+		if sender != tx.From() {
+			log.Warn("Invalid offline mining transaction sender", "sender", sender, "from", tx.From())
+			return ErrInvalidSender
+		}
+		// check tx seal
+		if err := pool.engine.VerifyTxSeal(tx, false); err != nil {
+			return err
 		}
 	}
 

@@ -404,13 +404,6 @@ func hashimotoFull(dataset []uint32, hash []byte, nonce uint64) ([]byte, []byte)
 	return hashimoto(hash, nonce, uint64(len(dataset))*4, lookup)
 }
 
-// hashimotoFull aggregates data from the full dataset (using the full in-memory
-// dataset) in order to produce our final value for a particular header hash and
-// nonce.
-func HashimotoFull(dataset []uint32, hash []byte, nonce uint64) ([]byte, []byte) {
-	return hashimotoFull(dataset, hash, nonce)
-}
-
 const maxEpoch = 2048
 
 // datasetSizes is a lookup table for the ethash dataset size for the first 2048

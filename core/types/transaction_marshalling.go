@@ -47,10 +47,11 @@ type txJSON struct {
 	AccessList *AccessList  `json:"accessList,omitempty"`
 
 	// Mining transaction
+	From       *common.Address `json:"from"`
 	Algorithm  *hexutil.Uint   `json:"algorithm,omitempty"`
 	Difficulty *hexutil.Big    `json:"difficulty,omitempty"`
 	MixDigest  *common.Hash    `json:"mixDigest,omitempty"`
-	Seed       *hexutil.Uint64 `json:"seed,omitempty"`
+	PowNonce   *hexutil.Uint64 `json:"seed,omitempty"`
 
 	// Only used for encoding:
 	Hash common.Hash `json:"hash"`
@@ -110,11 +111,13 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		enc.Data = (*hexutil.Bytes)(&itx.Data)
 		enc.To = tx.To()
 
+		from := tx.From()
+		enc.From = &from
 		algorithm := uint(itx.Algorithm)
 		enc.Algorithm = (*hexutil.Uint)(&algorithm)
 		enc.Difficulty = (*hexutil.Big)(itx.Difficulty)
 		enc.MixDigest = (*common.Hash)(&itx.MixDigest)
-		enc.Seed = (*hexutil.Uint64)(&itx.Seed)
+		enc.PowNonce = (*hexutil.Uint64)(&itx.PowNonce)
 
 		enc.V = (*hexutil.Big)(itx.V)
 		enc.R = (*hexutil.Big)(itx.R)
@@ -296,6 +299,9 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 			return errors.New("missing required field 'chainId' in transaction")
 		}
 		itx.ChainID = (*big.Int)(dec.ChainID)
+		if dec.From != nil {
+			itx.From = *dec.From
+		}
 		if dec.To != nil {
 			itx.To = *dec.To
 		}
@@ -343,10 +349,10 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 			return errors.New("missing required field 'difficulty' in transaction")
 		}
 		itx.Difficulty = (*big.Int)(dec.Difficulty)
-		if dec.Seed == nil {
+		if dec.PowNonce == nil {
 			return errors.New("missing required field 'seed' in transaction")
 		}
-		itx.Seed = uint64(*dec.Seed)
+		itx.PowNonce = uint64(*dec.PowNonce)
 		if dec.MixDigest == nil {
 			return errors.New("missing required field 'mixDigest' in transaction")
 		}

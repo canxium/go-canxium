@@ -28,6 +28,7 @@ type MiningTx struct {
 	GasTipCap *big.Int // a.k.a. maxPriorityFeePerGas
 	GasFeeCap *big.Int // a.k.a. maxFeePerGas
 	Gas       uint64
+	From      common.Address // sender address, to prevent replay attack
 	To        common.Address // mining reward receiver
 	Value     *big.Int       // value should equal difficulty * consensus reward per difficulty hash
 	Data      []byte
@@ -36,7 +37,7 @@ type MiningTx struct {
 	Algorithm  uint8
 	Difficulty *big.Int
 	MixDigest  common.Hash
-	Seed       uint64 // mining nonce
+	PowNonce   uint64 // mining nonce
 
 	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`
@@ -48,6 +49,7 @@ type MiningTx struct {
 func (tx *MiningTx) copy() TxData {
 	cpy := &MiningTx{
 		Nonce: tx.Nonce,
+		From:  tx.From,
 		To:    tx.To,
 		Data:  common.CopyBytes(tx.Data),
 		Gas:   tx.Gas,
@@ -59,7 +61,7 @@ func (tx *MiningTx) copy() TxData {
 		// mining fields
 		Algorithm:  tx.Algorithm,
 		Difficulty: new(big.Int),
-		Seed:       tx.Seed,
+		PowNonce:   tx.PowNonce,
 		MixDigest:  tx.MixDigest,
 		// signature
 		V: new(big.Int),
@@ -106,14 +108,15 @@ func (tx *MiningTx) gasPrice() *big.Int     { return tx.GasFeeCap }
 func (tx *MiningTx) value() *big.Int        { return tx.Value }
 func (tx *MiningTx) nonce() uint64          { return tx.Nonce }
 func (tx *MiningTx) to() *common.Address    { return &tx.To }
+func (tx *MiningTx) from() common.Address   { return tx.From }
 
 // mining fields
 func (tx *MiningTx) algorithm() byte        { return tx.Algorithm }
 func (tx *MiningTx) difficulty() *big.Int   { return tx.Difficulty }
-func (tx *MiningTx) seed() uint64           { return tx.Seed }
+func (tx *MiningTx) powNonce() uint64       { return tx.PowNonce }
 func (tx *MiningTx) mixDigest() common.Hash { return tx.MixDigest }
-func (tx *MiningTx) setPow(seed uint64, mixDigest common.Hash) {
-	tx.Seed = seed
+func (tx *MiningTx) setEthashPow(nonce uint64, mixDigest common.Hash) {
+	tx.PowNonce = nonce
 	tx.MixDigest = mixDigest
 }
 
