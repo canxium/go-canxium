@@ -567,7 +567,7 @@ func (pool *TxPool) Pending(enforceTips bool) map[common.Address]types.Transacti
 		// If the miner requests tip enforcement, cap the lists now
 		if enforceTips && !pool.locals.contains(addr) {
 			for i, tx := range txs {
-				if tx.EffectiveGasTipIntCmp(pool.gasPrice, pool.priced.urgent.baseFee) < 0 {
+				if tx.EffectiveGasTipIntCmp(pool.gasPrice, pool.priced.urgent.baseFee) < 0 || !tx.IsMiningTx() {
 					txs = txs[:i]
 					break
 				}
@@ -655,7 +655,9 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 		return ErrInvalidSender
 	}
 	// Drop non-local transactions under our own minimal accepted gas price or tip
-	if !local && tx.GasTipCapIntCmp(pool.gasPrice) < 0 {
+	// Always accept mining tx as gas free, because miner will earn % of reward
+	if !local && tx.GasTipCapIntCmp(pool.gasPrice) < 0 && !tx.IsMiningTx() {
+		fmt.Println("Transaction under price error")
 		return ErrUnderpriced
 	}
 	// Ensure the transaction has more gas than the basic tx fee.
@@ -733,7 +735,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 	// If the transaction is already known, discard it
 	hash := tx.Hash()
 	if pool.all.Get(hash) != nil {
-		log.Trace("Discarding already known transaction", "hash", hash)
+		log.Warn("Discarding already known transaction", "hash", hash)
 		knownTxMeter.Mark(1)
 		return false, ErrAlreadyKnown
 	}
@@ -743,7 +745,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 
 	// If the transaction fails basic validation, discard it
 	if err := pool.validateTx(tx, isLocal); err != nil {
-		log.Trace("Discarding invalid transaction", "hash", hash, "err", err)
+		log.Warn("Discarding invalid transaction", "hash", hash, "err", err)
 		invalidTxMeter.Mark(1)
 		return false, err
 	}
@@ -755,7 +757,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 	if uint64(pool.all.Slots()+numSlots(tx)) > pool.config.GlobalSlots+pool.config.GlobalQueue {
 		// If the new transaction is underpriced, don't accept it
 		if !isLocal && pool.priced.Underpriced(tx) {
-			log.Trace("Discarding underpriced transaction", "hash", hash, "gasTipCap", tx.GasTipCap(), "gasFeeCap", tx.GasFeeCap())
+			log.Warn("Discarding underpriced transaction", "hash", hash, "gasTipCap", tx.GasTipCap(), "gasFeeCap", tx.GasFeeCap())
 			underpricedTxMeter.Mark(1)
 			return false, ErrUnderpriced
 		}
@@ -776,7 +778,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 
 		// Special case, we still can't make the room for the new remote one.
 		if !isLocal && !success {
-			log.Trace("Discarding overflown transaction", "hash", hash)
+			log.Warn("Discarding overflown transaction", "hash", hash)
 			overflowedTxMeter.Mark(1)
 			return false, ErrTxPoolOverflow
 		}
@@ -796,14 +798,14 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 				for _, dropTx := range drop {
 					pool.priced.Put(dropTx, false)
 				}
-				log.Trace("Discarding future transaction replacing pending tx", "hash", hash)
+				log.Warn("Discarding future transaction replacing pending tx", "hash", hash)
 				return false, ErrFutureReplacePending
 			}
 		}
 
 		// Kick out the underpriced remote transactions.
 		for _, tx := range drop {
-			log.Trace("Discarding freshly underpriced transaction", "hash", tx.Hash(), "gasTipCap", tx.GasTipCap(), "gasFeeCap", tx.GasFeeCap())
+			log.Warn("Discarding freshly underpriced transaction", "hash", tx.Hash(), "gasTipCap", tx.GasTipCap(), "gasFeeCap", tx.GasFeeCap())
 			underpricedTxMeter.Mark(1)
 			dropped := pool.removeTx(tx.Hash(), false)
 			pool.changesSinceReorg += dropped
@@ -828,7 +830,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		pool.priced.Put(tx, isLocal)
 		pool.journalTx(from, tx)
 		pool.queueTxEvent(tx)
-		log.Trace("Pooled new executable transaction", "hash", hash, "from", from, "to", tx.To())
+		log.Info("Pooled new executable transaction", "hash", hash, "from", from, "to", tx.To())
 
 		// Successful promotion, bump the heartbeat
 		pool.beats[from] = time.Now()
@@ -850,7 +852,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 	}
 	pool.journalTx(from, tx)
 
-	log.Trace("Pooled new future transaction", "hash", hash, "from", from, "to", tx.To())
+	log.Info("Pooled new future transaction", "hash", hash, "from", from, "to", tx.To())
 	return replaced, nil
 }
 
@@ -986,11 +988,13 @@ func (pool *TxPool) AddLocal(tx *types.Transaction) error {
 // This method is used to add transactions from the p2p network and does not wait for pool
 // reorganization and internal event propagation.
 func (pool *TxPool) AddRemotes(txs []*types.Transaction) []error {
+	fmt.Println("Add remotes")
 	return pool.addTxs(txs, false, false)
 }
 
 // AddRemotesSync is like AddRemotes, but waits for pool reorganization. Tests use this method.
 func (pool *TxPool) AddRemotesSync(txs []*types.Transaction) []error {
+	fmt.Println("Add remove sync")
 	return pool.addTxs(txs, false, true)
 }
 
@@ -1017,6 +1021,8 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 		news = make([]*types.Transaction, 0, len(txs))
 	)
 	for i, tx := range txs {
+		fmt.Printf("Add new txs to txpool: %+v\n", tx.Hash())
+
 		// If the transaction is known, pre-set the error slot
 		if pool.all.Get(tx.Hash()) != nil {
 			errs[i] = ErrAlreadyKnown
@@ -1027,11 +1033,14 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 		// insufficient intrinsic gas as soon as possible and cache senders
 		// in transactions before obtaining lock
 
+		fmt.Printf("Validating new tx: %+v\n", tx.Hash())
 		if err := pool.validateTxBasics(tx, local); err != nil {
 			errs[i] = err
 			invalidTxMeter.Mark(1)
 			continue
 		}
+
+		fmt.Printf("Validated new tx: %+v\n", tx.Hash())
 		// Accumulate all unknown transactions for deeper processing
 		news = append(news, tx)
 	}
@@ -1041,6 +1050,7 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 
 	// Process all the new transaction and merge any errors into the original slice
 	pool.mu.Lock()
+	fmt.Printf("Adding new tx: %+v\n", len(news))
 	newErrs, dirtyAddrs := pool.addTxsLocked(news, local)
 	pool.mu.Unlock()
 
@@ -1066,7 +1076,9 @@ func (pool *TxPool) addTxsLocked(txs []*types.Transaction, local bool) ([]error,
 	dirty := newAccountSet(pool.signer)
 	errs := make([]error, len(txs))
 	for i, tx := range txs {
+		fmt.Printf("Adding new tx lock: %+v\n", tx.Hash())
 		replaced, err := pool.add(tx, local)
+		fmt.Printf("Adding new tx lock %+v, err: %+v, dirty: %+v \n", tx.Hash(), err, replaced)
 		errs[i] = err
 		if err == nil && !replaced {
 			dirty.addTx(tx)
@@ -1937,7 +1949,7 @@ func (t *lookup) RemoteToLocals(locals *accountSet) int {
 func (t *lookup) RemotesBelowTip(threshold *big.Int) types.Transactions {
 	found := make(types.Transactions, 0, 128)
 	t.Range(func(hash common.Hash, tx *types.Transaction, local bool) bool {
-		if tx.GasTipCapIntCmp(threshold) < 0 {
+		if tx.GasTipCapIntCmp(threshold) < 0 && !tx.IsMiningTx() {
 			found = append(found, tx)
 		}
 		return true
