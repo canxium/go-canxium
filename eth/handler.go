@@ -114,6 +114,7 @@ type handler struct {
 	txsCh         chan core.NewTxsEvent
 	txsSub        event.Subscription
 	minedBlockSub *event.TypeMuxSubscription
+	minedTxSub    *event.TypeMuxSubscription
 
 	requiredBlocks map[uint64]common.Hash
 
@@ -548,6 +549,11 @@ func (h *handler) Start(maxPeers int) {
 	h.txsSub = h.txpool.SubscribeNewTxsEvent(h.txsCh)
 	go h.txBroadcastLoop()
 
+	// broadcast mined txs
+	h.wg.Add(1)
+	h.minedTxSub = h.eventMux.Subscribe(core.NewTxsEvent{})
+	go h.minedTxsBroadcastLoop()
+
 	// broadcast mined blocks
 	h.wg.Add(1)
 	h.minedBlockSub = h.eventMux.Subscribe(core.NewMinedBlockEvent{})
@@ -561,6 +567,7 @@ func (h *handler) Start(maxPeers int) {
 func (h *handler) Stop() {
 	h.txsSub.Unsubscribe()        // quits txBroadcastLoop
 	h.minedBlockSub.Unsubscribe() // quits blockBroadcastLoop
+	h.minedTxSub.Unsubscribe()    // quits txBroadcastLoop
 
 	// Quit chainSync and txsync64.
 	// After this is done, no new peers will be accepted.
@@ -672,6 +679,18 @@ func (h *handler) minedBroadcastLoop() {
 		if ev, ok := obj.Data.(core.NewMinedBlockEvent); ok {
 			h.BroadcastBlock(ev.Block, true)  // First propagate block to peers
 			h.BroadcastBlock(ev.Block, false) // Only then announce to the rest
+		}
+	}
+}
+
+// minedTxsBroadcastLoop sends mined txs to connected peers.
+func (h *handler) minedTxsBroadcastLoop() {
+	defer h.wg.Done()
+
+	for obj := range h.minedTxSub.Chan() {
+		if ev, ok := obj.Data.(core.NewTxsEvent); ok {
+			log.Info("Broadcast mined transactions", "txs", len(ev.Txs))
+			h.BroadcastTransactions(ev.Txs)
 		}
 	}
 }

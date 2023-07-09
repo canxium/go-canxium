@@ -80,6 +80,10 @@ type Engine interface {
 	// rules of a given engine.
 	VerifyUncles(chain ChainReader, block *types.Block) error
 
+	// VerifyTxSeal verifies that the given mining transaction conform to the consensus
+	// rules of a given engine.
+	VerifyTxSeal(tx *types.Transaction, fulldag bool) error
+
 	// Prepare initializes the consensus fields of a block header according to the
 	// rules of a particular engine. The changes are executed inline.
 	Prepare(chain ChainHeaderReader, header *types.Header) error
