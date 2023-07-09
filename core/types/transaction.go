@@ -45,6 +45,14 @@ const (
 	LegacyTxType = iota
 	AccessListTxType
 	DynamicFeeTxType
+	MiningTxType
+)
+
+// Transaction mining algorithm.
+const (
+	NoneAlgorithm = iota
+	EthashAlgorithm
+	Sha256Algorithm
 )
 
 // Transaction is an Ethereum transaction.
@@ -53,9 +61,10 @@ type Transaction struct {
 	time  time.Time // Time first seen locally (spam avoidance)
 
 	// caches
-	hash atomic.Value
-	size atomic.Value
-	from atomic.Value
+	hash     atomic.Value
+	sealHash atomic.Value
+	size     atomic.Value
+	from     atomic.Value
 }
 
 // NewTx creates a new transaction.
@@ -81,6 +90,7 @@ type TxData interface {
 	gasFeeCap() *big.Int
 	value() *big.Int
 	nonce() uint64
+	from() common.Address
 	to() *common.Address
 
 	rawSignatureValues() (v, r, s *big.Int)
@@ -93,6 +103,13 @@ type TxData interface {
 	// copy of the computed value, i.e. callers are allowed to mutate the result.
 	// Method implementations can use 'dst' to store the result.
 	effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int
+
+	// mining functions
+	algorithm() byte
+	difficulty() *big.Int
+	powNonce() uint64
+	mixDigest() common.Hash
+	setEthashPow(seed uint64, mixDigest common.Hash)
 }
 
 // EncodeRLP implements rlp.Encoder
@@ -192,6 +209,10 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		var inner DynamicFeeTx
 		err := rlp.DecodeBytes(b[1:], &inner)
 		return &inner, err
+	case MiningTxType:
+		var inner MiningTx
+		err := rlp.DecodeBytes(b[1:], &inner)
+		return &inner, err
 	default:
 		return nil, ErrTxTypeNotSupported
 	}
@@ -287,6 +308,30 @@ func (tx *Transaction) Value() *big.Int { return new(big.Int).Set(tx.inner.value
 // Nonce returns the sender account nonce of the transaction.
 func (tx *Transaction) Nonce() uint64 { return tx.inner.nonce() }
 
+// Algorithm returns the mining algorithm of transaction which miner choosed
+func (tx *Transaction) Algorithm() uint8 { return tx.inner.algorithm() }
+
+// Difficulty returns the mining diffculty of transaction
+func (tx *Transaction) Difficulty() *big.Int { return tx.inner.difficulty() }
+
+// Seed returns the mining seed of transaction which solve the pow
+func (tx *Transaction) PowNonce() uint64 { return tx.inner.powNonce() }
+
+// Seed returns the mining seed of transaction which solve the pow
+func (tx *Transaction) MixDigest() common.Hash { return tx.inner.mixDigest() }
+
+// Seed returns the mining seed of transaction which solve the pow
+func (tx *Transaction) SetEthashPow(nonce uint64, mixDigest common.Hash) {
+	tx.inner.setEthashPow(nonce, mixDigest)
+}
+
+// Difficulty returns the mining diffculty of transaction
+func (tx *Transaction) IsMiningTx() bool { return tx.Type() == MiningTxType }
+
+// To returns the sender address of the transaction.
+// For offline mining transaction only
+func (tx *Transaction) From() common.Address { return tx.inner.from() }
+
 // To returns the recipient address of the transaction.
 // For contract-creation transactions, To returns nil.
 func (tx *Transaction) To() *common.Address {
@@ -295,6 +340,10 @@ func (tx *Transaction) To() *common.Address {
 
 // Cost returns gas * gasPrice + value.
 func (tx *Transaction) Cost() *big.Int {
+	if tx.IsMiningTx() {
+		return big.NewInt(0)
+	}
+
 	total := new(big.Int).Mul(tx.GasPrice(), new(big.Int).SetUint64(tx.Gas()))
 	total.Add(total, tx.Value())
 	return total
@@ -330,6 +379,9 @@ func (tx *Transaction) GasTipCapIntCmp(other *big.Int) int {
 // Note: if the effective gasTipCap is negative, this method returns both error
 // the actual negative value, _and_ ErrGasFeeCapTooLow
 func (tx *Transaction) EffectiveGasTip(baseFee *big.Int) (*big.Int, error) {
+	if tx.IsMiningTx() {
+		return big.NewInt(0), nil
+	}
 	if baseFee == nil {
 		return tx.GasTipCap(), nil
 	}
@@ -377,6 +429,36 @@ func (tx *Transaction) Hash() common.Hash {
 		h = prefixedRlpHash(tx.Type(), tx.inner)
 	}
 	tx.hash.Store(h)
+	return h
+}
+
+// Seal Hash returns the transaction hash used for mining operation
+func (tx *Transaction) SealHash() common.Hash {
+	if tx.Type() != MiningTxType {
+		return common.Hash{}
+	}
+
+	if hash := tx.sealHash.Load(); hash != nil {
+		return hash.(common.Hash)
+	}
+
+	var h common.Hash
+	h = prefixedRlpHash(tx.Type(), []interface{}{
+		tx.ChainId(),
+		tx.Nonce(),
+		tx.GasTipCap(),
+		tx.GasFeeCap(),
+		tx.Gas(),
+		tx.From(),
+		tx.To(),
+		tx.Value(),
+		tx.Data(),
+		tx.Algorithm(),
+		tx.Difficulty(),
+	})
+
+	tx.sealHash.Store(h)
+
 	return h
 }
 

@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-package ethash
+package canxium
 
 import (
 	"bytes"
@@ -22,6 +22,7 @@ import (
 	crand "crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 	"math/rand"
@@ -30,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -48,36 +50,47 @@ var (
 
 // Seal implements consensus.Engine, attempting to find a nonce that satisfies
 // the block's difficulty requirements.
-func (ethash *Ethash) Seal(chain consensus.ChainHeaderReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
+func (canxium *Canxium) Seal(chain consensus.ChainHeaderReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
+	// only one tx is allowed in block, tx.Type have to != NoneAlgorithm
+	if len(block.Transactions()) != 1 {
+		return errors.New("invalid block transactions for seal")
+	}
+
+	transaction := block.Transactions()[0]
+	if transaction.Type() != types.MiningTxType {
+		return fmt.Errorf("invalid mining transactions type %d for seal", transaction.Type())
+	}
+
+	canxium.config.Log.Info("Start sealing transaction", "hash", transaction.Hash())
 	// If we're running a fake PoW, simply return a 0 nonce immediately
-	if ethash.config.PowMode == ModeFake || ethash.config.PowMode == ModeFullFake {
+	if canxium.config.PowMode == ModeFake || canxium.config.PowMode == ModeFullFake {
 		header := block.Header()
 		header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
 		select {
 		case results <- block.WithSeal(header):
 		default:
-			ethash.config.Log.Warn("Sealing result is not read by miner", "mode", "fake", "sealhash", ethash.SealHash(block.Header()))
+			canxium.config.Log.Warn("Sealing result is not read by miner", "mode", "fake", "sealhash", canxium.SealHash(block.Header()))
 		}
 		return nil
 	}
 	// If we're running a shared PoW, delegate sealing to it
-	if ethash.shared != nil {
-		return ethash.shared.Seal(chain, block, results, stop)
+	if canxium.shared != nil {
+		return canxium.shared.Seal(chain, block, results, stop)
 	}
 	// Create a runner and the multiple search threads it directs
 	abort := make(chan struct{})
 
-	ethash.lock.Lock()
-	threads := ethash.threads
-	if ethash.rand == nil {
+	canxium.lock.Lock()
+	threads := canxium.threads
+	if canxium.rand == nil {
 		seed, err := crand.Int(crand.Reader, big.NewInt(math.MaxInt64))
 		if err != nil {
-			ethash.lock.Unlock()
+			canxium.lock.Unlock()
 			return err
 		}
-		ethash.rand = rand.New(rand.NewSource(seed.Int64()))
+		canxium.rand = rand.New(rand.NewSource(seed.Int64()))
 	}
-	ethash.lock.Unlock()
+	canxium.lock.Unlock()
 	if threads == 0 {
 		threads = runtime.NumCPU()
 	}
@@ -85,40 +98,48 @@ func (ethash *Ethash) Seal(chain consensus.ChainHeaderReader, block *types.Block
 		threads = 0 // Allows disabling local mining without extra logic around local/remote
 	}
 	// Push new work to remote sealer
-	if ethash.remote != nil {
-		ethash.remote.workCh <- &sealTask{block: block, results: results}
+	if canxium.remote != nil {
+		canxium.remote.workCh <- &sealTask{block: block, results: results}
 	}
 	var (
 		pend   sync.WaitGroup
-		locals = make(chan *types.Block)
+		locals = make(chan *types.Transaction)
 	)
 	for i := 0; i < threads; i++ {
 		pend.Add(1)
 		go func(id int, nonce uint64) {
 			defer pend.Done()
-			ethash.mine(block, id, nonce, abort, locals)
-		}(i, uint64(ethash.rand.Int63()))
+			canxium.mine(transaction, id, nonce, abort, locals)
+		}(i, uint64(canxium.rand.Int63()))
 	}
 	// Wait until sealing is terminated or a nonce is found
 	go func() {
-		var result *types.Block
+		var result *types.Transaction
 		select {
 		case <-stop:
 			// Outside abort, stop all miner threads
+			canxium.config.Log.Info("Got stop signal from outside worker")
 			close(abort)
 		case result = <-locals:
 			// One of the threads found a block, abort all others
-			select {
-			case results <- result:
-			default:
-				ethash.config.Log.Warn("Sealing result is not read by miner", "mode", "local", "sealhash", ethash.SealHash(block.Header()))
+			tx, err := canxium.signFn(accounts.Account{Address: canxium.signer}, result, result.ChainId())
+			if err != nil {
+				canxium.config.Log.Warn("Can not sign mining transaction", "tx", result.Hash(), "signer", canxium.signer, "err", err)
+				close(abort)
+			} else {
+				sealBlock := block.WithBody([]*types.Transaction{tx}, []*types.Header{})
+				select {
+				case results <- sealBlock:
+				default:
+					canxium.config.Log.Warn("Sealing result is not read by miner", "mode", "local", "sealhash", canxium.SealHash(block.Header()))
+				}
+				close(abort)
 			}
-			close(abort)
-		case <-ethash.update:
+		case <-canxium.update:
 			// Thread count was changed on user request, restart
 			close(abort)
-			if err := ethash.Seal(chain, block, results, stop); err != nil {
-				ethash.config.Log.Error("Failed to restart sealing after update", "err", err)
+			if err := canxium.Seal(chain, block, results, stop); err != nil {
+				canxium.config.Log.Error("Failed to restart sealing after update", "err", err)
 			}
 		}
 		// Wait for all miners to terminate and return the block
@@ -129,110 +150,16 @@ func (ethash *Ethash) Seal(chain consensus.ChainHeaderReader, block *types.Block
 
 // mine is the actual proof-of-work miner that searches for a nonce starting from
 // seed that results in correct final block difficulty.
-func (ethash *Ethash) mine(block *types.Block, id int, seed uint64, abort chan struct{}, found chan *types.Block) {
-	// Extract some data from the header
-	var (
-		header  = block.Header()
-		hash    = ethash.SealHash(header).Bytes()
-		target  = new(big.Int).Div(two256, header.Difficulty)
-		number  = header.Number.Uint64()
-		dataset = ethash.dataset(number, false)
-	)
-	// Start generating random nonces until we abort or find a good one
-	var (
-		attempts  = int64(0)
-		nonce     = seed
-		powBuffer = new(big.Int)
-	)
-	logger := ethash.config.Log.New("miner", id)
-	logger.Trace("Started ethash search for new nonces", "seed", seed)
-search:
-	for {
-		select {
-		case <-abort:
-			// Mining terminated, update stats and abort
-			logger.Trace("Ethash nonce search aborted", "attempts", nonce-seed)
-			ethash.hashrate.Mark(attempts)
-			break search
-
-		default:
-			// We don't have to update hash rate on every nonce, so update after after 2^X nonces
-			attempts++
-			if (attempts % (1 << 15)) == 0 {
-				ethash.hashrate.Mark(attempts)
-				attempts = 0
-			}
-			// Compute the PoW value of this nonce
-			digest, result := hashimotoFull(dataset.dataset, hash, nonce)
-			if powBuffer.SetBytes(result).Cmp(target) <= 0 {
-				// Correct nonce found, create a new header with it
-				header = types.CopyHeader(header)
-				header.Nonce = types.EncodeNonce(nonce)
-				header.MixDigest = common.BytesToHash(digest)
-
-				// Seal and return a block (if still needed)
-				select {
-				case found <- block.WithSeal(header):
-					logger.Trace("Ethash nonce found and reported", "attempts", nonce-seed, "nonce", nonce)
-				case <-abort:
-					logger.Trace("Ethash nonce found but discarded", "attempts", nonce-seed, "nonce", nonce)
-				}
-				break search
-			}
-			nonce++
-		}
+func (canxium *Canxium) mine(transaction *types.Transaction, id int, seed uint64, abort chan struct{}, found chan *types.Transaction) {
+	if transaction.Type() != types.MiningTxType {
+		return
 	}
-	// Datasets are unmapped in a finalizer. Ensure that the dataset stays live
-	// during sealing so it's not unmapped while being read.
-	runtime.KeepAlive(dataset)
-}
 
-func (ethash *Ethash) MineTx(transaction *types.Transaction, id int, seed uint64, abort chan struct{}, found chan *types.Transaction) {
-	// Extract some data from the header
-	var (
-		hash    = transaction.SealHash().Bytes()
-		target  = new(big.Int).Div(two256, transaction.Difficulty())
-		dataset = ethash.dataset(transaction.Nonce(), false)
-	)
-	// Start generating random nonces until we abort or find a good one
-	var (
-		attempts  = int64(0)
-		nonce     = seed
-		powBuffer = new(big.Int)
-	)
-	logger := ethash.config.Log.New("miner", id)
-	logger.Info("Started ethash search for new nonce for transaction mining", "seed", seed)
-search:
-	for {
-		select {
-		case <-abort:
-			// Mining terminated, update stats and abort
-			logger.Info("Ethash nonce search aborted", "attempts", nonce-seed)
-			ethash.hashrate.Mark(attempts)
-			break search
-
-		default:
-			// We don't have to update hash rate on every nonce, so update after after 2^X nonces
-			attempts++
-			if (attempts % (1 << 15)) == 0 {
-				ethash.hashrate.Mark(attempts)
-				attempts = 0
-			}
-			// Compute the PoW value of this nonce
-			digest, result := hashimotoFull(dataset.dataset, hash, nonce)
-			if powBuffer.SetBytes(result).Cmp(target) <= 0 {
-				ethash.config.Log.Info("Found nonce for mine transaction", "hash", transaction.Hash(), "none", nonce, "digest", common.BytesToHash(digest))
-				transaction.SetEthashPow(nonce, common.BytesToHash(digest))
-				select {
-				case found <- transaction:
-					logger.Trace("Ethash nonce found and reported", "attempts", nonce-seed, "nonce", nonce)
-				case <-abort:
-					logger.Trace("Ethash nonce found but discarded", "attempts", nonce-seed, "nonce", nonce)
-				}
-				break search
-			}
-			nonce++
-		}
+	switch transaction.Algorithm() {
+	case types.EthashAlgorithm:
+		canxium.ethash.MineTx(transaction, id, seed, abort, found)
+	case types.Sha256Algorithm:
+		canxium.config.Log.Error("Offline mining algorithm", "algorithm", transaction.Algorithm(), "is not supported yet.")
 	}
 }
 
@@ -248,7 +175,7 @@ type remoteSealer struct {
 	cancelNotify context.CancelFunc // cancels all notification requests
 	reqWG        sync.WaitGroup     // tracks notification request goroutines
 
-	ethash       *Ethash
+	canxium      *Canxium
 	noverify     bool
 	notifyURLs   []string
 	results      chan<- *types.Block
@@ -291,10 +218,10 @@ type sealWork struct {
 	res  chan [4]string
 }
 
-func startRemoteSealer(ethash *Ethash, urls []string, noverify bool) *remoteSealer {
+func startRemoteSealer(canxium *Canxium, urls []string, noverify bool) *remoteSealer {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &remoteSealer{
-		ethash:       ethash,
+		canxium:      canxium,
 		noverify:     noverify,
 		notifyURLs:   urls,
 		notifyCtx:    ctx,
@@ -315,7 +242,7 @@ func startRemoteSealer(ethash *Ethash, urls []string, noverify bool) *remoteSeal
 
 func (s *remoteSealer) loop() {
 	defer func() {
-		s.ethash.config.Log.Trace("Ethash remote sealer is exiting")
+		s.canxium.config.Log.Trace("Ethash remote sealer is exiting")
 		s.cancelNotify()
 		s.reqWG.Wait()
 		close(s.exitCh)
@@ -394,7 +321,7 @@ func (s *remoteSealer) loop() {
 //	result[2], 32 bytes hex encoded boundary condition ("target"), 2^256/difficulty
 //	result[3], hex encoded block number
 func (s *remoteSealer) makeWork(block *types.Block) {
-	hash := s.ethash.SealHash(block.Header())
+	hash := s.canxium.SealHash(block.Header())
 	s.currentWork[0] = hash.Hex()
 	s.currentWork[1] = common.BytesToHash(SeedHash(block.NumberU64())).Hex()
 	s.currentWork[2] = common.BytesToHash(new(big.Int).Div(two256, block.Difficulty()).Bytes()).Hex()
@@ -413,7 +340,7 @@ func (s *remoteSealer) notifyWork() {
 	// Encode the JSON payload of the notification. When NotifyFull is set,
 	// this is the complete block header, otherwise it is a JSON array.
 	var blob []byte
-	if s.ethash.config.NotifyFull {
+	if s.canxium.config.NotifyFull {
 		blob, _ = json.Marshal(s.currentBlock.Header())
 	} else {
 		blob, _ = json.Marshal(work)
@@ -430,7 +357,7 @@ func (s *remoteSealer) sendNotification(ctx context.Context, url string, json []
 
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(json))
 	if err != nil {
-		s.ethash.config.Log.Warn("Can't create remote miner notification", "err", err)
+		s.canxium.config.Log.Warn("Can't create remote miner notification", "err", err)
 		return
 	}
 	ctx, cancel := context.WithTimeout(ctx, remoteSealerTimeout)
@@ -440,9 +367,9 @@ func (s *remoteSealer) sendNotification(ctx context.Context, url string, json []
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		s.ethash.config.Log.Warn("Failed to notify remote miner", "err", err)
+		s.canxium.config.Log.Warn("Failed to notify remote miner", "err", err)
 	} else {
-		s.ethash.config.Log.Trace("Notified remote miner", "miner", url, "hash", work[0], "target", work[2])
+		s.canxium.config.Log.Trace("Notified remote miner", "miner", url, "hash", work[0], "target", work[2])
 		resp.Body.Close()
 	}
 }
@@ -452,13 +379,13 @@ func (s *remoteSealer) sendNotification(ctx context.Context, url string, json []
 // any other error, like no pending work or stale mining result).
 func (s *remoteSealer) submitWork(nonce types.BlockNonce, mixDigest common.Hash, sealhash common.Hash) bool {
 	if s.currentBlock == nil {
-		s.ethash.config.Log.Error("Pending work without block", "sealhash", sealhash)
+		s.canxium.config.Log.Error("Pending work without block", "sealhash", sealhash)
 		return false
 	}
 	// Make sure the work submitted is present
 	block := s.works[sealhash]
 	if block == nil {
-		s.ethash.config.Log.Warn("Work submitted but none pending", "sealhash", sealhash, "curnumber", s.currentBlock.NumberU64())
+		s.canxium.config.Log.Warn("Work submitted but none pending", "sealhash", sealhash, "curnumber", s.currentBlock.NumberU64())
 		return false
 	}
 	// Verify the correctness of submitted result.
@@ -468,17 +395,17 @@ func (s *remoteSealer) submitWork(nonce types.BlockNonce, mixDigest common.Hash,
 
 	start := time.Now()
 	if !s.noverify {
-		if err := s.ethash.verifySeal(nil, header, true); err != nil {
-			s.ethash.config.Log.Warn("Invalid proof-of-work submitted", "sealhash", sealhash, "elapsed", common.PrettyDuration(time.Since(start)), "err", err)
+		if err := s.canxium.verifySeal(nil, header, true); err != nil {
+			s.canxium.config.Log.Warn("Invalid proof-of-work submitted", "sealhash", sealhash, "elapsed", common.PrettyDuration(time.Since(start)), "err", err)
 			return false
 		}
 	}
 	// Make sure the result channel is assigned.
 	if s.results == nil {
-		s.ethash.config.Log.Warn("Ethash result channel is empty, submitted mining result is rejected")
+		s.canxium.config.Log.Warn("Ethash result channel is empty, submitted mining result is rejected")
 		return false
 	}
-	s.ethash.config.Log.Trace("Verified correct proof-of-work", "sealhash", sealhash, "elapsed", common.PrettyDuration(time.Since(start)))
+	s.canxium.config.Log.Trace("Verified correct proof-of-work", "sealhash", sealhash, "elapsed", common.PrettyDuration(time.Since(start)))
 
 	// Solutions seems to be valid, return to the miner and notify acceptance.
 	solution := block.WithSeal(header)
@@ -487,14 +414,14 @@ func (s *remoteSealer) submitWork(nonce types.BlockNonce, mixDigest common.Hash,
 	if solution.NumberU64()+staleThreshold > s.currentBlock.NumberU64() {
 		select {
 		case s.results <- solution:
-			s.ethash.config.Log.Debug("Work submitted is acceptable", "number", solution.NumberU64(), "sealhash", sealhash, "hash", solution.Hash())
+			s.canxium.config.Log.Debug("Work submitted is acceptable", "number", solution.NumberU64(), "sealhash", sealhash, "hash", solution.Hash())
 			return true
 		default:
-			s.ethash.config.Log.Warn("Sealing result is not read by miner", "mode", "remote", "sealhash", sealhash)
+			s.canxium.config.Log.Warn("Sealing result is not read by miner", "mode", "remote", "sealhash", sealhash)
 			return false
 		}
 	}
 	// The submitted block is too old to accept, drop it.
-	s.ethash.config.Log.Warn("Work submitted is too old", "number", solution.NumberU64(), "sealhash", sealhash, "hash", solution.Hash())
+	s.canxium.config.Log.Warn("Work submitted is too old", "number", solution.NumberU64(), "sealhash", sealhash, "hash", solution.Hash())
 	return false
 }
