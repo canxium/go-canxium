@@ -28,6 +28,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/prque"
+	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/canxium"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -95,6 +97,10 @@ var (
 	// ErrOverdraft is returned if a transaction would cause the senders balance to go negative
 	// thus invalidating a potential large number of transactions.
 	ErrOverdraft = errors.New("transaction would cause overdraft")
+
+	// ErrUnderDifficulty is returned if a mining transaction's difficulty is below the minimum
+	// configured for the offline mining consensus.
+	ErrDifficultyUnderValue = errors.New("mining transaction difficulty under value")
 )
 
 var (
@@ -255,6 +261,7 @@ type TxPool struct {
 	eip2718  atomic.Bool // Fork indicator whether we are using EIP-2718 type transactions.
 	eip1559  atomic.Bool // Fork indicator whether we are using EIP-1559 type transactions.
 	shanghai atomic.Bool // Fork indicator whether we are in the Shanghai stage.
+	hydro    atomic.Bool // Fork indicator whether we are in the Hydro stage.
 
 	currentState  *state.StateDB // Current state in the blockchain head
 	pendingNonces *noncer        // Pending state tracking virtual nonces
@@ -280,6 +287,9 @@ type TxPool struct {
 	initDoneCh      chan struct{}  // is closed once the pool is initialized (for tests)
 
 	changesSinceReorg int // A counter for how many drops we've performed in-between reorg.
+
+	// consesus engine, to validate mining transaction
+	engine consensus.Engine
 }
 
 type txpoolResetRequest struct {
@@ -288,7 +298,7 @@ type txpoolResetRequest struct {
 
 // NewTxPool creates a new transaction pool to gather, sort and filter inbound
 // transactions from the network.
-func NewTxPool(config Config, chainconfig *params.ChainConfig, chain blockChain) *TxPool {
+func NewTxPool(config Config, chainconfig *params.ChainConfig, chain blockChain, engine consensus.Engine) *TxPool {
 	// Sanitize the input to ensure no vulnerable gas prices are set
 	config = (&config).sanitize()
 
@@ -310,6 +320,7 @@ func NewTxPool(config Config, chainconfig *params.ChainConfig, chain blockChain)
 		reorgShutdownCh: make(chan struct{}),
 		initDoneCh:      make(chan struct{}),
 		gasPrice:        new(big.Int).SetUint64(config.PriceLimit),
+		engine:          engine,
 	}
 	pool.locals = newAccountSet(pool.signer)
 	for _, addr := range config.Locals {
@@ -556,7 +567,7 @@ func (pool *TxPool) Pending(enforceTips bool) map[common.Address]types.Transacti
 		// If the miner requests tip enforcement, cap the lists now
 		if enforceTips && !pool.locals.contains(addr) {
 			for i, tx := range txs {
-				if tx.EffectiveGasTipIntCmp(pool.gasPrice, pool.priced.urgent.baseFee) < 0 {
+				if tx.EffectiveGasTipIntCmp(pool.gasPrice, pool.priced.urgent.baseFee) < 0 && !tx.IsMiningTx() {
 					txs = txs[:i]
 					break
 				}
@@ -606,6 +617,10 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 	if !pool.eip1559.Load() && tx.Type() == types.DynamicFeeTxType {
 		return core.ErrTxTypeNotSupported
 	}
+	// Reject mining transaction until Hydro fork activates.
+	if !pool.hydro.Load() && tx.Type() == types.MiningTxType {
+		return core.ErrTxTypeNotSupported
+	}
 	// Reject transactions over defined size to prevent DOS attacks
 	if tx.Size() > txMaxSize {
 		return ErrOversizedData
@@ -635,11 +650,14 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 		return core.ErrTipAboveFeeCap
 	}
 	// Make sure the transaction is signed properly.
-	if _, err := types.Sender(pool.signer, tx); err != nil {
+	sender, err := types.Sender(pool.signer, tx)
+	if err != nil {
 		return ErrInvalidSender
 	}
 	// Drop non-local transactions under our own minimal accepted gas price or tip
-	if !local && tx.GasTipCapIntCmp(pool.gasPrice) < 0 {
+	// Always accept mining tx as gas free, because miner will earn % of reward
+	if !local && tx.GasTipCapIntCmp(pool.gasPrice) < 0 && !tx.IsMiningTx() {
+		fmt.Println("Transaction under price error")
 		return ErrUnderpriced
 	}
 	// Ensure the transaction has more gas than the basic tx fee.
@@ -650,6 +668,22 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 	if tx.Gas() < intrGas {
 		return core.ErrIntrinsicGas
 	}
+
+	if tx.Type() == types.MiningTxType {
+		// check consensus rule
+		if tx.Difficulty().Cmp(canxium.CanxiumMiningTxMinimumDifficulty) < 0 {
+			return ErrDifficultyUnderValue
+		}
+		if sender != tx.From() {
+			log.Warn("Invalid offline mining transaction sender", "sender", sender, "from", tx.From())
+			return ErrInvalidSender
+		}
+		// check tx seal
+		if err := pool.engine.VerifyTxSeal(tx, false); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -663,9 +697,14 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 		return core.ErrNonceTooLow
 	}
 	// Transactor should have enough funds to cover the costs
-	// cost == V + GP * GL
+	// cost == V + GP * GL + Contract Creation Fee
 	balance := pool.currentState.GetBalance(from)
-	if balance.Cmp(tx.Cost()) < 0 {
+	cost := tx.Cost()
+	if tx.To() == nil { // contract creation
+		cost = new(big.Int).Add(cost, params.CanxiumContractCreationFee)
+	}
+
+	if balance.Cmp(cost) < 0 {
 		return core.ErrInsufficientFunds
 	}
 
@@ -813,7 +852,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 	}
 	pool.journalTx(from, tx)
 
-	log.Trace("Pooled new future transaction", "hash", hash, "from", from, "to", tx.To())
+	log.Info("Pooled new future transaction", "hash", hash, "from", from, "to", tx.To())
 	return replaced, nil
 }
 
@@ -995,6 +1034,7 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 			invalidTxMeter.Mark(1)
 			continue
 		}
+
 		// Accumulate all unknown transactions for deeper processing
 		news = append(news, tx)
 	}
@@ -1004,6 +1044,7 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 
 	// Process all the new transaction and merge any errors into the original slice
 	pool.mu.Lock()
+	fmt.Printf("Adding new tx: %+v\n", len(news))
 	newErrs, dirtyAddrs := pool.addTxsLocked(news, local)
 	pool.mu.Unlock()
 
@@ -1394,6 +1435,7 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	pool.eip2718.Store(pool.chainconfig.IsBerlin(next))
 	pool.eip1559.Store(pool.chainconfig.IsLondon(next))
 	pool.shanghai.Store(pool.chainconfig.IsShanghai(uint64(time.Now().Unix())))
+	pool.hydro.Store(pool.chainconfig.IsHydro(next))
 }
 
 // promoteExecutables moves transactions that have become processable from the
@@ -1899,7 +1941,7 @@ func (t *lookup) RemoteToLocals(locals *accountSet) int {
 func (t *lookup) RemotesBelowTip(threshold *big.Int) types.Transactions {
 	found := make(types.Transactions, 0, 128)
 	t.Range(func(hash common.Hash, tx *types.Transaction, local bool) bool {
-		if tx.GasTipCapIntCmp(threshold) < 0 {
+		if tx.GasTipCapIntCmp(threshold) < 0 && !tx.IsMiningTx() {
 			found = append(found, tx)
 		}
 		return true

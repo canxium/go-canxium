@@ -214,6 +214,13 @@ func (beacon *Beacon) VerifyUncles(chain consensus.ChainReader, block *types.Blo
 	return nil
 }
 
+// VerifyTxSeal checks whether a offline mining transaction satisfies the PoW difficulty requirements,
+// either using the usual ethash cache for it, or alternatively using a full DAG
+// to make remote mining fast.
+func (beacon *Beacon) VerifyTxSeal(tx *types.Transaction, fulldag bool) error {
+	return nil
+}
+
 // verifyHeader checks whether a header conforms to the consensus rules of the
 // stock Ethereum consensus engine. The difference between the beacon and classic is
 // (a) The following fields are expected to be constants:

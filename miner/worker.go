@@ -17,9 +17,11 @@
 package miner
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math/big"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,6 +29,7 @@ import (
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -75,6 +78,9 @@ const (
 
 	// staleThreshold is the maximum depth of the acceptable stale block.
 	staleThreshold = 7
+
+	// nonce prefix for mining account
+	accountNoncePrefix = "account.nonce"
 )
 
 var (
@@ -94,6 +100,7 @@ type environment struct {
 	tcount    int                     // tx count in cycle
 	gasPool   *core.GasPool           // available gas used to pack transactions
 	coinbase  common.Address
+	miner     common.Address
 
 	header   *types.Header
 	txs      []*types.Transaction
@@ -110,6 +117,7 @@ func (env *environment) copy() *environment {
 		family:    env.family.Clone(),
 		tcount:    env.tcount,
 		coinbase:  env.coinbase,
+		miner:     env.miner,
 		header:    types.CopyHeader(env.header),
 		receipts:  copyReceipts(env.receipts),
 	}
@@ -210,6 +218,7 @@ type worker struct {
 	chainSideSub event.Subscription
 
 	// Channels
+	commitCh           chan struct{}
 	newWorkCh          chan *newWorkReq
 	getWorkCh          chan *getWorkReq
 	taskCh             chan *task
@@ -228,6 +237,7 @@ type worker struct {
 
 	mu       sync.RWMutex // The lock used to protect the coinbase and extra fields
 	coinbase common.Address
+	miner    common.Address // offline miner address
 	extra    []byte
 
 	pendingMu    sync.RWMutex
@@ -268,6 +278,9 @@ type worker struct {
 	skipSealHook func(*task) bool                   // Method to decide whether skipping the sealing.
 	fullTaskHook func()                             // Method to call before pushing the full sealing task.
 	resubmitHook func(time.Duration, time.Duration) // Method to call upon updating resubmitting interval.
+
+	// offline mining
+	txNonce uint64
 }
 
 func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus.Engine, eth Backend, mux *event.TypeMux, isLocalBlock func(header *types.Header) bool, init bool) *worker {
@@ -283,11 +296,13 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		remoteUncles:       make(map[common.Hash]*types.Block),
 		unconfirmed:        newUnconfirmedBlocks(eth.BlockChain(), sealingLogAtDepth),
 		coinbase:           config.Etherbase,
+		miner:              config.CauBase,
 		extra:              config.ExtraData,
 		pendingTasks:       make(map[common.Hash]*task),
 		txsCh:              make(chan core.NewTxsEvent, txChanSize),
 		chainHeadCh:        make(chan core.ChainHeadEvent, chainHeadChanSize),
 		chainSideCh:        make(chan core.ChainSideEvent, chainSideChanSize),
+		commitCh:           make(chan struct{}),
 		newWorkCh:          make(chan *newWorkReq),
 		getWorkCh:          make(chan *getWorkReq),
 		taskCh:             make(chan *task),
@@ -296,6 +311,7 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		exitCh:             make(chan struct{}),
 		resubmitIntervalCh: make(chan time.Duration),
 		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
+		txNonce:            config.Nonce,
 	}
 	// Subscribe NewTxsEvent for tx pool
 	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
@@ -321,6 +337,17 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		log.Warn("Low payload timeout may cause high amount of non-full blocks", "provided", newpayloadTimeout, "default", DefaultConfig.NewPayloadTimeout)
 	}
 	worker.newpayloadTimeout = newpayloadTimeout
+
+	// get saved nonce if any
+	// TODO incorrect value when read back
+	if config.IsOfflineMiner() {
+		if nonce, err := worker.chain.ChainDb().Get([]byte(fmt.Sprintf("%s.%s", accountNoncePrefix, worker.config.CauBase))); err == nil {
+			if n, e := strconv.ParseUint(string(nonce), 10, 64); e == nil && n > 0 {
+				log.Info("Mining new transaction, start from nonce", "nonce", n)
+				worker.txNonce = n
+			}
+		}
+	}
 
 	worker.wg.Add(4)
 	go worker.mainLoop()
@@ -514,7 +541,8 @@ func (w *worker) newWorkLoop(recommit time.Duration) {
 				}
 				commit(true, commitInterruptResubmit)
 			}
-
+		case <-w.commitCh:
+			commit(true, commitInterruptNone)
 		case interval := <-w.resubmitIntervalCh:
 			// Adjust resubmit interval explicitly by user.
 			if interval < minRecommitInterval {
@@ -618,6 +646,11 @@ func (w *worker) mainLoop() {
 			}
 
 		case ev := <-w.txsCh:
+			// Offline miner does not process incomming transactions
+			if w.config.IsOfflineMiner() {
+				continue
+			}
+
 			// Apply transactions to the pending state if we're not sealing
 			//
 			// Note all transactions received may not be continuous with transactions
@@ -689,7 +722,7 @@ func (w *worker) taskLoop() {
 			}
 			// Reject duplicate sealing work due to resubmitting.
 			sealHash := w.engine.SealHash(task.block.Header())
-			if sealHash == prev {
+			if !w.config.IsOfflineMiner() && sealHash == prev {
 				continue
 			}
 			// Interrupt previous sealing operation
@@ -727,6 +760,32 @@ func (w *worker) resultLoop() {
 			if block == nil {
 				continue
 			}
+
+			// extract the transaction only
+			if w.config.IsOfflineMiner() {
+				if len(block.Transactions()) != 1 {
+					log.Error("Invalid offline mining result, want 1 tx have", "txs", len(block.Transactions()))
+					continue
+				}
+
+				tx := block.Transactions()[0]
+				rawTx, err := tx.MarshalBinary()
+				if err != nil {
+					log.Error("Failed to marshal raw transaction", "err", err)
+				}
+
+				log.Info("🔨 Successfully mined transaction", "account_nonce", tx.Nonce(), "mined_nonce", tx.PowNonce(), "hash", tx.Hash(), "rawtx", "0x"+hex.EncodeToString(rawTx))
+				w.mux.Post(core.NewTxsEvent{Txs: []*types.Transaction{tx}})
+				w.txNonce += 1
+
+				if err := w.chain.ChainDb().Put([]byte(fmt.Sprintf("%s.%s", accountNoncePrefix, w.config.CauBase)), []byte(fmt.Sprintf("%d", w.txNonce))); err != nil {
+					log.Error("Failed to save latest tx nonce for offline miner", "nonce", tx.Nonce(), "err", err)
+				}
+
+				w.commitCh <- struct{}{}
+				continue
+			}
+
 			// Short circuit when receiving duplicate result caused by resubmitting.
 			if w.chain.HasBlock(block.Hash(), block.NumberU64()) {
 				continue
@@ -790,7 +849,7 @@ func (w *worker) resultLoop() {
 }
 
 // makeEnv creates a new environment for the sealing block.
-func (w *worker) makeEnv(parent *types.Header, header *types.Header, coinbase common.Address) (*environment, error) {
+func (w *worker) makeEnv(parent *types.Header, header *types.Header, coinbase common.Address, miner common.Address) (*environment, error) {
 	// Retrieve the parent state to execute on top and start a prefetcher for
 	// the miner to speed block sealing up a bit.
 	state, err := w.chain.StateAt(parent.Root)
@@ -804,6 +863,7 @@ func (w *worker) makeEnv(parent *types.Header, header *types.Header, coinbase co
 		signer:    types.MakeSigner(w.chainConfig, header.Number),
 		state:     state,
 		coinbase:  coinbase,
+		miner:     miner,
 		ancestors: mapset.NewSet[common.Hash](),
 		family:    mapset.NewSet[common.Hash](),
 		header:    header,
@@ -1023,7 +1083,7 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 	// Could potentially happen if starting to mine in an odd state.
 	// Note genParams.coinbase can be different with header.Coinbase
 	// since clique algorithm can modify the coinbase field in header.
-	env, err := w.makeEnv(parent, header, genParams.coinbase)
+	env, err := w.makeEnv(parent, header, genParams.coinbase, w.miner)
 	if err != nil {
 		log.Error("Failed to create sealing context", "err", err)
 		return nil, err
@@ -1055,26 +1115,51 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) error {
 	// Split the pending transactions into locals and remotes
 	// Fill the block with all available pending transactions.
-	pending := w.eth.TxPool().Pending(true)
-	localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
-	for _, account := range w.eth.TxPool().Locals() {
-		if txs := remoteTxs[account]; len(txs) > 0 {
-			delete(remoteTxs, account)
-			localTxs[account] = txs
+	// block mining
+	if !w.config.IsOfflineMiner() {
+		pending := w.eth.TxPool().Pending(true)
+		localTxs, remoteTxs := make(map[common.Address]types.Transactions), pending
+		for _, account := range w.eth.TxPool().Locals() {
+			if txs := remoteTxs[account]; len(txs) > 0 {
+				delete(remoteTxs, account)
+				localTxs[account] = txs
+			}
 		}
-	}
-	if len(localTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
-		if err := w.commitTransactions(env, txs, interrupt); err != nil {
-			return err
+		if len(localTxs) > 0 {
+			txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
+			if err := w.commitTransactions(env, txs, interrupt); err != nil {
+				return err
+			}
 		}
-	}
-	if len(remoteTxs) > 0 {
-		txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
-		if err := w.commitTransactions(env, txs, interrupt); err != nil {
-			return err
+		if len(remoteTxs) > 0 {
+			txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
+			if err := w.commitTransactions(env, txs, interrupt); err != nil {
+				return err
+			}
 		}
+		return nil
 	}
+
+	// offline tx mining
+	miningTx := types.NewTx(&types.MiningTx{
+		ChainID:    w.chainConfig.ChainID,
+		Nonce:      w.txNonce,
+		GasTipCap:  big.NewInt(0), // this kind of tx is gas free
+		GasFeeCap:  big.NewInt(0),
+		Gas:        21000, // transfer only
+		From:       env.miner,
+		To:         env.coinbase,
+		Value:      new(big.Int).Mul(ethash.CanxiumBlockRewardPerHash, w.config.Difficulty),
+		Data:       nil,
+		Algorithm:  w.config.Algorithm,
+		Difficulty: w.config.Difficulty,
+	})
+
+	// for now, we can't commit the transaction because it is not final.
+	// just append to the list and let miner work on it
+	env.txs = append(env.txs, miningTx)
+	env.tcount++
+
 	return nil
 }
 
@@ -1086,7 +1171,7 @@ func (w *worker) generateWork(params *generateParams) (*types.Block, *big.Int, e
 	}
 	defer work.discard()
 
-	if !params.noTxs {
+	if !params.noTxs || w.config.Algorithm != types.NoneAlgorithm {
 		interrupt := new(atomic.Int32)
 		timer := time.AfterFunc(w.newpayloadTimeout, func() {
 			interrupt.Store(commitInterruptTimeout)
@@ -1098,6 +1183,7 @@ func (w *worker) generateWork(params *generateParams) (*types.Block, *big.Int, e
 			log.Warn("Block building is interrupted", "allowance", common.PrettyDuration(w.newpayloadTimeout))
 		}
 	}
+
 	block, err := w.engine.FinalizeAndAssemble(w.chain, work.header, work.state, work.txs, work.unclelist(), work.receipts, params.withdrawals)
 	if err != nil {
 		return nil, nil, err
@@ -1270,6 +1356,10 @@ func (w *worker) postSideBlock(event core.ChainSideEvent) {
 func totalFees(block *types.Block, receipts []*types.Receipt) *big.Int {
 	feesWei := new(big.Int)
 	for i, tx := range block.Transactions() {
+		if tx.Type() == types.MiningTxType {
+			continue
+		}
+
 		minerFee, _ := tx.EffectiveGasTip(block.BaseFee())
 		feesWei.Add(feesWei, new(big.Int).Mul(new(big.Int).SetUint64(receipts[i].GasUsed), minerFee))
 	}

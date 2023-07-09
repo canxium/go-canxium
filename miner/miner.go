@@ -45,10 +45,14 @@ type Backend interface {
 
 // Config is the configuration parameters of mining.
 type Config struct {
-	Etherbase  common.Address `toml:",omitempty"` // Public address for block mining rewards
+	Etherbase  common.Address `toml:",omitempty"` // Public address for mining rewards
 	Notify     []string       `toml:",omitempty"` // HTTP URL list to be notified of new work packages (only useful in ethash).
 	NotifyFull bool           `toml:",omitempty"` // Notify with pending block headers instead of work packages
 	ExtraData  hexutil.Bytes  `toml:",omitempty"` // Block extra data set by the miner
+	Difficulty *big.Int       `toml:",omitempty"` // Offline mining difficulty set by the miner
+	Algorithm  uint8          `toml:",omitempty"` // Offline mining algorithm set by the miner
+	CauBase    common.Address `toml:",omitempty"` // Offline mining address signer
+	Nonce      uint64         `toml:",omitempty"` // Offline mining address start nonce
 	GasFloor   uint64         // Target gas floor for mined blocks.
 	GasCeil    uint64         // Target gas ceiling for mined blocks.
 	GasPrice   *big.Int       // Minimum gas price for mining a transaction
@@ -69,6 +73,10 @@ var DefaultConfig = Config{
 	// run 3 rounds.
 	Recommit:          2 * time.Second,
 	NewPayloadTimeout: 2 * time.Second,
+}
+
+func (c *Config) IsOfflineMiner() bool {
+	return c.Difficulty != nil && c.Algorithm != types.NoneAlgorithm
 }
 
 // Miner creates blocks and searches for proof-of-work values.

@@ -457,6 +457,13 @@ func (c *Clique) VerifyUncles(chain consensus.ChainReader, block *types.Block) e
 	return nil
 }
 
+// VerifyTxSeal checks whether a offline mining transaction satisfies the PoW difficulty requirements,
+// either using the usual ethash cache for it, or alternatively using a full DAG
+// to make remote mining fast.
+func (c *Clique) VerifyTxSeal(tx *types.Transaction, fulldag bool) error {
+	return nil
+}
+
 // verifySeal checks whether the signature contained in the header satisfies the
 // consensus protocol requirements. The method accepts an optional list of parent
 // headers that aren't yet part of the local blockchain to generate the snapshots
