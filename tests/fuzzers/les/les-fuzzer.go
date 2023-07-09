@@ -23,6 +23,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/canxium"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -138,7 +139,7 @@ func newFuzzer(input []byte) *fuzzer {
 		chtKeys:   chtKeys,
 		bloomKeys: bloomKeys,
 		nonce:     uint64(len(txHashes)),
-		pool:      txpool.NewTxPool(txpool.DefaultConfig, params.TestChainConfig, chain),
+		pool:      txpool.NewTxPool(txpool.DefaultConfig, params.TestChainConfig, chain, canxium.NewFaker()),
 		input:     bytes.NewReader(input),
 	}
 }
