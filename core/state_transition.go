@@ -496,7 +496,7 @@ func (st *StateTransition) txMiningReward(difficulty *big.Int) (reward, foundati
 	foundation = new(big.Int).Mul(foundationPercent, reward)
 	foundation.Div(foundation, big100)
 	coinbase = new(big.Int).Mul(coinbasePercent, reward)
-	coinbase.Div(foundation, big100)
+	coinbase.Div(coinbase, big100)
 	reward.Sub(reward, foundation)
 	reward.Sub(reward, coinbase)
 
