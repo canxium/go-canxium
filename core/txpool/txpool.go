@@ -29,7 +29,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/consensus/canxium"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -64,6 +63,9 @@ var (
 
 	// ErrInvalidSender is returned if the transaction contains an invalid signature.
 	ErrInvalidSender = errors.New("invalid sender")
+
+	// ErrInvalidSender is returned if the transaction contains an invalid signature compare with transaction.from (mining tx field)
+	ErrInvalidMiningSender = errors.New("invalid mining transaction sender")
 
 	// ErrUnderpriced is returned if a transaction's gas price is below the minimum
 	// configured for the transaction pool.
@@ -670,15 +672,12 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 	}
 
 	if tx.Type() == types.MiningTxType {
-		// check consensus rule
-		if tx.Difficulty().Cmp(canxium.CanxiumMiningTxMinimumDifficulty) < 0 {
-			return ErrDifficultyUnderValue
-		}
+		// check consensus rule: tx sender have to match with tx from to prevent replaying
 		if sender != tx.From() {
 			log.Warn("Invalid offline mining transaction sender", "sender", sender, "from", tx.From())
-			return ErrInvalidSender
+			return ErrInvalidMiningSender
 		}
-		// check tx seal
+		// check tx seal, minimum difficulty
 		if err := pool.engine.VerifyTxSeal(tx, false); err != nil {
 			return err
 		}

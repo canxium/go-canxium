@@ -45,8 +45,9 @@ var (
 	CanxiumBlockRewardPerHash   = big.NewInt(500)   // Block reward in wei per difficulty hash for successfully mining a block upward from Canxium
 	CanxiumBlockFirstYearReward = big.NewInt(25e16) // First year reward per block in canxium chain: 0.25 CLI
 
-	CanxiumFoundationRewardPercent          = big.NewInt(2)  // Foudation reward: 2%
-	CanxiumFoundationFirstYearRewardPercent = big.NewInt(25) // First year Foudation reward: 25%
+	CanxiumFoundationRewardPercent          = big.NewInt(2)            // Foudation reward: 2%
+	CanxiumFoundationFirstYearRewardPercent = big.NewInt(25)           // First year Foudation reward: 25%
+	CanxiumMiningTxMinimumDifficulty        = big.NewInt(100000000000) // 100GH
 
 	maxUncles                     = 2        // Maximum number of uncles allowed in a single block
 	allowedFutureBlockTimeSeconds = int64(7) // Max seconds from current time allowed for blocks, before they're considered future blocks
@@ -57,14 +58,16 @@ var (
 // codebase, inherently breaking if the engine is swapped out. Please put common
 // error types into the consensus package.
 var (
-	errOlderBlockTime    = errors.New("timestamp older than parent")
-	errTooManyUncles     = errors.New("too many uncles")
-	errDuplicateUncle    = errors.New("duplicate uncle")
-	errUncleIsAncestor   = errors.New("uncle is ancestor")
-	errDanglingUncle     = errors.New("uncle's parent is not ancestor")
-	errInvalidDifficulty = errors.New("non-positive difficulty")
-	errInvalidMixDigest  = errors.New("invalid mix digest")
-	errInvalidPoW        = errors.New("invalid proof-of-work")
+	errOlderBlockTime       = errors.New("timestamp older than parent")
+	errTooManyUncles        = errors.New("too many uncles")
+	errDuplicateUncle       = errors.New("duplicate uncle")
+	errUncleIsAncestor      = errors.New("uncle is ancestor")
+	errDanglingUncle        = errors.New("uncle's parent is not ancestor")
+	errInvalidDifficulty    = errors.New("non-positive difficulty")
+	errInvalidMixDigest     = errors.New("invalid mix digest")
+	errInvalidPoW           = errors.New("invalid proof-of-work")
+	errDifficultyUnderValue = errors.New("mining transaction difficulty under value")
+	errInvalidTMiningxType  = errors.New("invalid mining transaction type")
 )
 
 // Author implements consensus.Engine, returning the header's coinbase as the
@@ -590,6 +593,9 @@ func (ethash *Ethash) verifySeal(chain consensus.ChainHeaderReader, header *type
 // either using the usual ethash cache for it, or alternatively using a full DAG
 // to make remote mining fast.
 func (ethash *Ethash) VerifyTxSeal(tx *types.Transaction, fulldag bool) error {
+	if tx.Type() != types.MiningTxType {
+		return errInvalidTMiningxType
+	}
 	// If we're running a fake PoW, accept any seal as valid
 	if ethash.config.PowMode == ModeFake || ethash.config.PowMode == ModeFullFake {
 		time.Sleep(ethash.fakeDelay)
@@ -602,6 +608,9 @@ func (ethash *Ethash) VerifyTxSeal(tx *types.Transaction, fulldag bool) error {
 	// Ensure that we have a valid difficulty for the block
 	if tx.Difficulty().Sign() <= 0 {
 		return errInvalidDifficulty
+	}
+	if tx.Difficulty().Cmp(CanxiumMiningTxMinimumDifficulty) < 0 {
+		return errDifficultyUnderValue
 	}
 	// Recompute the digest and PoW values, using tx nonce and the number of dataset
 	number := tx.Nonce()
@@ -648,6 +657,78 @@ func (ethash *Ethash) VerifyTxSeal(tx *types.Transaction, fulldag bool) error {
 		return errInvalidPoW
 	}
 	return nil
+}
+
+// VerifyTxsSeal is similar to VerifyTxSeal, but verifies a batch of mining transactions
+// concurrently. The method returns a quit channel to abort the operations and
+// a results channel to retrieve the async verifications.
+func (ethash *Ethash) VerifyTxsSeal(txs types.Transactions, fulldag bool) <-chan error {
+	// If we're running a full engine faking, accept any input as valid
+	if ethash.config.PowMode == ModeFullFake || len(txs) == 0 {
+		result := make(chan error, 1)
+		result <- nil
+		return result
+	}
+
+	// Spawn as many workers as allowed threads
+	workers := runtime.GOMAXPROCS(0)
+	if len(txs) < workers {
+		workers = len(txs)
+	}
+
+	// Create a task channel and spawn the verifiers
+	var (
+		inputs = make(chan int)
+		done   = make(chan int, workers)
+		errors = make([]error, len(txs))
+	)
+	for i := 0; i < workers; i++ {
+		go func() {
+			for index := range inputs {
+				if txs[index].Type() != types.MiningTxType {
+					errors[index] = nil
+					done <- index
+					continue
+				}
+
+				errors[index] = ethash.VerifyTxSeal(txs[index], fulldag)
+				done <- index
+			}
+		}()
+	}
+
+	errorOut := make(chan error, len(txs))
+	go func() {
+		defer close(inputs)
+		defer close(errorOut)
+		var (
+			in, out = 0, 0
+			checked = make([]bool, len(txs))
+			inputs  = inputs
+		)
+		for {
+			select {
+			case inputs <- in:
+				if in++; in == len(txs) {
+					// Reached end of headers. Stop sending to workers.
+					inputs = nil
+				}
+			case index := <-done:
+				for checked[index] = true; checked[out]; out++ {
+					if errors[out] != nil {
+						errorOut <- errors[out]
+						// if any of txs have error, return.
+						return
+					}
+
+					if out == len(txs)-1 {
+						return
+					}
+				}
+			}
+		}
+	}()
+	return errorOut
 }
 
 // Prepare implements consensus.Engine, initializing the difficulty field of a

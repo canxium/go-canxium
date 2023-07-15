@@ -32,6 +32,8 @@ import (
 
 var (
 	big100 = big.NewInt(100)
+	// ErrInvalidSender is returned if the transaction contains an invalid signature compare with transaction.from (mining tx field)
+	ErrInvalidMiningSender = errors.New("invalid mining transaction sender")
 )
 
 // ExecutionResult includes all output after executing given evm
@@ -174,6 +176,9 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 	}
 	var err error
 	msg.From, err = types.Sender(s, tx)
+	if msg.IsMiningTx && msg.From != tx.From() {
+		err = ErrInvalidMiningSender
+	}
 	return msg, err
 }
 
