@@ -27,7 +27,6 @@ import (
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/consensus/canxium"
 	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
@@ -137,7 +136,7 @@ func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine 
 	if err != nil {
 		t.Fatalf("core.NewBlockChain failed: %v", err)
 	}
-	txpool := txpool.NewTxPool(testTxPoolConfig, chainConfig, chain, canxium.NewFaker())
+	txpool := txpool.NewTxPool(testTxPoolConfig, chainConfig, chain, ethash.NewFaker())
 
 	// Generate a small n-block chain and an uncle block for it
 	var uncle *types.Block
