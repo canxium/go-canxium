@@ -1149,7 +1149,7 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 		Gas:        21000, // transfer only
 		From:       env.miner,
 		To:         env.coinbase,
-		Value:      new(big.Int).Mul(ethash.CanxiumBlockRewardPerHash, w.config.Difficulty),
+		Value:      new(big.Int).Mul(ethash.CanxiumRewardPerHash, w.config.Difficulty),
 		Data:       nil,
 		Algorithm:  w.config.Algorithm,
 		Difficulty: w.config.Difficulty,

@@ -29,6 +29,9 @@ var (
 	// ErrBannedHash is returned if a block to import is on the banned list.
 	ErrBannedHash = errors.New("banned hash")
 
+	// ErrBannedHash is returned if a block to import is on the banned list.
+	ErrBadMiningTxs = errors.New("found a malicious mining transaction")
+
 	// ErrNoGenesis is returned when there is no Genesis Block.
 	ErrNoGenesis = errors.New("genesis not found in chain")
 
