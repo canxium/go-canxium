@@ -48,12 +48,6 @@ var (
 
 	// dumpMagic is a dataset dump header to sanity check a data dump.
 	dumpMagic = []uint32{0xbaddcafe, 0xfee1dead}
-
-	// reward for offline mining transaction
-	CanxiumMiningTxRewardPerHash     = big.NewInt(500)          // Reward in wei per difficulty hash for successfully mining a transaction upward from Canxium
-	CanxiumMiningTxFoundationPercent = big.NewInt(20)           // Foudation reward: 20%, will reduce to 5% after block mining is removed
-	CanxiumMiningTxCoinbasePercent   = big.NewInt(5)            // Block miner reward: 5%
-	CanxiumMiningTxMinimumDifficulty = big.NewInt(100000000000) // 100GH
 )
 
 func init() {
