@@ -30,7 +30,6 @@ import (
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/beacon"
-	"github.com/ethereum/go-ethereum/consensus/canxium"
 	"github.com/ethereum/go-ethereum/consensus/clique"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/bloombits"
@@ -142,7 +141,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if err != nil {
 		return nil, err
 	}
-	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, &config.Miner, chainDb)
+	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, config.Miner.Notify, config.Miner.Noverify, chainDb)
 
 	eth := &Ethereum{
 		config:            config,
@@ -333,17 +332,6 @@ func (s *Ethereum) Etherbase() (eb common.Address, err error) {
 	return common.Address{}, fmt.Errorf("etherbase must be explicitly specified")
 }
 
-func (s *Ethereum) Caubase() (eb common.Address, err error) {
-	s.lock.RLock()
-	caubase := s.config.Miner.CauBase
-	s.lock.RUnlock()
-
-	if caubase != (common.Address{}) {
-		return caubase, nil
-	}
-	return common.Address{}, fmt.Errorf("caubase must be explicitly specified")
-}
-
 // isLocalBlock checks whether the specified block is mined
 // by local miner accounts.
 //
@@ -437,15 +425,12 @@ func (s *Ethereum) StartMining(threads int) error {
 			return fmt.Errorf("etherbase missing: %v", err)
 		}
 		var cli *clique.Clique
-		var cau *canxium.Canxium
 		if c, ok := s.engine.(*clique.Clique); ok {
 			cli = c
 		} else if cl, ok := s.engine.(*beacon.Beacon); ok {
 			if c, ok := cl.InnerEngine().(*clique.Clique); ok {
 				cli = c
 			}
-		} else if ca, ok := s.engine.(*canxium.Canxium); ok {
-			cau = ca
 		}
 		if cli != nil {
 			wallet, err := s.accountManager.Find(accounts.Account{Address: eb})
@@ -454,19 +439,6 @@ func (s *Ethereum) StartMining(threads int) error {
 				return fmt.Errorf("signer missing: %v", err)
 			}
 			cli.Authorize(eb, wallet.SignData)
-		}
-		if cau != nil {
-			caub, err := s.Caubase()
-			if err != nil {
-				log.Error("Cannot start offline mining without signer", "err", err)
-				return fmt.Errorf("caubase missing: %v", err)
-			}
-			wallet, err := s.accountManager.Find(accounts.Account{Address: caub})
-			if wallet == nil || err != nil {
-				log.Error("Caubase account unavailable locally, please unlock wallet", "err", err)
-				return fmt.Errorf("signer missing: %v", err)
-			}
-			cau.Authorize(caub, wallet.SignTx)
 		}
 		// If mining is started, we can disable the transaction rejection mechanism
 		// introduced to speed sync times.
