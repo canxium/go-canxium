@@ -565,27 +565,6 @@ var (
 		Value:    ethconfig.Defaults.Miner.NewPayloadTimeout,
 		Category: flags.MinerCategory,
 	}
-	MinerDifficultyFlag = &cli.Uint64Flag{
-		Name:     "miner.difficulty",
-		Usage:    "Specify the offline mining difficulty",
-		Category: flags.MinerCategory,
-	}
-	MinerAlgorithmFlag = &cli.Uint64Flag{
-		Name:     "miner.algorithm",
-		Usage:    "Specify the offline mining algorithm",
-		Value:    types.NoneAlgorithm,
-		Category: flags.MinerCategory,
-	}
-	MinerCauBaseFlag = &cli.StringFlag{
-		Name:     "miner.caubase",
-		Usage:    "Specify the offline mining signer",
-		Category: flags.MinerCategory,
-	}
-	MinerNonceFlag = &cli.Uint64Flag{
-		Name:     "miner.nonce",
-		Usage:    "Specify the offline mining signer nonce",
-		Category: flags.MinerCategory,
-	}
 
 	// Account settings
 	UnlockedAccountFlag = &cli.StringFlag{
@@ -1385,23 +1364,6 @@ func setEtherbase(ctx *cli.Context, cfg *ethconfig.Config) {
 	cfg.Miner.Etherbase = common.BytesToAddress(b)
 }
 
-// setCauBase retrieves the caubase from the directly specified command line flags.
-func setCauBase(ctx *cli.Context, cfg *ethconfig.Config) {
-	if !ctx.IsSet(MinerCauBaseFlag.Name) {
-		return
-	}
-	addr := ctx.String(MinerCauBaseFlag.Name)
-	if strings.HasPrefix(addr, "0x") || strings.HasPrefix(addr, "0X") {
-		addr = addr[2:]
-	}
-	b, err := hex.DecodeString(addr)
-	if err != nil || len(b) != common.AddressLength {
-		Fatalf("-%s: invalid etherbase address %q", MinerCauBaseFlag.Name, addr)
-		return
-	}
-	cfg.Miner.CauBase = common.BytesToAddress(b)
-}
-
 // MakePasswordList reads password lines from the file specified by the global --password flag.
 func MakePasswordList(ctx *cli.Context) []string {
 	path := ctx.Path(PasswordFileFlag.Name)
@@ -1689,15 +1651,6 @@ func setMiner(ctx *cli.Context, cfg *miner.Config) {
 	if ctx.IsSet(MinerNoVerifyFlag.Name) {
 		cfg.Noverify = ctx.Bool(MinerNoVerifyFlag.Name)
 	}
-	if ctx.IsSet(MinerDifficultyFlag.Name) {
-		cfg.Difficulty = new(big.Int).SetUint64(ctx.Uint64(MinerDifficultyFlag.Name))
-	}
-	if ctx.IsSet(MinerAlgorithmFlag.Name) {
-		cfg.Algorithm = uint8(ctx.Uint64(MinerAlgorithmFlag.Name))
-	}
-	if ctx.IsSet(MinerNonceFlag.Name) {
-		cfg.Nonce = ctx.Uint64(MinerNonceFlag.Name)
-	}
 }
 
 func setRequiredBlocks(ctx *cli.Context, cfg *ethconfig.Config) {
@@ -1783,7 +1736,6 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		log.Warn("LES server cannot serve old transaction status and cannot connect below les/4 protocol version if transaction lookup index is limited")
 	}
 	setEtherbase(ctx, cfg)
-	setCauBase(ctx, cfg)
 	setGPO(ctx, &cfg.GPO, ctx.String(SyncModeFlag.Name) == "light")
 	setTxPool(ctx, &cfg.TxPool)
 	setEthash(ctx, cfg)
@@ -2279,7 +2231,7 @@ func MakeChain(ctx *cli.Context, stack *node.Node, readonly bool) (*core.BlockCh
 	if ctx.Bool(FakePoWFlag.Name) {
 		ethashConfig.PowMode = ethash.ModeFake
 	}
-	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, nil, chainDb)
+	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, nil, false, chainDb)
 	if gcmode := ctx.String(GCModeFlag.Name); gcmode != "full" && gcmode != "archive" {
 		Fatalf("--%s must be either 'full' or 'archive'", GCModeFlag.Name)
 	}

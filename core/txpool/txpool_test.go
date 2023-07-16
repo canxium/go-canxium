@@ -29,7 +29,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/consensus/canxium"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -131,7 +131,7 @@ func setupPoolWithConfig(config *params.ChainConfig) (*TxPool, *ecdsa.PrivateKey
 	blockchain := newTestBlockChain(10000000, statedb, new(event.Feed))
 
 	key, _ := crypto.GenerateKey()
-	pool := NewTxPool(testTxPoolConfig, config, blockchain, canxium.NewFaker())
+	pool := NewTxPool(testTxPoolConfig, config, blockchain, ethash.NewFaker())
 
 	// wait for the pool to initialize
 	<-pool.initDoneCh
@@ -248,7 +248,7 @@ func TestStateChangeDuringReset(t *testing.T) {
 	tx0 := transaction(0, 100000, key)
 	tx1 := transaction(1, 100000, key)
 
-	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	nonce := pool.Nonce(address)
@@ -667,7 +667,7 @@ func TestPostponing(t *testing.T) {
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	blockchain := newTestBlockChain(1000000, statedb, new(event.Feed))
 
-	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	// Create two test accounts to produce different gap profiles with
@@ -883,7 +883,7 @@ func testQueueGlobalLimiting(t *testing.T, nolocals bool) {
 	config.NoLocals = nolocals
 	config.GlobalQueue = config.AccountQueue*3 - 1 // reduce the queue limits to shorten test time (-1 to make it non divisible)
 
-	pool := NewTxPool(config, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(config, params.TestChainConfig, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	// Create a number of test accounts and fund them (last one will be the local)
@@ -975,7 +975,7 @@ func testQueueTimeLimiting(t *testing.T, nolocals bool) {
 	config.Lifetime = time.Second
 	config.NoLocals = nolocals
 
-	pool := NewTxPool(config, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(config, params.TestChainConfig, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	// Create two test accounts to ensure remotes expire but locals do not
@@ -1159,7 +1159,7 @@ func TestPendingGlobalLimiting(t *testing.T) {
 	config := testTxPoolConfig
 	config.GlobalSlots = config.AccountSlots * 10
 
-	pool := NewTxPool(config, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(config, params.TestChainConfig, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	// Create a number of test accounts and fund them
@@ -1263,7 +1263,7 @@ func TestCapClearsFromAll(t *testing.T) {
 	config.AccountQueue = 2
 	config.GlobalSlots = 8
 
-	pool := NewTxPool(config, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(config, params.TestChainConfig, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	// Create a number of test accounts and fund them
@@ -1295,7 +1295,7 @@ func TestPendingMinimumAllowance(t *testing.T) {
 	config := testTxPoolConfig
 	config.GlobalSlots = 1
 
-	pool := NewTxPool(config, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(config, params.TestChainConfig, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	// Create a number of test accounts and fund them
@@ -1340,7 +1340,7 @@ func TestRepricing(t *testing.T) {
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	blockchain := newTestBlockChain(1000000, statedb, new(event.Feed))
 
-	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	// Keep track of transaction events to ensure all executables get announced
@@ -1588,7 +1588,7 @@ func TestRepricingKeepsLocals(t *testing.T) {
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	blockchain := newTestBlockChain(1000000, statedb, new(event.Feed))
 
-	pool := NewTxPool(testTxPoolConfig, eip1559Config, blockchain, canxium.NewFaker())
+	pool := NewTxPool(testTxPoolConfig, eip1559Config, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	// Create a number of test accounts and fund them
@@ -1665,7 +1665,7 @@ func TestUnderpricing(t *testing.T) {
 	config.GlobalSlots = 2
 	config.GlobalQueue = 2
 
-	pool := NewTxPool(config, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(config, params.TestChainConfig, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	// Keep track of transaction events to ensure all executables get announced
@@ -1779,7 +1779,7 @@ func TestStableUnderpricing(t *testing.T) {
 	config.GlobalSlots = 128
 	config.GlobalQueue = 0
 
-	pool := NewTxPool(config, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(config, params.TestChainConfig, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	// Keep track of transaction events to ensure all executables get announced
@@ -2007,7 +2007,7 @@ func TestDeduplication(t *testing.T) {
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	blockchain := newTestBlockChain(1000000, statedb, new(event.Feed))
 
-	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	// Create a test account to add transactions with
@@ -2073,7 +2073,7 @@ func TestReplacement(t *testing.T) {
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	blockchain := newTestBlockChain(1000000, statedb, new(event.Feed))
 
-	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	// Keep track of transaction events to ensure all executables get announced
@@ -2283,7 +2283,7 @@ func testJournaling(t *testing.T, nolocals bool) {
 	config.Journal = journal
 	config.Rejournal = time.Second
 
-	pool := NewTxPool(config, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(config, params.TestChainConfig, blockchain, ethash.NewFaker())
 
 	// Create two test accounts to ensure remotes expire but locals do not
 	local, _ := crypto.GenerateKey()
@@ -2320,7 +2320,7 @@ func testJournaling(t *testing.T, nolocals bool) {
 	statedb.SetNonce(crypto.PubkeyToAddress(local.PublicKey), 1)
 	blockchain = newTestBlockChain(1000000, statedb, new(event.Feed))
 
-	pool = NewTxPool(config, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool = NewTxPool(config, params.TestChainConfig, blockchain, ethash.NewFaker())
 
 	pending, queued = pool.Stats()
 	if queued != 0 {
@@ -2346,7 +2346,7 @@ func testJournaling(t *testing.T, nolocals bool) {
 
 	statedb.SetNonce(crypto.PubkeyToAddress(local.PublicKey), 1)
 	blockchain = newTestBlockChain(1000000, statedb, new(event.Feed))
-	pool = NewTxPool(config, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool = NewTxPool(config, params.TestChainConfig, blockchain, ethash.NewFaker())
 
 	pending, queued = pool.Stats()
 	if pending != 0 {
@@ -2376,7 +2376,7 @@ func TestStatusCheck(t *testing.T) {
 	statedb, _ := state.New(common.Hash{}, state.NewDatabase(rawdb.NewMemoryDatabase()), nil)
 	blockchain := newTestBlockChain(1000000, statedb, new(event.Feed))
 
-	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain, canxium.NewFaker())
+	pool := NewTxPool(testTxPoolConfig, params.TestChainConfig, blockchain, ethash.NewFaker())
 	defer pool.Stop()
 
 	// Create the test accounts to check various transaction statuses with
