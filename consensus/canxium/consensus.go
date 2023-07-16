@@ -99,16 +99,19 @@ func (c *Canxium) verifySeal(chain consensus.ChainHeaderReader, header *types.He
 // either using the usual ethash cache for it, or alternatively using a full DAG
 // to make remote mining fast.
 func (c *Canxium) VerifyTxSeal(transaction *types.Transaction, fulldag bool) error {
-	if transaction.Type() != types.MiningTxType {
-		return errInvalidTxType
-	}
-
 	switch transaction.Algorithm() {
 	case types.EthashAlgorithm:
 		return c.ethash.VerifyTxSeal(transaction, fulldag)
 	default:
 		return fmt.Errorf("offline mining algorithm %d is not supported yet", transaction.Algorithm())
 	}
+}
+
+// verifyTxsSeal checks whether offline mining transactions satisfies the PoW difficulty requirements,
+// either using the usual ethash cache for it, or alternatively using a full DAG
+// to make remote mining fast.
+func (c *Canxium) VerifyTxsSeal(transactions types.Transactions, fulldag bool) <-chan error {
+	return c.ethash.VerifyTxsSeal(transactions, fulldag)
 }
 
 // Prepare implements consensus.Engine, preparing all the consensus fields of the

@@ -478,7 +478,8 @@ type ChainConfig struct {
 	Clique *CliqueConfig `json:"clique,omitempty"`
 
 	// Canxium foundation wallet, should change to multi sig wallet in the future fork
-	Foundation common.Address `json:"foundation,omitempty"`
+	Foundation     common.Address `json:"foundation,omitempty"`
+	MiningContract common.Address `json:"miningContract,omitempty"`
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
@@ -530,6 +531,15 @@ func (c *ChainConfig) Description() string {
 	default:
 		banner += "Consensus: unknown\n"
 	}
+
+	if c.Foundation != (common.Address{}) {
+		banner += fmt.Sprintf("Foundation:      #%-8v \n", c.Foundation)
+	}
+
+	if c.MiningContract != (common.Address{}) {
+		banner += fmt.Sprintf("Mining Contract: #%-8v \n", c.MiningContract)
+	}
+
 	banner += "\n"
 
 	// Create a list of forks with a short description of them. Forks that only
