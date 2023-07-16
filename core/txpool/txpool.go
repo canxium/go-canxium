@@ -662,7 +662,6 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 	// Drop non-local transactions under our own minimal accepted gas price or tip
 	// Always accept mining tx as gas free, because miner will earn % of reward
 	if !local && tx.GasTipCapIntCmp(pool.gasPrice) < 0 && !tx.IsMiningTx() {
-		fmt.Println("Transaction under price error")
 		return ErrUnderpriced
 	}
 	// Ensure the transaction has more gas than the basic tx fee.
