@@ -26,7 +26,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/state/snapshot"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
-	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
@@ -380,11 +379,6 @@ func (bc *BlockChain) TxLookupLimit() uint64 {
 // TrieDB retrieves the low level trie database used for data storage.
 func (bc *BlockChain) TrieDB() *trie.Database {
 	return bc.triedb
-}
-
-// TrieDB retrieves the low level trie database used for data storage.
-func (bc *BlockChain) ChainDb() ethdb.Database {
-	return bc.db
 }
 
 // SubscribeRemovedLogsEvent registers a subscription of RemovedLogsEvent.

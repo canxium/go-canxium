@@ -187,55 +187,6 @@ search:
 	runtime.KeepAlive(dataset)
 }
 
-func (ethash *Ethash) MineTx(transaction *types.Transaction, id int, seed uint64, abort chan struct{}, found chan *types.Transaction) {
-	// Extract some data from the header
-	var (
-		hash    = transaction.SealHash().Bytes()
-		target  = new(big.Int).Div(two256, transaction.Difficulty())
-		dataset = ethash.dataset(transaction.Nonce(), false)
-	)
-	// Start generating random nonces until we abort or find a good one
-	var (
-		attempts  = int64(0)
-		nonce     = seed
-		powBuffer = new(big.Int)
-	)
-	logger := ethash.config.Log.New("miner", id)
-	logger.Info("Started ethash search for new nonce for transaction mining", "seed", seed)
-search:
-	for {
-		select {
-		case <-abort:
-			// Mining terminated, update stats and abort
-			logger.Info("Ethash nonce search aborted", "attempts", nonce-seed)
-			ethash.hashrate.Mark(attempts)
-			break search
-
-		default:
-			// We don't have to update hash rate on every nonce, so update after after 2^X nonces
-			attempts++
-			if (attempts % (1 << 15)) == 0 {
-				ethash.hashrate.Mark(attempts)
-				attempts = 0
-			}
-			// Compute the PoW value of this nonce
-			digest, result := hashimotoFull(dataset.dataset, hash, nonce)
-			if powBuffer.SetBytes(result).Cmp(target) <= 0 {
-				ethash.config.Log.Info("Found nonce for mine transaction", "hash", transaction.Hash(), "none", nonce, "digest", common.BytesToHash(digest))
-				transaction.SetEthashPow(nonce, common.BytesToHash(digest))
-				select {
-				case found <- transaction:
-					logger.Trace("Ethash nonce found and reported", "attempts", nonce-seed, "nonce", nonce)
-				case <-abort:
-					logger.Trace("Ethash nonce found but discarded", "attempts", nonce-seed, "nonce", nonce)
-				}
-				break search
-			}
-			nonce++
-		}
-	}
-}
-
 // This is the timeout for HTTP requests to notify external miners.
 const remoteSealerTimeout = 1 * time.Second
 
