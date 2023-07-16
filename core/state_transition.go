@@ -24,16 +24,16 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	cmath "github.com/ethereum/go-ethereum/common/math"
-	"github.com/ethereum/go-ethereum/consensus/canxium"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
 )
 
 var (
-	big100 = big.NewInt(100)
 	// ErrInvalidSender is returned if the transaction contains an invalid signature compare with transaction.from (mining tx field)
 	ErrInvalidMiningSender = errors.New("invalid mining transaction sender")
+	// ErrInvalidSender is returned if the transaction contains an invalid receiver
+	ErrInvalidMiningReceiver = errors.New("invalid mining transaction receiver")
 )
 
 // ExecutionResult includes all output after executing given evm
@@ -243,6 +243,13 @@ func (st *StateTransition) to() common.Address {
 }
 
 func (st *StateTransition) buyGas(contractCreation bool) error {
+	// mining tx is gas free
+	if st.msg.IsMiningTx {
+		st.gasRemaining += st.msg.GasLimit
+		st.initialGas = st.msg.GasLimit
+		return nil
+	}
+
 	mgval := new(big.Int).SetUint64(st.msg.GasLimit)
 	mgval = mgval.Mul(mgval, st.msg.GasPrice)
 	balanceCheck := mgval
@@ -254,10 +261,6 @@ func (st *StateTransition) buyGas(contractCreation bool) error {
 	if contractCreation {
 		balanceCheck.Add(balanceCheck, params.CanxiumContractCreationFee)
 	}
-	if st.msg.IsMiningTx {
-		// mining tx is gas free
-		balanceCheck = big.NewInt(0)
-	}
 	if have, want := st.state.GetBalance(st.msg.From), balanceCheck; have.Cmp(want) < 0 {
 		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, st.msg.From.Hex(), have, want)
 	}
@@ -265,11 +268,8 @@ func (st *StateTransition) buyGas(contractCreation bool) error {
 		return err
 	}
 	st.gasRemaining += st.msg.GasLimit
-
 	st.initialGas = st.msg.GasLimit
-	if !st.msg.IsMiningTx {
-		st.state.SubBalance(st.msg.From, mgval)
-	}
+	st.state.SubBalance(st.msg.From, mgval)
 	return nil
 }
 
@@ -329,10 +329,10 @@ func (st *StateTransition) preCheck(contractCreation bool) error {
 		}
 	}
 
-	// do not buy gas for mining tx
-	if msg.IsMiningTx && msg.To == nil {
-		// contract creation in mining tx are not allowed
-		return errors.New("contract creation in mining transaction are not allowed")
+	if st.evm.ChainConfig().IsHydro(st.evm.Context.BlockNumber) && msg.IsMiningTx {
+		if msg.To == nil || *msg.To != st.evm.ChainConfig().MiningContract {
+			return ErrInvalidMiningReceiver
+		}
 	}
 
 	return st.buyGas(contractCreation)
@@ -388,15 +388,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	}
 	st.gasRemaining -= gas
 
-	if msg.IsMiningTx {
-		reward, foundation, coinbase := st.txMiningReward(msg.Difficulty)
-		// overwrite the msg value, because if we fork and reduce reward, old tx will fail
-		if reward.Sign() > 0 {
-			msg.Value = reward
-			st.state.AddBalance(msg.From, msg.Value)
-			st.state.AddBalance(st.evm.Context.Coinbase, coinbase)
-			st.state.AddBalance(st.evm.ChainConfig().Foundation, foundation)
-		}
+	// Create new CAU for offline mining tx and add to from address before calling contract
+	if msg.IsMiningTx && msg.Value.Sign() > 0 {
+		st.state.AddBalance(msg.From, msg.Value)
 	}
 
 	// Check clause 6, skip if this is a mining transaction.
@@ -482,28 +476,4 @@ func (st *StateTransition) refundGas(refundQuotient uint64) {
 // gasUsed returns the amount of gas used up by the state transition.
 func (st *StateTransition) gasUsed() uint64 {
 	return st.initialGas - st.gasRemaining
-}
-
-// caculate offline mining reward
-func (st *StateTransition) txMiningReward(difficulty *big.Int) (reward, foundation, coinbase *big.Int) {
-	reward = big.NewInt(0)
-	foundationPercent := big.NewInt(0)
-	coinbasePercent := big.NewInt(0)
-	// offline mining are enabled by hydro hard fork
-	if st.evm.ChainConfig().IsHydro(st.evm.Context.BlockNumber) {
-		reward = new(big.Int).Mul(canxium.CanxiumMiningTxRewardPerHash, difficulty)
-		foundationPercent = canxium.CanxiumMiningTxFoundationPercent
-		coinbasePercent = canxium.CanxiumMiningTxCoinbasePercent
-	}
-
-	// Accumulate the rewards for the miner
-	// send reward to foundation wallet
-	foundation = new(big.Int).Mul(foundationPercent, reward)
-	foundation.Div(foundation, big100)
-	coinbase = new(big.Int).Mul(coinbasePercent, reward)
-	coinbase.Div(coinbase, big100)
-	reward.Sub(reward, foundation)
-	reward.Sub(reward, coinbase)
-
-	return
 }

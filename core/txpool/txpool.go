@@ -67,6 +67,9 @@ var (
 	// ErrInvalidSender is returned if the transaction contains an invalid signature compare with transaction.from (mining tx field)
 	ErrInvalidMiningSender = errors.New("invalid mining transaction sender")
 
+	// ErrInvalidSender is returned if the transaction contains an invalid receiver
+	ErrInvalidMiningReceiver = errors.New("invalid mining transaction receiver")
+
 	// ErrUnderpriced is returned if a transaction's gas price is below the minimum
 	// configured for the transaction pool.
 	ErrUnderpriced = errors.New("transaction underpriced")
@@ -672,9 +675,12 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 	}
 
 	if tx.Type() == types.MiningTxType {
+		// Ensure destination have to be the mining contract
+		if tx.To() == nil || *tx.To() != pool.chainconfig.MiningContract {
+			return ErrInvalidMiningReceiver
+		}
 		// check consensus rule: tx sender have to match with tx from to prevent replaying
 		if sender != tx.From() {
-			log.Warn("Invalid offline mining transaction sender", "sender", sender, "from", tx.From())
 			return ErrInvalidMiningSender
 		}
 		// check tx seal, minimum difficulty

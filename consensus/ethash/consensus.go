@@ -39,15 +39,18 @@ import (
 
 // Ethash proof-of-work protocol constants.
 var (
-	FrontierBlockReward         = big.NewInt(5e+18) // Block reward in wei for successfully mining a block
-	ByzantiumBlockReward        = big.NewInt(3e+18) // Block reward in wei for successfully mining a block upward from Byzantium
-	ConstantinopleBlockReward   = big.NewInt(2e+18) // Block reward in wei for successfully mining a block upward from Constantinople
-	CanxiumBlockRewardPerHash   = big.NewInt(500)   // Block reward in wei per difficulty hash for successfully mining a block upward from Canxium
-	CanxiumBlockFirstYearReward = big.NewInt(25e16) // First year reward per block in canxium chain: 0.25 CLI
+	FrontierBlockReward       = big.NewInt(5e+18) // Block reward in wei for successfully mining a block
+	ByzantiumBlockReward      = big.NewInt(3e+18) // Block reward in wei for successfully mining a block upward from Byzantium
+	ConstantinopleBlockReward = big.NewInt(2e+18) // Block reward in wei for successfully mining a block upward from Constantinople
 
-	CanxiumFoundationRewardPercent          = big.NewInt(2)            // Foudation reward: 2%
-	CanxiumFoundationFirstYearRewardPercent = big.NewInt(25)           // First year Foudation reward: 25%
-	CanxiumMiningTxMinimumDifficulty        = big.NewInt(100000000000) // 100GH
+	CanxiumRewardPerHash                    = big.NewInt(500)   // Reward in wei per difficulty hash for successfully mining upward from Canxium
+	CanxiumBlockFirstYearReward             = big.NewInt(25e16) // First year reward per block in canxium chain: 0.25 CLI
+	CanxiumFoundationRewardPercent          = big.NewInt(2)     // Foudation reward: 2%
+	CanxiumFoundationFirstYearRewardPercent = big.NewInt(25)    // First year Foudation reward: 25%
+	// offline mining
+	CanxiumMiningTxMinimumDifficulty = big.NewInt(500000000000) // 500GH
+	CanxiumMiningTxFoundationPercent = big.NewInt(5)            // Foudation reward: 5%
+	CanxiumMiningTxCoinbasePercent   = big.NewInt(5)            // Block miner reward: 5%
 
 	maxUncles                     = 2        // Maximum number of uncles allowed in a single block
 	allowedFutureBlockTimeSeconds = int64(7) // Max seconds from current time allowed for blocks, before they're considered future blocks
@@ -67,7 +70,8 @@ var (
 	errInvalidMixDigest     = errors.New("invalid mix digest")
 	errInvalidPoW           = errors.New("invalid proof-of-work")
 	errDifficultyUnderValue = errors.New("mining transaction difficulty under value")
-	errInvalidTMiningxType  = errors.New("invalid mining transaction type")
+	errInvalidMiningTxType  = errors.New("invalid mining transaction type")
+	errInvalidMiningTxValue = errors.New("invalid mining transaction value")
 )
 
 // Author implements consensus.Engine, returning the header's coinbase as the
@@ -594,7 +598,7 @@ func (ethash *Ethash) verifySeal(chain consensus.ChainHeaderReader, header *type
 // to make remote mining fast.
 func (ethash *Ethash) VerifyTxSeal(tx *types.Transaction, fulldag bool) error {
 	if tx.Type() != types.MiningTxType {
-		return errInvalidTMiningxType
+		return errInvalidMiningTxType
 	}
 	// If we're running a fake PoW, accept any seal as valid
 	if ethash.config.PowMode == ModeFake || ethash.config.PowMode == ModeFullFake {
@@ -611,6 +615,11 @@ func (ethash *Ethash) VerifyTxSeal(tx *types.Transaction, fulldag bool) error {
 	}
 	if tx.Difficulty().Cmp(CanxiumMiningTxMinimumDifficulty) < 0 {
 		return errDifficultyUnderValue
+	}
+	// Ensure value is valid: reward * difficulty
+	value := new(big.Int).Mul(CanxiumRewardPerHash, tx.Difficulty())
+	if tx.Value().Cmp(value) != 0 {
+		return errInvalidMiningTxValue
 	}
 	// Recompute the digest and PoW values, using tx nonce and the number of dataset
 	number := tx.Nonce()
@@ -813,7 +822,7 @@ func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header 
 	foundationPercent := CanxiumFoundationFirstYearRewardPercent
 	// hydro hard fork, reduce reward and foundation percent
 	if config.IsHydro(header.Number) {
-		blockReward = new(big.Int).Mul(CanxiumBlockRewardPerHash, header.Difficulty)
+		blockReward = new(big.Int).Mul(CanxiumRewardPerHash, header.Difficulty)
 		foundationPercent = CanxiumFoundationRewardPercent
 	}
 
