@@ -14,7 +14,11 @@
     "londonBlock": 0,
     "canxiumBlock": 0,
     "hydroBlock": 4204800,
-    "ethash": {}
+    "ethash": {
+      "minDifficulty": 500000000000,
+      "txMiningReward": 500
+    },
+    "miningContract": "0x0000000000000000000000000000000000000000"
   },
   "difficulty": "400000",
   "gasLimit": "100000000",
