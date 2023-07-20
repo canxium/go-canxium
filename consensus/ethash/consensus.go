@@ -596,7 +596,7 @@ func (ethash *Ethash) verifySeal(chain consensus.ChainHeaderReader, header *type
 // verifySeal checks whether a offline mining transaction satisfies the PoW difficulty requirements,
 // either using the usual ethash cache for it, or alternatively using a full DAG
 // to make remote mining fast.
-func (ethash *Ethash) VerifyTxSeal(tx *types.Transaction, fulldag bool) error {
+func (ethash *Ethash) VerifyTxSeal(config *params.ChainConfig, tx *types.Transaction, fulldag bool) error {
 	if tx.Type() != types.MiningTxType {
 		return errInvalidMiningTxType
 	}
@@ -607,17 +607,17 @@ func (ethash *Ethash) VerifyTxSeal(tx *types.Transaction, fulldag bool) error {
 	}
 	// If we're running a shared PoW, delegate verification to it
 	if ethash.shared != nil {
-		return ethash.shared.VerifyTxSeal(tx, fulldag)
+		return ethash.shared.VerifyTxSeal(config, tx, fulldag)
 	}
 	// Ensure that we have a valid difficulty for the block
 	if tx.Difficulty().Sign() <= 0 {
 		return errInvalidDifficulty
 	}
-	if tx.Difficulty().Cmp(CanxiumMiningTxMinimumDifficulty) < 0 {
+	if tx.Difficulty().Cmp(config.Ethash.MinDifficulty) < 0 {
 		return errDifficultyUnderValue
 	}
 	// Ensure value is valid: reward * difficulty
-	value := new(big.Int).Mul(CanxiumRewardPerHash, tx.Difficulty())
+	value := new(big.Int).Mul(config.Ethash.TxMiningReward, tx.Difficulty())
 	if tx.Value().Cmp(value) != 0 {
 		return errInvalidMiningTxValue
 	}
@@ -671,7 +671,7 @@ func (ethash *Ethash) VerifyTxSeal(tx *types.Transaction, fulldag bool) error {
 // VerifyTxsSeal is similar to VerifyTxSeal, but verifies a batch of mining transactions
 // concurrently. The method returns a quit channel to abort the operations and
 // a results channel to retrieve the async verifications.
-func (ethash *Ethash) VerifyTxsSeal(txs types.Transactions, fulldag bool) <-chan error {
+func (ethash *Ethash) VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, fulldag bool) <-chan error {
 	// If we're running a full engine faking, accept any input as valid
 	if ethash.config.PowMode == ModeFullFake || len(txs) == 0 {
 		result := make(chan error, 1)
@@ -700,7 +700,7 @@ func (ethash *Ethash) VerifyTxsSeal(txs types.Transactions, fulldag bool) <-chan
 					continue
 				}
 
-				errors[index] = ethash.VerifyTxSeal(txs[index], fulldag)
+				errors[index] = ethash.VerifyTxSeal(config, txs[index], fulldag)
 				done <- index
 			}
 		}()
