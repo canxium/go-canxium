@@ -1750,7 +1750,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			}
 		}
 
-		if seal := bc.engine.VerifyTxsSeal(block.Transactions(), false); seal != nil {
+		if seal := bc.engine.VerifyTxsSeal(bc.chainConfig, block.Transactions(), false); seal != nil {
 			if sealError := <-seal; sealError != nil {
 				// one of txs seal return error, abort this block
 				log.Debug("Found a bad block because of malicious mining transaction", "hash", block.Hash())
