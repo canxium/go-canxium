@@ -217,14 +217,14 @@ func (beacon *Beacon) VerifyUncles(chain consensus.ChainReader, block *types.Blo
 // VerifyTxSeal checks whether a offline mining transaction satisfies the PoW difficulty requirements,
 // either using the usual ethash cache for it, or alternatively using a full DAG
 // to make remote mining fast.
-func (beacon *Beacon) VerifyTxSeal(tx *types.Transaction, fulldag bool) error {
+func (beacon *Beacon) VerifyTxSeal(config *params.ChainConfig, tx *types.Transaction, fulldag bool) error {
 	return nil
 }
 
 // VerifyTxsSeal checks whether offline mining transactions satisfies the PoW difficulty requirements,
 // either using the usual ethash cache for it, or alternatively using a full DAG
 // to make remote mining fast.
-func (c *Beacon) VerifyTxsSeal(txs types.Transactions, fulldag bool) <-chan error {
+func (c *Beacon) VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, fulldag bool) <-chan error {
 	return nil
 }
 
