@@ -671,11 +671,12 @@ func (ethash *Ethash) VerifyTxSeal(config *params.ChainConfig, tx *types.Transac
 // VerifyTxsSeal is similar to VerifyTxSeal, but verifies a batch of mining transactions
 // concurrently. The method returns a quit channel to abort the operations and
 // a results channel to retrieve the async verifications.
-func (ethash *Ethash) VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, fulldag bool) <-chan error {
+func (ethash *Ethash) VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, fulldag bool) <-chan int64 {
 	// If we're running a full engine faking, accept any input as valid
+	result := make(chan int64, 1)
+	defer close(result)
 	if ethash.config.PowMode == ModeFullFake || len(txs) == 0 {
-		result := make(chan error, 1)
-		result <- nil
+		result <- 0
 		return result
 	}
 
@@ -687,9 +688,10 @@ func (ethash *Ethash) VerifyTxsSeal(config *params.ChainConfig, txs types.Transa
 
 	// Create a task channel and spawn the verifiers
 	var (
-		inputs = make(chan int)
-		done   = make(chan int, workers)
-		errors = make([]error, len(txs))
+		inputs       = make(chan int)
+		done         = make(chan int, workers)
+		errors       = make([]error, len(txs))
+		numMiningTxs = int64(0)
 	)
 	for i := 0; i < workers; i++ {
 		go func() {
@@ -700,16 +702,17 @@ func (ethash *Ethash) VerifyTxsSeal(config *params.ChainConfig, txs types.Transa
 					continue
 				}
 
+				numMiningTxs += 1
 				errors[index] = ethash.VerifyTxSeal(config, txs[index], fulldag)
 				done <- index
 			}
 		}()
 	}
 
-	errorOut := make(chan error, len(txs))
+	sealCh := make(chan int64, 1)
 	go func() {
 		defer close(inputs)
-		defer close(errorOut)
+		defer close(sealCh)
 		var (
 			in, out = 0, 0
 			checked = make([]bool, len(txs))
@@ -725,19 +728,20 @@ func (ethash *Ethash) VerifyTxsSeal(config *params.ChainConfig, txs types.Transa
 			case index := <-done:
 				for checked[index] = true; checked[out]; out++ {
 					if errors[out] != nil {
-						errorOut <- errors[out]
+						sealCh <- -1
 						// if any of txs have error, return.
 						return
 					}
 
 					if out == len(txs)-1 {
+						sealCh <- numMiningTxs
 						return
 					}
 				}
 			}
 		}
 	}()
-	return errorOut
+	return sealCh
 }
 
 // Prepare implements consensus.Engine, initializing the difficulty field of a

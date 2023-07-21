@@ -18,7 +18,8 @@
       "minDifficulty": 500000000000,
       "txMiningReward": 500
     },
-    "miningContract": "0x0000000000000000000000000000000000000000"
+    "miningContract": "0x0000000000000000000000000000000000000000",
+    "maxMiningTxPerBlock": 200
   },
   "difficulty": "400000",
   "gasLimit": "100000000",

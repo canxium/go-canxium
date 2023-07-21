@@ -224,7 +224,7 @@ func (beacon *Beacon) VerifyTxSeal(config *params.ChainConfig, tx *types.Transac
 // VerifyTxsSeal checks whether offline mining transactions satisfies the PoW difficulty requirements,
 // either using the usual ethash cache for it, or alternatively using a full DAG
 // to make remote mining fast.
-func (c *Beacon) VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, fulldag bool) <-chan error {
+func (c *Beacon) VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, fulldag bool) <-chan int64 {
 	return nil
 }
 
