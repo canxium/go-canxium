@@ -87,6 +87,7 @@ var (
 
 	errInsertionInterrupted = errors.New("insertion is interrupted")
 	errChainStopped         = errors.New("blockchain is stopped")
+	errInvalidEngine        = errors.New("invalid consensus engine, validate transaction seal is not implemented")
 )
 
 const (
@@ -1750,13 +1751,17 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			}
 		}
 
-		if seal := bc.engine.VerifyTxsSeal(bc.chainConfig, block.Transactions(), false); seal != nil {
-			if sealError := <-seal; sealError != nil {
-				// one of txs seal return error, abort this block
-				log.Debug("Found a bad block because of malicious mining transaction", "hash", block.Hash())
-				bc.reportBlock(block, nil, ErrBadMiningTxs)
-				return it.index, ErrBadMiningTxs
-			}
+		txSealCh := bc.engine.VerifyTxsSeal(bc.chainConfig, block.Transactions(), false)
+		if txSealCh == nil {
+			return it.index, errInvalidEngine
+		}
+
+		numValidMiningTxs := <-txSealCh
+		if numValidMiningTxs < 0 || numValidMiningTxs > bc.chainConfig.MaxMiningTxPerBlock {
+			// one of txs seal return error or more than MaxMiningTxPerBlock, abort this block
+			log.Warn("Found a bad block because of malicious mining transactions", "hash", block.Hash(), "miningTxs", numValidMiningTxs, "max", bc.chainConfig.MaxMiningTxPerBlock)
+			bc.reportBlock(block, nil, ErrBadMiningTxs)
+			return it.index, ErrBadMiningTxs
 		}
 
 		// Process block using the parent state as reference point

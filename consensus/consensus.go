@@ -85,8 +85,9 @@ type Engine interface {
 	VerifyTxSeal(config *params.ChainConfig, tx *types.Transaction, fulldag bool) error
 
 	// VerifyTxsSeal verifies that the given mining transactions conform to the consensus
-	// rules of a given engine.
-	VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, fulldag bool) <-chan error
+	// rules of a given engine. return a channel which number of valid mining transaction
+	// -1 if there is any invalid mining tx
+	VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, fulldag bool) <-chan int64
 
 	// Prepare initializes the consensus fields of a block header according to the
 	// rules of a particular engine. The changes are executed inline.
