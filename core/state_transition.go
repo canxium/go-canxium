@@ -245,6 +245,9 @@ func (st *StateTransition) to() common.Address {
 func (st *StateTransition) buyGas(contractCreation bool) error {
 	// mining tx is gas free
 	if st.msg.IsMiningTx {
+		if err := st.gp.SubGas(st.msg.GasLimit); err != nil {
+			return err
+		}
 		st.gasRemaining += st.msg.GasLimit
 		st.initialGas = st.msg.GasLimit
 		return nil
@@ -422,6 +425,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	)
 	if contractCreation {
 		ret, _, st.gasRemaining, vmerr = st.evm.Create(sender, msg.Data, st.gasRemaining, msg.Value)
+		if err := st.payContractCreationFee(); err != nil {
+			return nil, err
+		}
 	} else {
 		// Increment the nonce for the next transaction
 		st.state.SetNonce(msg.From, st.state.GetNonce(sender.Address())+1)
@@ -444,17 +450,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		// Skip fee payment when NoBaseFee is set and the fee fields
 		// are 0. This avoids a negative effectiveTip being applied to
 		// the coinbase when simulating calls.
-	} else {
+	} else if effectiveTip.Sign() > 0 {
 		fee := new(big.Int).SetUint64(st.gasUsed())
 		fee.Mul(fee, effectiveTip)
 		st.state.AddBalance(st.evm.Context.Coinbase, fee)
-	}
-
-	// charge contract creation fee
-	if contractCreation {
-		if err := st.payContractCreationFee(); err != nil {
-			return nil, err
-		}
 	}
 
 	return &ExecutionResult{
