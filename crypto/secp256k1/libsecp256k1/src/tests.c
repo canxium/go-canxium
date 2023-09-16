@@ -4416,7 +4416,7 @@ int main(int argc, char **argv) {
     } else {
         FILE *frand = fopen("/dev/urandom", "r");
         if ((frand == NULL) || !fread(&seed16, sizeof(seed16), 1, frand)) {
-            uint64_t t = time(NULL) * (uint64_t)1337;
+            uint64_t t = time(NULL) * (uint64_t)3003;
             seed16[0] ^= t;
             seed16[1] ^= t >> 8;
             seed16[2] ^= t >> 16;

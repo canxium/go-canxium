@@ -57,9 +57,9 @@ var (
 	cliqueChainConfig *params.ChainConfig
 
 	// Test accounts
-	testBankKey, _  = crypto.GenerateKey()
-	testBankAddress = crypto.PubkeyToAddress(testBankKey.PublicKey)
-	testBankFunds   = big.NewInt(1000000000000000000)
+	testBankKey, _   = crypto.GenerateKey()
+	testBankAddress  = crypto.PubkeyToAddress(testBankKey.PublicKey)
+	testBankFunds, _ = new(big.Int).SetString("105000000000000000000", 10)
 
 	testUserKey, _  = crypto.GenerateKey()
 	testUserAddress = crypto.PubkeyToAddress(testUserKey.PublicKey)

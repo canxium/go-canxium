@@ -174,17 +174,18 @@ func TestCheckpointRegister(t *testing.T) {
 	}
 	sort.Sort(accounts)
 
+	balance, _ := new(big.Int).SetString("105000000000000000000", 10)
 	// Deploy registrar contract
 	contractBackend := backends.NewSimulatedBackend(
 		core.GenesisAlloc{
-			accounts[0].addr: {Balance: big.NewInt(10000000000000000)},
-			accounts[1].addr: {Balance: big.NewInt(10000000000000000)},
-			accounts[2].addr: {Balance: big.NewInt(10000000000000000)},
+			accounts[0].addr: {Balance: balance},
+			accounts[1].addr: {Balance: balance},
+			accounts[2].addr: {Balance: balance},
 		}, 10000000,
 	)
 	defer contractBackend.Close()
 
-	transactOpts, _ := bind.NewKeyedTransactorWithChainID(accounts[0].key, big.NewInt(1337))
+	transactOpts, _ := bind.NewKeyedTransactorWithChainID(accounts[0].key, big.NewInt(3003))
 
 	// 3 trusted signers, threshold 2
 	contractAddr, _, c, err := contract.DeployCheckpointOracle(transactOpts, contractBackend, []common.Address{accounts[0].addr, accounts[1].addr, accounts[2].addr}, sectionSize, processConfirms, big.NewInt(2))

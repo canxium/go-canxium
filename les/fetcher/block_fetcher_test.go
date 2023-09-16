@@ -38,9 +38,9 @@ var (
 	testdb      = rawdb.NewMemoryDatabase()
 	testKey, _  = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
 	testAddress = crypto.PubkeyToAddress(testKey.PublicKey)
-
-	gspec = core.Genesis{
-		Alloc:   core.GenesisAlloc{testAddress: {Balance: big.NewInt(1000000000000000)}},
+	balance, _  = new(big.Int).SetString("105000000000000000000", 10)
+	gspec       = core.Genesis{
+		Alloc:   core.GenesisAlloc{testAddress: {Balance: balance}},
 		BaseFee: big.NewInt(params.InitialBaseFee),
 	}
 	genesis      = gspec.MustCommit(testdb)

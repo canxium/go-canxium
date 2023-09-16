@@ -114,7 +114,7 @@ func TestGraphQLBlockSerialization(t *testing.T) {
 			code: 200,
 		},
 		{
-			body: `{"query": "{block(number:\"1337\"){number,gasUsed,gasLimit}}","variables": null}`,
+			body: `{"query": "{block(number:\"3003\"){number,gasUsed,gasLimit}}","variables": null}`,
 			want: `{"data":{"block":null}}`,
 			code: 200,
 		},
@@ -384,7 +384,7 @@ func newGQLService(t *testing.T, stack *node.Node, gspec *core.Genesis, genBlock
 		Ethash: ethash.Config{
 			PowMode: ethash.ModeFake,
 		},
-		NetworkId:               1337,
+		NetworkId:               3003,
 		TrieCleanCache:          5,
 		TrieCleanCacheJournal:   "triecache",
 		TrieCleanCacheRejournal: 60 * time.Minute,

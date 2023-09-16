@@ -122,7 +122,7 @@ func setup(t *testing.T) (*core.SignerAPI, *headlessUi) {
 	}
 	ui := &headlessUi{make(chan string, 20), make(chan string, 20)}
 	am := core.StartClefAccountManager(tmpDirName(t), true, true, "")
-	api := core.NewSignerAPI(am, 1337, true, ui, db, true, &storage.NoStorage{})
+	api := core.NewSignerAPI(am, 3003, true, ui, db, true, &storage.NoStorage{})
 	return api, ui
 }
 func createAccount(ui *headlessUi, api *core.SignerAPI, t *testing.T) {

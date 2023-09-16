@@ -58,6 +58,7 @@ type ExecutableData struct {
 	Timestamp     uint64              `json:"timestamp"     gencodec:"required"`
 	ExtraData     []byte              `json:"extraData"     gencodec:"required"`
 	BaseFeePerGas *big.Int            `json:"baseFeePerGas" gencodec:"required"`
+	Difficulty    *big.Int            `json:"baseFeePerGas" gencodec:"required"`
 	BlockHash     common.Hash         `json:"blockHash"     gencodec:"required"`
 	Transactions  [][]byte            `json:"transactions"  gencodec:"required"`
 	Withdrawals   []*types.Withdrawal `json:"withdrawals"`
@@ -190,7 +191,7 @@ func ExecutableDataToBlock(params ExecutableData) (*types.Block, error) {
 		TxHash:          types.DeriveSha(types.Transactions(txs), trie.NewStackTrie(nil)),
 		ReceiptHash:     params.ReceiptsRoot,
 		Bloom:           types.BytesToBloom(params.LogsBloom),
-		Difficulty:      common.Big0,
+		Difficulty:      params.Difficulty,
 		Number:          new(big.Int).SetUint64(params.Number),
 		GasLimit:        params.GasLimit,
 		GasUsed:         params.GasUsed,

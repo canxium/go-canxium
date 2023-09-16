@@ -595,7 +595,7 @@ func TestTracingWithOverrides(t *testing.T) {
 			    uint private x;
 
 			    function test2() external {
-			        x = 1337;
+			        x = 3003;
 			        revert();
 			    }
 

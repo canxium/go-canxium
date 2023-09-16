@@ -48,7 +48,7 @@ type dummyStatedb struct {
 	state.StateDB
 }
 
-func (*dummyStatedb) GetRefund() uint64                       { return 1337 }
+func (*dummyStatedb) GetRefund() uint64                       { return 3003 }
 func (*dummyStatedb) GetBalance(addr common.Address) *big.Int { return new(big.Int) }
 
 type vmContext struct {

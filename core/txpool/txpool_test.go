@@ -2506,7 +2506,8 @@ func benchmarkBatchInsert(b *testing.B, size int, local bool) {
 	defer pool.Stop()
 
 	account := crypto.PubkeyToAddress(key.PublicKey)
-	testAddBalance(pool, account, big.NewInt(1000000000000000000))
+	balance, _ := new(big.Int).SetString("105000000000000000000", 10)
+	testAddBalance(pool, account, balance)
 
 	batches := make([]types.Transactions, b.N)
 	for i := 0; i < b.N; i++ {

@@ -119,7 +119,7 @@ func TestExecutePayloadV1(t *testing.T) {
 		TxHash:      crypto.Keccak256Hash(nil),
 		ReceiptHash: crypto.Keccak256Hash(nil),
 		Bloom:       block.Bloom(),
-		Difficulty:  big.NewInt(0),
+		Difficulty:  big.NewInt(400000),
 		Number:      block.Number(),
 		GasLimit:    block.GasLimit(),
 		GasUsed:     block.GasUsed(),
@@ -143,6 +143,7 @@ func TestExecutePayloadV1(t *testing.T) {
 		Timestamp:     fakeBlock.Time(),
 		ExtraData:     fakeBlock.Extra(),
 		BaseFeePerGas: fakeBlock.BaseFee(),
+		Difficulty:    big.NewInt(400000),
 		BlockHash:     fakeBlock.Hash(),
 		Transactions:  encodeTransactions(fakeBlock.Transactions()),
 	})

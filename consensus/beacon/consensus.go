@@ -225,7 +225,10 @@ func (beacon *Beacon) VerifyTxSeal(config *params.ChainConfig, tx *types.Transac
 // either using the usual ethash cache for it, or alternatively using a full DAG
 // to make remote mining fast.
 func (c *Beacon) VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, fulldag bool) <-chan int64 {
-	return nil
+	result := make(chan int64, 1)
+	defer close(result)
+	result <- 0
+	return result
 }
 
 // verifyHeader checks whether a header conforms to the consensus rules of the

@@ -38,17 +38,18 @@ import (
 func TestReimportMirroredState(t *testing.T) {
 	// Initialize a Clique chain with a single signer
 	var (
-		db     = rawdb.NewMemoryDatabase()
-		key, _ = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
-		addr   = crypto.PubkeyToAddress(key.PublicKey)
-		engine = New(params.AllCliqueProtocolChanges.Clique, db)
-		signer = new(types.HomesteadSigner)
+		db         = rawdb.NewMemoryDatabase()
+		key, _     = crypto.HexToECDSA("b71c71a67e1177ad4e901695e1b4b9ee17ae16c6668d313eac2f96dbcda3f291")
+		addr       = crypto.PubkeyToAddress(key.PublicKey)
+		engine     = New(params.AllCliqueProtocolChanges.Clique, db)
+		signer     = new(types.HomesteadSigner)
+		balance, _ = new(big.Int).SetString("105000000000000000000", 10)
 	)
 	genspec := &core.Genesis{
 		Config:    params.AllCliqueProtocolChanges,
 		ExtraData: make([]byte, extraVanity+common.AddressLength+extraSeal),
 		Alloc: map[common.Address]core.GenesisAccount{
-			addr: {Balance: big.NewInt(10000000000000000)},
+			addr: {Balance: balance},
 		},
 		BaseFee: big.NewInt(params.InitialBaseFee),
 	}

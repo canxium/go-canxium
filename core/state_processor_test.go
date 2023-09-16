@@ -91,16 +91,18 @@ func TestStateProcessorErrors(t *testing.T) {
 	}
 	{ // Tests against a 'recent' chain definition
 		var (
-			db    = rawdb.NewMemoryDatabase()
-			gspec = &Genesis{
+			db = rawdb.NewMemoryDatabase()
+
+			balance, _ = new(big.Int).SetString("105000000000000000000", 10)
+			gspec      = &Genesis{
 				Config: config,
 				Alloc: GenesisAlloc{
 					common.HexToAddress("0x71562b71999873DB5b286dF957af199Ec94617F7"): GenesisAccount{
-						Balance: big.NewInt(1000000000000000000), // 1 ether
+						Balance: balance,
 						Nonce:   0,
 					},
 					common.HexToAddress("0xfd0810DD14796680f72adf1a371963d0745BCc64"): GenesisAccount{
-						Balance: big.NewInt(1000000000000000000), // 1 ether
+						Balance: balance,
 						Nonce:   math.MaxUint64,
 					},
 				},
@@ -224,8 +226,9 @@ func TestStateProcessorErrors(t *testing.T) {
 	// ErrTxTypeNotSupported, For this, we need an older chain
 	{
 		var (
-			db    = rawdb.NewMemoryDatabase()
-			gspec = &Genesis{
+			db         = rawdb.NewMemoryDatabase()
+			balance, _ = new(big.Int).SetString("105000000000000000000", 10)
+			gspec      = &Genesis{
 				Config: &params.ChainConfig{
 					ChainID:             big.NewInt(1),
 					HomesteadBlock:      big.NewInt(0),
@@ -240,7 +243,7 @@ func TestStateProcessorErrors(t *testing.T) {
 				},
 				Alloc: GenesisAlloc{
 					common.HexToAddress("0x71562b71999873DB5b286dF957af199Ec94617F7"): GenesisAccount{
-						Balance: big.NewInt(1000000000000000000), // 1 ether
+						Balance: balance,
 						Nonce:   0,
 					},
 				},
@@ -273,12 +276,13 @@ func TestStateProcessorErrors(t *testing.T) {
 	// ErrSenderNoEOA, for this we need the sender to have contract code
 	{
 		var (
-			db    = rawdb.NewMemoryDatabase()
-			gspec = &Genesis{
+			db         = rawdb.NewMemoryDatabase()
+			balance, _ = new(big.Int).SetString("105000000000000000000", 10)
+			gspec      = &Genesis{
 				Config: config,
 				Alloc: GenesisAlloc{
 					common.HexToAddress("0x71562b71999873DB5b286dF957af199Ec94617F7"): GenesisAccount{
-						Balance: big.NewInt(1000000000000000000), // 1 ether
+						Balance: balance,
 						Nonce:   0,
 						Code:    common.FromHex("0xB0B0FACE"),
 					},
@@ -312,8 +316,9 @@ func TestStateProcessorErrors(t *testing.T) {
 	// ErrMaxInitCodeSizeExceeded, for this we need extra Shanghai (EIP-3860) enabled.
 	{
 		var (
-			db    = rawdb.NewMemoryDatabase()
-			gspec = &Genesis{
+			db         = rawdb.NewMemoryDatabase()
+			balance, _ = new(big.Int).SetString("105000000000000000000", 10)
+			gspec      = &Genesis{
 				Config: &params.ChainConfig{
 					ChainID:                       big.NewInt(1),
 					HomesteadBlock:                big.NewInt(0),
@@ -336,7 +341,7 @@ func TestStateProcessorErrors(t *testing.T) {
 				},
 				Alloc: GenesisAlloc{
 					common.HexToAddress("0x71562b71999873DB5b286dF957af199Ec94617F7"): GenesisAccount{
-						Balance: big.NewInt(1000000000000000000), // 1 ether
+						Balance: balance,
 						Nonce:   0,
 					},
 				},

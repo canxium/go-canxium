@@ -36,8 +36,9 @@ var (
 	testAddress = crypto.PubkeyToAddress(testKey.PublicKey)
 	testDB      = rawdb.NewMemoryDatabase()
 
-	gspec = core.Genesis{
-		Alloc:   core.GenesisAlloc{testAddress: {Balance: big.NewInt(1000000000000000)}},
+	balance, _ = new(big.Int).SetString("105000000000000000000", 10)
+	gspec      = core.Genesis{
+		Alloc:   core.GenesisAlloc{testAddress: {Balance: balance}},
 		BaseFee: big.NewInt(params.InitialBaseFee),
 	}
 	testGenesis = gspec.MustCommit(testDB)

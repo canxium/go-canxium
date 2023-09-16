@@ -53,10 +53,11 @@ var waitDeployedTests = map[string]struct {
 }
 
 func TestWaitDeployed(t *testing.T) {
+	balance, _ := new(big.Int).SetString("105000000000000000000", 10)
 	for name, test := range waitDeployedTests {
 		backend := backends.NewSimulatedBackend(
 			core.GenesisAlloc{
-				crypto.PubkeyToAddress(testKey.PublicKey): {Balance: big.NewInt(10000000000000000)},
+				crypto.PubkeyToAddress(testKey.PublicKey): {Balance: balance},
 			},
 			10000000,
 		)
@@ -100,9 +101,10 @@ func TestWaitDeployed(t *testing.T) {
 }
 
 func TestWaitDeployedCornerCases(t *testing.T) {
+	balance, _ := new(big.Int).SetString("105000000000000000000", 10)
 	backend := backends.NewSimulatedBackend(
 		core.GenesisAlloc{
-			crypto.PubkeyToAddress(testKey.PublicKey): {Balance: big.NewInt(10000000000000000)},
+			crypto.PubkeyToAddress(testKey.PublicKey): {Balance: balance},
 		},
 		10000000,
 	)

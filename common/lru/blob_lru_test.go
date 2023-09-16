@@ -78,7 +78,7 @@ func TestSizeConstrainedCacheOverflow(t *testing.T) {
 	}
 	// Add one single large elem. We expect it to swap out all entries.
 	{
-		k := mkKey(1337)
+		k := mkKey(3003)
 		v := make([]byte, 200)
 		lru.Add(k, v)
 	}

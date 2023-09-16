@@ -50,7 +50,7 @@ func TestChainIterator(t *testing.T) {
 			})
 		} else {
 			tx = types.NewTx(&types.AccessListTx{
-				ChainID:  big.NewInt(1337),
+				ChainID:  big.NewInt(3003),
 				Nonce:    i,
 				GasPrice: big.NewInt(11111),
 				Gas:      1111,
@@ -128,7 +128,7 @@ func TestIndexTransactions(t *testing.T) {
 			})
 		} else {
 			tx = types.NewTx(&types.AccessListTx{
-				ChainID:  big.NewInt(1337),
+				ChainID:  big.NewInt(3003),
 				Nonce:    i,
 				GasPrice: big.NewInt(11111),
 				Gas:      1111,

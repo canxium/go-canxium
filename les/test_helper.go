@@ -55,9 +55,9 @@ import (
 )
 
 var (
-	bankKey, _ = crypto.GenerateKey()
-	bankAddr   = crypto.PubkeyToAddress(bankKey.PublicKey)
-	bankFunds  = big.NewInt(1_000_000_000_000_000_000)
+	bankKey, _   = crypto.GenerateKey()
+	bankAddr     = crypto.PubkeyToAddress(bankKey.PublicKey)
+	bankFunds, _ = new(big.Int).SetString("505000000000000000000", 10)
 
 	userKey1, _ = crypto.GenerateKey()
 	userKey2, _ = crypto.GenerateKey()
@@ -120,12 +120,13 @@ func prepare(n int, backend *backends.SimulatedBackend) {
 			//    txs:    2
 
 			// deploy checkpoint contract
-			auth, _ := bind.NewKeyedTransactorWithChainID(bankKey, big.NewInt(1337))
+			auth, _ := bind.NewKeyedTransactorWithChainID(bankKey, big.NewInt(3003))
 			oracleAddr, _, _, _ = contract.DeployCheckpointOracle(auth, backend, []common.Address{signerAddr}, sectionSize, processConfirms, big.NewInt(1))
 
 			// bankUser transfers some ether to user1
 			nonce, _ := backend.PendingNonceAt(ctx, bankAddr)
-			tx, _ := types.SignTx(types.NewTransaction(nonce, userAddr1, big.NewInt(10_000_000_000_000_000), params.TxGas, big.NewInt(params.InitialBaseFee), nil), signer, bankKey)
+			fund, _ := new(big.Int).SetString("350000000000000000000", 10) // use1 deploy 2 contracts, cost 200
+			tx, _ := types.SignTx(types.NewTransaction(nonce, userAddr1, fund, params.TxGas, big.NewInt(params.InitialBaseFee), nil), signer, bankKey)
 			backend.SendTransaction(ctx, tx)
 		case 1:
 			// Builtin-block

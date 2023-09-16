@@ -38,7 +38,7 @@ func TestGenerateWithdrawalChain(t *testing.T) {
 		address = crypto.PubkeyToAddress(key.PublicKey) // 658bdf435d810c91414ec09147daa6db62406379
 		aa      = common.Address{0xaa}
 		bb      = common.Address{0xbb}
-		funds   = big.NewInt(0).Mul(big.NewInt(1337), big.NewInt(params.Ether))
+		funds   = big.NewInt(0).Mul(big.NewInt(3003), big.NewInt(params.Ether))
 		config  = *params.AllEthashProtocolChanges
 		gspec   = &Genesis{
 			Config:     &config,
@@ -84,7 +84,7 @@ func TestGenerateWithdrawalChain(t *testing.T) {
 			gen.AddWithdrawal(&types.Withdrawal{
 				Validator: 42,
 				Address:   common.Address{0xee},
-				Amount:    1337,
+				Amount:    3003,
 			})
 			gen.AddWithdrawal(&types.Withdrawal{
 				Validator: 13,
@@ -96,7 +96,7 @@ func TestGenerateWithdrawalChain(t *testing.T) {
 			gen.AddWithdrawal(&types.Withdrawal{
 				Validator: 42,
 				Address:   common.Address{0xee},
-				Amount:    1337,
+				Amount:    3003,
 			})
 			gen.AddWithdrawal(&types.Withdrawal{
 				Validator: 13,
