@@ -612,6 +612,11 @@ func (ethash *Ethash) FinalizeAndAssemble(chain consensus.ChainHeaderReader, hea
 	// Finalize block
 	ethash.Finalize(chain, header, state, txs, uncles, nil)
 
+	reward, foundation := calculateRewards(chain.Config(), state, header)
+	// Assign the final reward to header.
+	header.MinerReward = reward
+	header.FundReward = foundation
+
 	// Assign the final state root to header.
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
 
@@ -664,6 +669,12 @@ func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header 
 		return
 	}
 
+	reward, foundation := calculateRewards(config, state, header)
+	state.AddBalance(header.Coinbase, reward)
+	state.AddBalance(config.Foundation, foundation)
+}
+
+func calculateRewards(config *params.ChainConfig, state *state.StateDB, header *types.Header) (*big.Int, *big.Int) {
 	blockReward := CanxiumBlockFirstYearReward
 	foundationPercent := CanxiumFoundationFirstYearRewardPercent
 	// hydro hard fork, reduce reward and foundation percent
@@ -678,9 +689,5 @@ func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header 
 	foundation := new(big.Int).Mul(foundationPercent, reward)
 	foundation.Div(foundation, big100)
 	reward.Sub(reward, foundation)
-
-	state.AddBalance(header.Coinbase, reward)
-	state.AddBalance(config.Foundation, foundation)
-	header.MinerReward = reward
-	header.FundReward = foundation
+	return reward, foundation
 }
