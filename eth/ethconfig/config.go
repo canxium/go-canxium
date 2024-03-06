@@ -237,7 +237,6 @@ func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, clique
 			NotifyFull:       ethashConfig.NotifyFull,
 		}, notify, noverify)
 		engine.(*ethash.Ethash).SetThreads(-1) // Disable CPU mining
-		return engine
 	}
 	return beacon.New(engine)
 }
