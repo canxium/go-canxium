@@ -234,13 +234,11 @@ func (st *StateTransition) buyGas(contractCreation bool) error {
 		balanceCheck = balanceCheck.Mul(balanceCheck, st.msg.GasFeeCap)
 		balanceCheck.Add(balanceCheck, st.msg.Value)
 	}
+	if contractCreation {
+		balanceCheck.Add(balanceCheck, params.CanxiumContractCreationFee)
+	}
 	if have, want := st.state.GetBalance(st.msg.From), balanceCheck; have.Cmp(want) < 0 {
 		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, st.msg.From.Hex(), have, want)
-	}
-	if contractCreation {
-		if have, want := st.state.GetBalance(st.msg.From), params.CanxiumContractCreationFee; have.Cmp(want) < 0 {
-			return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFundsForContractCreate, st.msg.From.Hex(), have, want)
-		}
 	}
 	if err := st.gp.SubGas(st.msg.GasLimit); err != nil {
 		return err
