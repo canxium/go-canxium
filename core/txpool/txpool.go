@@ -683,7 +683,8 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 			return ErrInvalidMiningSender
 		}
 		// check tx seal, minimum difficulty
-		if err := pool.engine.VerifyTxSeal(pool.chainconfig, tx, false); err != nil {
+		pendingBlock := new(big.Int).Add(pool.chain.CurrentBlock().Number, big.NewInt(1))
+		if err := pool.engine.VerifyTxSeal(pool.chainconfig, tx, pendingBlock, false); err != nil {
 			return err
 		}
 	}

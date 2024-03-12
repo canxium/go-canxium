@@ -1751,7 +1751,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			}
 		}
 
-		txSealCh := bc.engine.VerifyTxsSeal(bc.chainConfig, block.Transactions(), false)
+		// before insert block to the chain, make sure all mining transaction are valid
+		txSealCh := bc.engine.VerifyTxsSeal(bc.chainConfig, block.Transactions(), block.Number(), false)
 		if txSealCh == nil {
 			return it.index, errInvalidEngine
 		}

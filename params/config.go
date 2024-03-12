@@ -485,8 +485,6 @@ type ChainConfig struct {
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
 type EthashConfig struct {
-	MinDifficulty  *big.Int `json:"minDifficulty,omitempty"`
-	TxMiningReward *big.Int `json:"txMiningReward,omitempty"`
 }
 
 // String implements the stringer interface, returning the consensus engine details.
