@@ -109,7 +109,6 @@ type TxData interface {
 	difficulty() *big.Int
 	powNonce() uint64
 	mixDigest() common.Hash
-	setEthashPow(seed uint64, mixDigest common.Hash)
 }
 
 // EncodeRLP implements rlp.Encoder
@@ -319,11 +318,6 @@ func (tx *Transaction) PowNonce() uint64 { return tx.inner.powNonce() }
 
 // Seed returns the mining seed of transaction which solve the pow
 func (tx *Transaction) MixDigest() common.Hash { return tx.inner.mixDigest() }
-
-// Seed returns the mining seed of transaction which solve the pow
-func (tx *Transaction) SetEthashPow(nonce uint64, mixDigest common.Hash) {
-	tx.inner.setEthashPow(nonce, mixDigest)
-}
 
 // Difficulty returns the mining diffculty of transaction
 func (tx *Transaction) IsMiningTx() bool { return tx.Type() == MiningTxType }

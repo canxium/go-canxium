@@ -17,10 +17,39 @@
 package types
 
 import (
+	"encoding/binary"
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 )
+
+// A BlockNonce is a 64-bit hash which proves (combined with the
+// mix-hash) that a sufficient amount of computation has been carried
+// out on a block.
+type PowNonce [8]byte
+
+// EncodeNonce converts the given integer to a block nonce.
+func EncodePowNonce(i uint64) PowNonce {
+	var n PowNonce
+	binary.BigEndian.PutUint64(n[:], i)
+	return n
+}
+
+// Uint64 returns the integer value of a block nonce.
+func (n PowNonce) Uint64() uint64 {
+	return binary.BigEndian.Uint64(n[:])
+}
+
+// MarshalText encodes n as a hex string with 0x prefix.
+func (n PowNonce) MarshalText() ([]byte, error) {
+	return hexutil.Bytes(n[:]).MarshalText()
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (n *PowNonce) UnmarshalText(input []byte) error {
+	return hexutil.UnmarshalFixedText("PowNonce", input, n[:])
+}
 
 type MiningTx struct {
 	ChainID   *big.Int
@@ -37,7 +66,7 @@ type MiningTx struct {
 	Algorithm  uint8
 	Difficulty *big.Int
 	MixDigest  common.Hash
-	PowNonce   uint64 // mining nonce
+	PowNonce   PowNonce // mining nonce
 
 	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`
@@ -113,12 +142,8 @@ func (tx *MiningTx) from() common.Address   { return tx.From }
 // mining fields
 func (tx *MiningTx) algorithm() byte        { return tx.Algorithm }
 func (tx *MiningTx) difficulty() *big.Int   { return tx.Difficulty }
-func (tx *MiningTx) powNonce() uint64       { return tx.PowNonce }
+func (tx *MiningTx) powNonce() uint64       { return tx.PowNonce.Uint64() }
 func (tx *MiningTx) mixDigest() common.Hash { return tx.MixDigest }
-func (tx *MiningTx) setEthashPow(nonce uint64, mixDigest common.Hash) {
-	tx.PowNonce = nonce
-	tx.MixDigest = mixDigest
-}
 
 func (tx *MiningTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	if baseFee == nil {

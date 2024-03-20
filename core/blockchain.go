@@ -1754,7 +1754,8 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			}
 		}
 
-		// before insert block to the chain, make sure all mining transaction are valid
+		// Before insert block to the chain, make sure all mining transaction are valid
+		// This type of transaction requires special verification steps, which cannot be verified by conventional methods.
 		txSealCh := bc.engine.VerifyTxsSeal(bc.chainConfig, block.Transactions(), block.Number(), false)
 		if txSealCh == nil {
 			return it.index, errInvalidEngine
