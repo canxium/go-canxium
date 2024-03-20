@@ -136,7 +136,7 @@ func newTestWorkerBackend(t *testing.T, chainConfig *params.ChainConfig, engine 
 	if err != nil {
 		t.Fatalf("core.NewBlockChain failed: %v", err)
 	}
-	txpool := txpool.NewTxPool(testTxPoolConfig, chainConfig, chain)
+	txpool := txpool.NewTxPool(testTxPoolConfig, chainConfig, chain, ethash.NewFaker())
 
 	// Generate a small n-block chain and an uncle block for it
 	var uncle *types.Block

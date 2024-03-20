@@ -17,6 +17,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -26,6 +27,13 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
+)
+
+var (
+	// ErrInvalidSender is returned if the transaction contains an invalid signature compare with transaction.from (mining tx field)
+	ErrInvalidMiningSender = errors.New("invalid mining transaction sender")
+	// ErrInvalidSender is returned if the transaction contains an invalid receiver
+	ErrInvalidMiningReceiver = errors.New("invalid mining transaction receiver")
 )
 
 // ExecutionResult includes all output after executing given evm
@@ -140,6 +148,10 @@ type Message struct {
 	// account nonce in state. It also disables checking that the sender is an EOA.
 	// This field will be set to true for operations like RPC eth_call.
 	SkipAccountChecks bool
+
+	// is mining tx
+	IsMiningTx bool
+	Difficulty *big.Int
 }
 
 // TransactionToMessage converts a transaction into a Message.
@@ -155,6 +167,8 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 		Data:              tx.Data(),
 		AccessList:        tx.AccessList(),
 		SkipAccountChecks: false,
+		IsMiningTx:        tx.Type() == types.MiningTxType,
+		Difficulty:        tx.Difficulty(),
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	if baseFee != nil {
@@ -162,6 +176,9 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 	}
 	var err error
 	msg.From, err = types.Sender(s, tx)
+	if msg.IsMiningTx && msg.From != tx.From() {
+		err = ErrInvalidMiningSender
+	}
 	return msg, err
 }
 
@@ -226,6 +243,16 @@ func (st *StateTransition) to() common.Address {
 }
 
 func (st *StateTransition) buyGas(contractCreation bool) error {
+	// mining tx is gas free
+	if st.msg.IsMiningTx {
+		if err := st.gp.SubGas(st.msg.GasLimit); err != nil {
+			return err
+		}
+		st.gasRemaining += st.msg.GasLimit
+		st.initialGas = st.msg.GasLimit
+		return nil
+	}
+
 	mgval := new(big.Int).SetUint64(st.msg.GasLimit)
 	mgval = mgval.Mul(mgval, st.msg.GasPrice)
 	balanceCheck := mgval
@@ -244,7 +271,6 @@ func (st *StateTransition) buyGas(contractCreation bool) error {
 		return err
 	}
 	st.gasRemaining += st.msg.GasLimit
-
 	st.initialGas = st.msg.GasLimit
 	st.state.SubBalance(st.msg.From, mgval)
 	return nil
@@ -283,7 +309,8 @@ func (st *StateTransition) preCheck(contractCreation bool) error {
 	// Make sure that transaction gasFeeCap is greater than the baseFee (post london)
 	if st.evm.ChainConfig().IsLondon(st.evm.Context.BlockNumber) {
 		// Skip the checks if gas fields are zero and baseFee was explicitly disabled (eth_call)
-		if !st.evm.Config.NoBaseFee || msg.GasFeeCap.BitLen() > 0 || msg.GasTipCap.BitLen() > 0 {
+		// Skip the checks if this is mining transaction
+		if !msg.IsMiningTx && !st.evm.Config.NoBaseFee || msg.GasFeeCap.BitLen() > 0 || msg.GasTipCap.BitLen() > 0 {
 			if l := msg.GasFeeCap.BitLen(); l > 256 {
 				return fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", ErrFeeCapVeryHigh,
 					msg.From.Hex(), l)
@@ -304,6 +331,13 @@ func (st *StateTransition) preCheck(contractCreation bool) error {
 			}
 		}
 	}
+
+	if st.evm.ChainConfig().IsHydro(st.evm.Context.BlockNumber) && msg.IsMiningTx {
+		if msg.To == nil || *msg.To != st.evm.ChainConfig().MiningContract {
+			return ErrInvalidMiningReceiver
+		}
+	}
+
 	return st.buyGas(contractCreation)
 }
 
@@ -357,7 +391,12 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	}
 	st.gasRemaining -= gas
 
-	// Check clause 6
+	// Create new CAU for offline mining tx and add to from address before calling contract
+	if msg.IsMiningTx && msg.Value.Sign() > 0 {
+		st.state.AddBalance(msg.From, msg.Value)
+	}
+
+	// Check clause 6, skip if this is a mining transaction.
 	if msg.Value.Sign() > 0 && !st.evm.Context.CanTransfer(st.state, msg.From, msg.Value) {
 		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From.Hex())
 	}
@@ -378,6 +417,9 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	)
 	if contractCreation {
 		ret, _, st.gasRemaining, vmerr = st.evm.Create(sender, msg.Data, st.gasRemaining, msg.Value)
+		if err := st.payContractCreationFee(); err != nil {
+			return nil, err
+		}
 	} else {
 		// Increment the nonce for the next transaction
 		st.state.SetNonce(msg.From, st.state.GetNonce(sender.Address())+1)
@@ -400,17 +442,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		// Skip fee payment when NoBaseFee is set and the fee fields
 		// are 0. This avoids a negative effectiveTip being applied to
 		// the coinbase when simulating calls.
-	} else {
+	} else if effectiveTip.Sign() > 0 {
 		fee := new(big.Int).SetUint64(st.gasUsed())
 		fee.Mul(fee, effectiveTip)
 		st.state.AddBalance(st.evm.Context.Coinbase, fee)
-	}
-
-	// charge contract creation fee
-	if contractCreation {
-		if err := st.payContractCreationFee(); err != nil {
-			return nil, err
-		}
 	}
 
 	return &ExecutionResult{

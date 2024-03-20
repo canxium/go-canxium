@@ -67,6 +67,8 @@ var (
 
 	diffInTurn = big.NewInt(2) // Block difficulty for in-turn signatures
 	diffNoTurn = big.NewInt(1) // Block difficulty for out-of-turn signatures
+
+	big0 = big.NewInt(0)
 )
 
 // Various error messages to mark blocks invalid. These should be private to
@@ -457,6 +459,20 @@ func (c *Clique) VerifyUncles(chain consensus.ChainReader, block *types.Block) e
 	return nil
 }
 
+// VerifyTxSeal checks whether a offline mining transaction satisfies the PoW difficulty requirements,
+// either using the usual ethash cache for it, or alternatively using a full DAG
+// to make remote mining fast.
+func (c *Clique) VerifyTxSeal(config *params.ChainConfig, tx *types.Transaction, block *big.Int, fulldag bool) error {
+	return nil
+}
+
+// VerifyTxsSeal checks whether offline mining transactions satisfies the PoW difficulty requirements,
+// either using the usual ethash cache for it, or alternatively using a full DAG
+// to make remote mining fast.
+func (c *Clique) VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, block *big.Int, fulldag bool) <-chan int64 {
+	return nil
+}
+
 // verifySeal checks whether the signature contained in the header satisfies the
 // consensus protocol requirements. The method accepts an optional list of parent
 // headers that aren't yet part of the local blockchain to generate the snapshots
@@ -686,6 +702,11 @@ func calcDifficulty(snap *Snapshot, signer common.Address) *big.Int {
 		return new(big.Int).Set(diffInTurn)
 	}
 	return new(big.Int).Set(diffNoTurn)
+}
+
+// Calculate offline mining reward base on block number
+func (c *Clique) TransactionMiningSubsidy(config *params.ChainConfig, block *big.Int) *big.Int {
+	return big0
 }
 
 // SealHash returns the hash of a block prior to it being sealed.
