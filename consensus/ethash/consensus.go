@@ -43,15 +43,15 @@ var (
 	ByzantiumBlockReward      = big.NewInt(3e+18) // Block reward in wei for successfully mining a block upward from Byzantium
 	ConstantinopleBlockReward = big.NewInt(2e+18) // Block reward in wei for successfully mining a block upward from Constantinople
 
-	CanxiumRewardPerHash                    = big.NewInt(500)   // Reward in wei per difficulty hash for successfully mining upward from Canxium
+	CanxiumRewardPerHash                    = big.NewInt(250)   // Reward in wei per difficulty hash for successfully mining upward from Canxium
 	CanxiumBlockFirstYearReward             = big.NewInt(25e16) // First year reward per block in canxium chain: 0.25 CLI
 	CanxiumFoundationRewardPercent          = big.NewInt(2)     // Foudation reward: 2%
 	CanxiumFoundationFirstYearRewardPercent = big.NewInt(25)    // First year Foudation reward: 25%
 	// offline mining
-	CanxiumMiningTxMinimumDifficulty = big.NewInt(500000000000) // 500GH
-	CanxiumMaxTransactionReward      = big.NewInt(3750)
-	CanxiumMiningReduceBlock         = big.NewInt(432000) // Offline mining reward reduce 250 every 432000 blocks
-	CanxiumMiningReducePeriod        = big.NewInt(13)     // Max 13 months
+	CanxiumMaxTransactionReward = big.NewInt(4250)
+	CanxiumMiningReduceBlock    = big.NewInt(432000) // Offline mining reward reduce 11.76% every 432000 blocks
+	CanxiumMiningReducePeriod   = big.NewInt(24)     // Max 24 months
+	CanxiumMiningPeriodPercent  = big.NewInt(8842)
 
 	maxUncles                     = 2        // Maximum number of uncles allowed in a single block
 	allowedFutureBlockTimeSeconds = int64(7) // Max seconds from current time allowed for blocks, before they're considered future blocks
@@ -615,7 +615,7 @@ func (ethash *Ethash) VerifyTxSeal(config *params.ChainConfig, tx *types.Transac
 	if tx.Difficulty().Sign() <= 0 {
 		return errInvalidDifficulty
 	}
-	if tx.Difficulty().Cmp(CanxiumMiningTxMinimumDifficulty) < 0 {
+	if tx.Difficulty().Cmp(config.Ethash.MinimumDifficulty) < 0 {
 		return errDifficultyUnderValue
 	}
 	// Ensure value is valid: reward * difficulty
@@ -828,14 +828,20 @@ func (ethash *Ethash) TransactionMiningSubsidy(config *params.ChainConfig, block
 	}
 	blockPassed := new(big.Int).Sub(block, config.HydroBlock)
 	period := new(big.Int).Div(blockPassed, CanxiumMiningReduceBlock)
-	// reduce mining reward for max 13 period
-	if period.Cmp(CanxiumMiningReducePeriod) > 0 {
+	if period.Cmp(big0) == 0 {
+		return CanxiumMaxTransactionReward
+	}
+
+	// reduce mining reward for max 24 period
+	if period.Cmp(CanxiumMiningReducePeriod) >= 0 {
 		return CanxiumRewardPerHash
 	}
 
-	deduction := new(big.Int).Mul(CanxiumRewardPerHash, period)
-	reward := new(big.Int).Sub(CanxiumMaxTransactionReward, deduction)
-	return reward
+	exp := new(big.Int).Exp(CanxiumMiningPeriodPercent, period, nil)
+	percentage := new(big.Int).Exp(big.NewInt(10000), period, nil)
+	periodReward := new(big.Int).Mul(CanxiumMaxTransactionReward, exp)
+	subsidy := new(big.Int).Div(periodReward, percentage)
+	return subsidy
 }
 
 // AccumulateRewards credits the coinbase of the given block with the mining

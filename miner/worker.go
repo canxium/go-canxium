@@ -917,8 +917,8 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 			continue
 		}
 		if tx.Type() == types.MiningTxType {
-			if env.miningTxcount >= w.chainConfig.MaxMiningTxPerBlock {
-				log.Trace("Ignoring mining transaction, out of slot", "hash", tx.Hash(), "current", env.miningTxcount, "max", w.chainConfig.MaxMiningTxPerBlock)
+			if env.miningTxcount >= core.MaxMiningTransactionPerBlock {
+				log.Trace("Ignoring mining transaction, out of slot", "hash", tx.Hash(), "current", env.miningTxcount, "max", core.MaxMiningTransactionPerBlock)
 				continue
 			}
 			// skip old mining transaction have different mining reward, not match this period
@@ -1072,7 +1072,6 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 // into the given sealing block. The transaction selection and ordering strategy can
 // be customized with the plugin in the future.
 func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) error {
-	fmt.Printf("Fill in transaction for pending blocks\n")
 	// Split the pending transactions into locals and remotes
 	// Fill the block with all available pending transactions.
 	pending := w.eth.TxPool().Pending(true)
