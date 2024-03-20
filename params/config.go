@@ -478,13 +478,13 @@ type ChainConfig struct {
 	Clique *CliqueConfig `json:"clique,omitempty"`
 
 	// Canxium foundation wallet, should change to multi sig wallet in the future fork
-	Foundation          common.Address `json:"foundation,omitempty"`
-	MiningContract      common.Address `json:"miningContract,omitempty"`
-	MaxMiningTxPerBlock int64          `json:"maxMiningTxPerBlock,omitempty"`
+	Foundation     common.Address `json:"foundation,omitempty"`
+	MiningContract common.Address `json:"miningContract,omitempty"`
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
 type EthashConfig struct {
+	MinimumDifficulty *big.Int `json:"minimumDifficulty,omitempty"`
 }
 
 // String implements the stringer interface, returning the consensus engine details.

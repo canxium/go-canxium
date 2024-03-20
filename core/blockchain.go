@@ -123,6 +123,9 @@ const (
 	//  The following incompatible database changes were added:
 	//    * New scheme for contract code in order to separate the codes and trie nodes
 	BlockChainVersion uint64 = 8
+
+	// Maximum number of mining transaction per block
+	MaxMiningTransactionPerBlock = 100
 )
 
 // CacheConfig contains the configuration values for the trie database
@@ -1758,9 +1761,9 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 		}
 
 		numValidMiningTxs := <-txSealCh
-		if numValidMiningTxs < 0 || numValidMiningTxs > bc.chainConfig.MaxMiningTxPerBlock {
-			// one of txs seal return error or more than MaxMiningTxPerBlock, abort this block
-			log.Warn("Found a bad block because of malicious mining transactions", "hash", block.Hash(), "miningTxs", numValidMiningTxs, "max", bc.chainConfig.MaxMiningTxPerBlock)
+		if numValidMiningTxs < 0 || numValidMiningTxs > MaxMiningTransactionPerBlock {
+			// one of txs seal return error or more than MaxMiningTransactionPerBlock, abort this block
+			log.Warn("Found a bad block because of malicious mining transactions", "hash", block.Hash(), "miningTxs", numValidMiningTxs, "max", MaxMiningTransactionPerBlock)
 			bc.reportBlock(block, nil, ErrBadMiningTxs)
 			return it.index, ErrBadMiningTxs
 		}

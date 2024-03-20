@@ -15,11 +15,9 @@
     "canxiumBlock": 0,
     "hydroBlock": 100,
     "ethash": {
-      "minDifficulty": 1000000000,
-      "txMiningReward": 500
+      "minimumDifficulty": 10000000000
     },
-    "miningContract": "0x66aBcd2775856f0561EB98c4954DBf79048032a4",
-    "maxMiningTxPerBlock": 200
+    "miningContract": "0x66aBcd2775856f0561EB98c4954DBf79048032a4"
   },
   "difficulty": "400000",
   "gasLimit": "100000000",
