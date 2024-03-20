@@ -17,7 +17,6 @@
 package core
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -27,13 +26,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/params"
-)
-
-var (
-	// ErrInvalidSender is returned if the transaction contains an invalid signature compare with transaction.from (mining tx field)
-	ErrInvalidMiningSender = errors.New("invalid mining transaction sender")
-	// ErrInvalidSender is returned if the transaction contains an invalid receiver
-	ErrInvalidMiningReceiver = errors.New("invalid mining transaction receiver")
 )
 
 // ExecutionResult includes all output after executing given evm
@@ -151,7 +143,6 @@ type Message struct {
 
 	// is mining tx
 	IsMiningTx bool
-	Difficulty *big.Int
 }
 
 // TransactionToMessage converts a transaction into a Message.
@@ -168,7 +159,6 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 		AccessList:        tx.AccessList(),
 		SkipAccountChecks: false,
 		IsMiningTx:        tx.Type() == types.MiningTxType,
-		Difficulty:        tx.Difficulty(),
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	if baseFee != nil {
@@ -176,9 +166,6 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 	}
 	var err error
 	msg.From, err = types.Sender(s, tx)
-	if msg.IsMiningTx && msg.From != tx.From() {
-		err = ErrInvalidMiningSender
-	}
 	return msg, err
 }
 
@@ -337,12 +324,6 @@ func (st *StateTransition) preCheck(contractCreation bool) error {
 				return fmt.Errorf("%w: address %v, maxFeePerGas: %s baseFee: %s", ErrFeeCapTooLow,
 					msg.From.Hex(), msg.GasFeeCap, st.evm.Context.BaseFee)
 			}
-		}
-	}
-
-	if st.evm.ChainConfig().IsHydro(st.evm.Context.BlockNumber) && msg.IsMiningTx {
-		if msg.To == nil || *msg.To != st.evm.ChainConfig().MiningContract {
-			return ErrInvalidMiningReceiver
 		}
 	}
 

@@ -62,17 +62,19 @@ var (
 // codebase, inherently breaking if the engine is swapped out. Please put common
 // error types into the consensus package.
 var (
-	errOlderBlockTime       = errors.New("timestamp older than parent")
-	errTooManyUncles        = errors.New("too many uncles")
-	errDuplicateUncle       = errors.New("duplicate uncle")
-	errUncleIsAncestor      = errors.New("uncle is ancestor")
-	errDanglingUncle        = errors.New("uncle's parent is not ancestor")
-	errInvalidDifficulty    = errors.New("non-positive difficulty")
-	errInvalidMixDigest     = errors.New("invalid mix digest")
-	errInvalidPoW           = errors.New("invalid proof-of-work")
-	errDifficultyUnderValue = errors.New("mining transaction difficulty under value")
-	errInvalidMiningTxType  = errors.New("invalid mining transaction type")
-	errInvalidMiningTxValue = errors.New("invalid mining transaction value")
+	errOlderBlockTime        = errors.New("timestamp older than parent")
+	errTooManyUncles         = errors.New("too many uncles")
+	errDuplicateUncle        = errors.New("duplicate uncle")
+	errUncleIsAncestor       = errors.New("uncle is ancestor")
+	errDanglingUncle         = errors.New("uncle's parent is not ancestor")
+	errInvalidDifficulty     = errors.New("non-positive difficulty")
+	errInvalidMixDigest      = errors.New("invalid mix digest")
+	errInvalidPoW            = errors.New("invalid proof-of-work")
+	errDifficultyUnderValue  = errors.New("mining transaction difficulty under value")
+	errInvalidMiningTxType   = errors.New("invalid mining transaction type")
+	errInvalidMiningTxValue  = errors.New("invalid mining transaction value")
+	ErrInvalidMiningReceiver = errors.New("invalid mining transaction receiver")
+	ErrInvalidMiningSender   = errors.New("invalid mining transaction sender")
 )
 
 // Author implements consensus.Engine, returning the header's coinbase as the
@@ -611,13 +613,27 @@ func (ethash *Ethash) VerifyTxSeal(config *params.ChainConfig, tx *types.Transac
 	if ethash.shared != nil {
 		return ethash.shared.VerifyTxSeal(config, tx, block, fulldag)
 	}
-	// Ensure that we have a valid difficulty for the block
+	// Ensure the receiver is the mining smart contract
+	if tx.To() == nil || *tx.To() != config.MiningContract {
+		return ErrInvalidMiningReceiver
+	}
+	// Ensure that we have a valid difficulty for the transaction
 	if tx.Difficulty().Sign() <= 0 {
 		return errInvalidDifficulty
 	}
 	if tx.Difficulty().Cmp(config.Ethash.MinimumDifficulty) < 0 {
 		return errDifficultyUnderValue
 	}
+	// Ensure signer and from are same to avoid pow relay attack
+	signer := types.MakeSigner(config, block)
+	from, err := types.Sender(signer, tx)
+	if err != nil {
+		return err
+	}
+	if from != tx.From() {
+		return ErrInvalidMiningSender
+	}
+
 	// Ensure value is valid: reward * difficulty
 	subsidy := ethash.TransactionMiningSubsidy(config, block)
 	value := new(big.Int).Mul(subsidy, tx.Difficulty())

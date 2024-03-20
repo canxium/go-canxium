@@ -51,7 +51,7 @@ type txJSON struct {
 	Algorithm  *hexutil.Uint   `json:"algorithm,omitempty"`
 	Difficulty *hexutil.Big    `json:"difficulty,omitempty"`
 	MixDigest  *common.Hash    `json:"mixDigest,omitempty"`
-	PowNonce   *hexutil.Uint64 `json:"seed,omitempty"`
+	PowNonce   *hexutil.Uint64 `json:"powNonce,omitempty"`
 
 	// Only used for encoding:
 	Hash common.Hash `json:"hash"`
@@ -112,12 +112,13 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		enc.To = tx.To()
 
 		from := tx.From()
+		powNonce := itx.PowNonce.Uint64()
 		enc.From = &from
 		algorithm := uint(itx.Algorithm)
 		enc.Algorithm = (*hexutil.Uint)(&algorithm)
 		enc.Difficulty = (*hexutil.Big)(itx.Difficulty)
 		enc.MixDigest = (*common.Hash)(&itx.MixDigest)
-		enc.PowNonce = (*hexutil.Uint64)(&itx.PowNonce)
+		enc.PowNonce = (*hexutil.Uint64)(&powNonce)
 
 		enc.V = (*hexutil.Big)(itx.V)
 		enc.R = (*hexutil.Big)(itx.R)
@@ -350,9 +351,9 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		}
 		itx.Difficulty = (*big.Int)(dec.Difficulty)
 		if dec.PowNonce == nil {
-			return errors.New("missing required field 'seed' in transaction")
+			return errors.New("missing required field 'powNonce' in transaction")
 		}
-		itx.PowNonce = uint64(*dec.PowNonce)
+		itx.PowNonce = EncodePowNonce(uint64(*dec.PowNonce))
 		if dec.MixDigest == nil {
 			return errors.New("missing required field 'mixDigest' in transaction")
 		}
