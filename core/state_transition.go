@@ -234,8 +234,16 @@ func (st *StateTransition) buyGas(contractCreation bool) error {
 		balanceCheck = balanceCheck.Mul(balanceCheck, st.msg.GasFeeCap)
 		balanceCheck.Add(balanceCheck, st.msg.Value)
 	}
+	// this is the correct way to check the balance
 	if contractCreation {
-		balanceCheck.Add(balanceCheck, params.CanxiumContractCreationFee)
+		if st.evm.ChainConfig().IsHydro(st.evm.Context.BlockNumber) {
+			balanceCheck.Add(balanceCheck, params.CanxiumContractCreationFee)
+		} else {
+			// for backward compatible, pre-hydro fork check the contract creation independently
+			if have, want := st.state.GetBalance(st.msg.From), params.CanxiumContractCreationFee; have.Cmp(want) < 0 {
+				return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFundsForContractCreate, st.msg.From.Hex(), have, want)
+			}
+		}
 	}
 	if have, want := st.state.GetBalance(st.msg.From), balanceCheck; have.Cmp(want) < 0 {
 		return fmt.Errorf("%w: address %v have %v want %v", ErrInsufficientFunds, st.msg.From.Hex(), have, want)
