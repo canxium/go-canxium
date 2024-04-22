@@ -54,15 +54,15 @@ on how you can run your own `canxium` instance.
 
 Minimum:
 
-* CPU with 2+ cores
-* 4GB RAM
-* 100GB free storage space to sync the Mainnet
+* CPU with 4+ cores
+* 8GB RAM
+* 256GB free storage space to sync the Mainnet
 * 8 MBit/sec download Internet service
 
 Recommended:
 
-* Fast CPU with 4+ cores
-* 16GB+ RAM
+* Fast CPU with 8+ cores
+* 32GB+ RAM
 * High-performance SSD with at least 1TB of free space
 * 25+ MBit/sec download Internet service
 
@@ -72,7 +72,7 @@ Before run your own canxium node or miner, you have to init the genesis block or
 connect to the network.
 
 ```shell
-$ ./build/bin/canxium/canxium --db.engine=pebble init ./genesis/mainnet.genesis.json
+$ ./build/bin/canxium --db.engine=pebble init ./genesis/mainnet.genesis.json
 ```
 
 By default, canxium will create new folder under your home: `~/.canxium`
@@ -86,7 +86,7 @@ probably also be desirable to keep the data directory of your private network se
 do also specify a custom `--datadir` flag.
 
 ```shell
-$ ./build/bin/canxium --db.engine=pebble --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@boot.canxium.net:30303,enode://4febc9091214699e15fe3d42bafdd8fdf2b0bde9bc9fff451dba54cf6d1b66bf27dc445f7a9a5d135663f7cd8475db5c6caa647a0c6a04e675d63ba3a4ecb5fc@boot.canxium.com:30303 --ethstats <node_name>:canxium@stats.canxium.org
+$ ./build/bin/canxium --db.engine=pebble --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@boot.canxium.net:30303,enode://767d3e408b073ca501ea7336096c048eea46513ac5c44659ac902d7575881ca114c82277dff7826630ec9fb45d8cfa5a82b9eacc8b477dc475746eaec39e2f2a@boot.canxium.org:30303,enode://f06de34b87954abb25be2e8d592306bc55b396a4eead839dba90baf4e59465d3ef704866962cf2fd995e6ce04f17de31edebb11afcac9df4eaea847f35e3cbaf@boot-n2.canxium.org:30303 --ethstats <node_name>:canxium@stats.canxium.org
 ```
 
 #### Running a canxium miner
@@ -98,7 +98,7 @@ ones either). To start a `canxium` instance for mining, run it with all your usu
 by:
 
 ```shell
-./build/bin/canxium --http --http.api eth,net,web3 --ethstats <node_name>:canxium@stats.canxium.org --mine --miner.etherbase 0x0000000000000000000000000000000000000000 --miner.threads 1 --db.engine=pebble --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@boot.canxium.net:30303,enode://4febc9091214699e15fe3d42bafdd8fdf2b0bde9bc9fff451dba54cf6d1b66bf27dc445f7a9a5d135663f7cd8475db5c6caa647a0c6a04e675d63ba3a4ecb5fc@boot.canxium.com:30303
+./build/bin/canxium --http --http.api eth,net,web3 --ethstats <node_name>:canxium@stats.canxium.org --mine --miner.etherbase 0x0000000000000000000000000000000000000000 --miner.threads 1 --db.engine=pebble --bootnodes enode://314f1041da4b27f5e4c02b4eac52ca7bd2f025cb585490cb7032fdb08db737aa10d7d64a780db697643ece6027d3bc1a511696420e76192648c0d2d74d099c73@boot.canxium.net:30303,enode://767d3e408b073ca501ea7336096c048eea46513ac5c44659ac902d7575881ca114c82277dff7826630ec9fb45d8cfa5a82b9eacc8b477dc475746eaec39e2f2a@boot.canxium.org:30303,enode://f06de34b87954abb25be2e8d592306bc55b396a4eead839dba90baf4e59465d3ef704866962cf2fd995e6ce04f17de31edebb11afcac9df4eaea847f35e3cbaf@boot-n2.canxium.org:30303
 ```
 
 Which will start mining blocks and transactions on a single CPU thread, crediting all
