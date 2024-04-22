@@ -236,7 +236,7 @@ func (st *StateTransition) buyGas(contractCreation bool) error {
 	}
 	// this is the correct way to check the balance
 	if contractCreation {
-		if st.evm.ChainConfig().IsHydro(st.evm.Context.BlockNumber) {
+		if st.evm.ChainConfig().IsShanghai(st.evm.Context.Time) {
 			balanceCheck.Add(balanceCheck, params.CanxiumContractCreationFee)
 		} else {
 			// for backward compatible, pre-hydro fork check the contract creation independently

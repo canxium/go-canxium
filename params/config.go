@@ -536,6 +536,20 @@ func (c *ChainConfig) Description() string {
 		banner += fmt.Sprintf(" - Hydro Fork:                  #%-8v \n", c.HydroBlock)
 	}
 
+	// Add a special section for the merge as it's non-obvious
+	if c.TerminalTotalDifficulty == nil {
+		banner += "The Merge is not yet available for this network!\n"
+		banner += " - Hard-fork specification: https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/paris.md\n"
+	} else {
+		banner += "Merge configured:\n"
+		banner += " - Hard-fork specification:    https://github.com/ethereum/execution-specs/blob/master/network-upgrades/mainnet-upgrades/paris.md\n"
+		banner += fmt.Sprintf(" - Network known to be merged: %v\n", c.TerminalTotalDifficultyPassed)
+		banner += fmt.Sprintf(" - Total terminal difficulty:  %v\n", c.TerminalTotalDifficulty)
+		if c.MergeNetsplitBlock != nil {
+			banner += fmt.Sprintf(" - Merge netsplit block:       #%-8v\n", c.MergeNetsplitBlock)
+		}
+	}
+
 	banner += "\n"
 
 	// Create a list of forks post-merge
