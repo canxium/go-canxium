@@ -604,6 +604,9 @@ func (ethash *Ethash) VerifyTxSeal(config *params.ChainConfig, tx *types.Transac
 	if tx.Type() != types.MiningTxType {
 		return errInvalidMiningTxType
 	}
+	if !config.IsHydro(block) {
+		return types.ErrTxTypeNotSupported
+	}
 	// If we're running a fake PoW, accept any seal as valid
 	if ethash.config.PowMode == ModeFake || ethash.config.PowMode == ModeFullFake {
 		time.Sleep(ethash.fakeDelay)
