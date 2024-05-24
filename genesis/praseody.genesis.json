@@ -17,9 +17,9 @@
     "ethash": {
       "minimumDifficulty": 1000000000
     },
-    "miningContract": "0x97DA988540d936Bfc84c90a87A8e31C7Fd37C0E7",
-    "terminalTotalDifficulty": 1016000000,
-    "shanghaiTime": 1712330145
+    "miningContract": "0x22FF40D2d2aF25C5c277D4494C14fC5f49b61D51",
+    "terminalTotalDifficulty": 762047059,
+    "shanghaiTime": 1716525369
   },
   "difficulty": "10000",
   "gasLimit": "50000000",
