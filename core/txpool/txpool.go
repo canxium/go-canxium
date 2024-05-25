@@ -109,8 +109,9 @@ var (
 )
 
 var (
-	evictionInterval    = time.Minute     // Time interval to check for evictable transactions
-	statsReportInterval = 8 * time.Second // Time interval to report transaction pool stats
+	evictionInterval         = time.Minute      // Time interval to check for evictable transactions
+	garbageCollectorInterval = 60 * time.Minute // Time interval to check for invalid mining transactions
+	statsReportInterval      = 8 * time.Second  // Time interval to report transaction pool stats
 )
 
 var (
@@ -370,6 +371,7 @@ func (pool *TxPool) loop() {
 		// Start the stats reporting and transaction eviction tickers
 		report  = time.NewTicker(statsReportInterval)
 		evict   = time.NewTicker(evictionInterval)
+		garbage = time.NewTicker(garbageCollectorInterval)
 		journal = time.NewTicker(pool.config.Rejournal)
 		// Track the previous head headers for transaction reorgs
 		head = pool.chain.CurrentBlock()
@@ -434,6 +436,27 @@ func (pool *TxPool) loop() {
 				}
 				pool.mu.Unlock()
 			}
+		case <-garbage.C:
+			pool.mu.Lock()
+			// Remove all old mining transactions if the reward does not match the current period.
+			// Mining reward will decrease every month for 24 consecutive months.
+			for _, list := range pool.queue {
+				txs := list.Flatten()
+				for _, tx := range txs {
+					if tx.IsMiningTx() && !pool.isValidMiningSubsidy(head.Number, tx) {
+						pool.removeTx(tx.Hash(), true)
+					}
+				}
+			}
+			for _, list := range pool.pending {
+				txs := list.Flatten()
+				for _, tx := range txs {
+					if tx.IsMiningTx() && !pool.isValidMiningSubsidy(head.Number, tx) {
+						pool.removeTx(tx.Hash(), true)
+					}
+				}
+			}
+			pool.mu.Unlock()
 		}
 	}
 }
@@ -572,6 +595,7 @@ func (pool *TxPool) Pending(enforceTips bool) map[common.Address]types.Transacti
 		// If the miner requests tip enforcement, cap the lists now
 		if enforceTips && !pool.locals.contains(addr) {
 			for i, tx := range txs {
+				// Do not check the mining transaction for gas tip because it have zero tip
 				if tx.EffectiveGasTipIntCmp(pool.gasPrice, pool.priced.urgent.baseFee) < 0 && !tx.IsMiningTx() {
 					txs = txs[:i]
 					break
@@ -1696,6 +1720,13 @@ func (pool *TxPool) demoteUnexecutables() {
 			delete(pool.pending, addr)
 		}
 	}
+}
+
+// Check if the mining transaction has correct value, mining rewards will be reduced every month
+func (pool *TxPool) isValidMiningSubsidy(headNumber *big.Int, tx *types.Transaction) bool {
+	subsidy := pool.engine.TransactionMiningSubsidy(pool.chainconfig, headNumber)
+	value := new(big.Int).Mul(subsidy, tx.Difficulty())
+	return tx.Value().Cmp(value) == 0
 }
 
 // addressByHeartbeat is an account address tagged with its last activity timestamp.

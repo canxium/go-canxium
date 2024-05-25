@@ -556,8 +556,17 @@ type TxWithMinerFee struct {
 
 // NewTxWithMinerFee creates a wrapped transaction, calculating the effective
 // miner gasTipCap if a base fee is provided.
+// In case of mining transaction, block miner earn 10-15% of the tx value,
+// we will return the tx.Value to prioritize this transaction type,
+// a block have a maximum of 100 mining transaction so it is okay to prioritize this type,
 // Returns error in case of a negative effective miner gasTipCap.
 func NewTxWithMinerFee(tx *Transaction, baseFee *big.Int) (*TxWithMinerFee, error) {
+	if tx.IsMiningTx() {
+		return &TxWithMinerFee{
+			tx:       tx,
+			minerFee: tx.Value(),
+		}, nil
+	}
 	minerFee, err := tx.EffectiveGasTip(baseFee)
 	if err != nil {
 		return nil, err

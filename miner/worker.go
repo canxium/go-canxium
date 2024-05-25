@@ -919,6 +919,7 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 		if tx.Type() == types.MiningTxType {
 			if env.miningTxcount >= core.MaxMiningTransactionPerBlock {
 				log.Trace("Ignoring mining transaction, out of slot", "hash", tx.Hash(), "current", env.miningTxcount, "max", core.MaxMiningTransactionPerBlock)
+				txs.Shift()
 				continue
 			}
 			// skip old mining transaction have different mining reward, not match this period
@@ -926,6 +927,7 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 			value := new(big.Int).Mul(subsidy, tx.Difficulty())
 			if tx.Value().Cmp(value) != 0 {
 				log.Trace("Ignoring mining transaction, not match subsidy period", "hash", tx.Hash(), "tx value", tx.Value(), "subsidy", value)
+				txs.Shift()
 				continue
 			}
 		}
