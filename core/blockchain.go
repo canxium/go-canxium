@@ -87,6 +87,7 @@ var (
 
 	errInsertionInterrupted = errors.New("insertion is interrupted")
 	errChainStopped         = errors.New("blockchain is stopped")
+	errInvalidEngine        = errors.New("invalid consensus engine, validate transaction seal is not implemented")
 )
 
 const (
@@ -122,6 +123,9 @@ const (
 	//  The following incompatible database changes were added:
 	//    * New scheme for contract code in order to separate the codes and trie nodes
 	BlockChainVersion uint64 = 8
+
+	// Maximum number of mining transaction per block
+	MaxMiningTransactionPerBlock = 100
 )
 
 // CacheConfig contains the configuration values for the trie database
@@ -1748,6 +1752,21 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 					}
 				}(time.Now(), followup, throwaway)
 			}
+		}
+
+		// Before insert block to the chain, make sure all mining transaction are valid
+		// This type of transaction requires special verification steps, which cannot be verified by conventional methods.
+		txSealCh := bc.engine.VerifyTxsSeal(bc.chainConfig, block.Transactions(), block.Number(), false)
+		if txSealCh == nil {
+			return it.index, errInvalidEngine
+		}
+
+		numValidMiningTxs := <-txSealCh
+		if numValidMiningTxs < 0 || numValidMiningTxs > MaxMiningTransactionPerBlock {
+			// one of txs seal return error or more than MaxMiningTransactionPerBlock, abort this block
+			log.Warn("Found a bad block because of malicious mining transactions", "hash", block.Hash(), "miningTxs", numValidMiningTxs, "max", MaxMiningTransactionPerBlock)
+			bc.reportBlock(block, nil, ErrBadMiningTxs)
+			return it.index, ErrBadMiningTxs
 		}
 
 		// Process block using the parent state as reference point

@@ -80,6 +80,15 @@ type Engine interface {
 	// rules of a given engine.
 	VerifyUncles(chain ChainReader, block *types.Block) error
 
+	// VerifyTxSeal verifies that the given mining transaction conform to the consensus
+	// rules of a given engine.
+	VerifyTxSeal(config *params.ChainConfig, tx *types.Transaction, block *big.Int, fulldag bool) error
+
+	// VerifyTxsSeal verifies that the given mining transactions conform to the consensus
+	// rules of a given engine. return a channel which number of valid mining transaction
+	// -1 if there is any invalid mining tx
+	VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, block *big.Int, fulldag bool) <-chan int64
+
 	// Prepare initializes the consensus fields of a block header according to the
 	// rules of a particular engine. The changes are executed inline.
 	Prepare(chain ChainHeaderReader, header *types.Header) error
@@ -113,6 +122,10 @@ type Engine interface {
 	// CalcDifficulty is the difficulty adjustment algorithm. It returns the difficulty
 	// that a new block should have.
 	CalcDifficulty(chain ChainHeaderReader, time uint64, parent *types.Header) *big.Int
+
+	// TransactionMiningSubsidy is the offline mining adjustment algorithm. It returns the mining subsidy
+	// base on block number.
+	TransactionMiningSubsidy(config *params.ChainConfig, block *big.Int) *big.Int
 
 	// APIs returns the RPC APIs this consensus engine provides.
 	APIs(chain ChainHeaderReader) []rpc.API

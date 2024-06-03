@@ -88,12 +88,13 @@ var (
 type environment struct {
 	signer types.Signer
 
-	state     *state.StateDB          // apply state changes here
-	ancestors mapset.Set[common.Hash] // ancestor set (used for checking uncle parent validity)
-	family    mapset.Set[common.Hash] // family set (used for checking uncle invalidity)
-	tcount    int                     // tx count in cycle
-	gasPool   *core.GasPool           // available gas used to pack transactions
-	coinbase  common.Address
+	state         *state.StateDB          // apply state changes here
+	ancestors     mapset.Set[common.Hash] // ancestor set (used for checking uncle parent validity)
+	family        mapset.Set[common.Hash] // family set (used for checking uncle invalidity)
+	tcount        int                     // tx count in cycle
+	miningTxcount int64                   // number of mining txs in cycle
+	gasPool       *core.GasPool           // available gas used to pack transactions
+	coinbase      common.Address
 
 	header   *types.Header
 	txs      []*types.Transaction
@@ -104,14 +105,15 @@ type environment struct {
 // copy creates a deep copy of environment.
 func (env *environment) copy() *environment {
 	cpy := &environment{
-		signer:    env.signer,
-		state:     env.state.Copy(),
-		ancestors: env.ancestors.Clone(),
-		family:    env.family.Clone(),
-		tcount:    env.tcount,
-		coinbase:  env.coinbase,
-		header:    types.CopyHeader(env.header),
-		receipts:  copyReceipts(env.receipts),
+		signer:        env.signer,
+		state:         env.state.Copy(),
+		ancestors:     env.ancestors.Clone(),
+		family:        env.family.Clone(),
+		tcount:        env.tcount,
+		miningTxcount: env.miningTxcount,
+		coinbase:      env.coinbase,
+		header:        types.CopyHeader(env.header),
+		receipts:      copyReceipts(env.receipts),
 	}
 	if env.gasPool != nil {
 		gasPool := *env.gasPool
@@ -819,6 +821,7 @@ func (w *worker) makeEnv(parent *types.Header, header *types.Header, coinbase co
 	}
 	// Keep track of transactions which return errors so they can be removed
 	env.tcount = 0
+	env.miningTxcount = 0
 	return env, nil
 }
 
@@ -913,6 +916,21 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 			txs.Pop()
 			continue
 		}
+		if tx.Type() == types.MiningTxType {
+			if env.miningTxcount >= core.MaxMiningTransactionPerBlock {
+				log.Trace("Ignoring mining transaction, out of slot", "hash", tx.Hash(), "current", env.miningTxcount, "max", core.MaxMiningTransactionPerBlock)
+				txs.Shift()
+				continue
+			}
+			// skip old mining transaction have different mining reward, not match this period
+			subsidy := w.engine.TransactionMiningSubsidy(w.chainConfig, env.header.Number)
+			value := new(big.Int).Mul(subsidy, tx.Difficulty())
+			if tx.Value().Cmp(value) != 0 {
+				log.Trace("Ignoring mining transaction, not match subsidy period", "hash", tx.Hash(), "tx value", tx.Value(), "subsidy", value)
+				txs.Shift()
+				continue
+			}
+		}
 		// Start executing the transaction
 		env.state.SetTxContext(tx.Hash(), env.tcount)
 
@@ -927,6 +945,9 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 			// Everything ok, collect the logs and shift in the next transaction from the same account
 			coalescedLogs = append(coalescedLogs, logs...)
 			env.tcount++
+			if tx.Type() == types.MiningTxType {
+				env.miningTxcount++
+			}
 			txs.Shift()
 
 		default:

@@ -1,0 +1,34 @@
+{
+  "config": {
+    "chainId": 30203,
+    "foundation": "0xBd65D6efb2C3e6B4dD33C664643BEB8e5E133055",
+    "homesteadBlock": 0,
+    "eip150Block": 0,
+    "eip155Block": 0,
+    "eip158Block": 0,
+    "byzantiumBlock": 0,
+    "constantinopleBlock": 0,
+    "petersburgBlock": 0,
+    "istanbulBlock": 0,
+    "berlinBlock": 0,
+    "londonBlock": 0,
+    "canxiumBlock": 0,
+    "hydroBlock": 2500,
+    "ethash": {
+      "minimumDifficulty": 1000000000
+    },
+    "miningContract": "0x22FF40D2d2aF25C5c277D4494C14fC5f49b61D51",
+    "terminalTotalDifficulty": 762047059,
+    "shanghaiTime": 1716525369
+  },
+  "difficulty": "10000",
+  "gasLimit": "50000000",
+  "alloc": {
+    "0xD86AfB59bB519e3fF4efFB08c7827365956D0907": {
+      "balance": "0x1D14A0219E54822428000000"
+    },
+    "0xF26417eCf894678B58feda327DC01A60041856fB": {
+      "balance": "0x33B2E3C9FD0803CE8000000"
+    }
+  }
+}

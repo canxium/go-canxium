@@ -39,14 +39,19 @@ import (
 
 // Ethash proof-of-work protocol constants.
 var (
-	FrontierBlockReward         = big.NewInt(5e+18) // Block reward in wei for successfully mining a block
-	ByzantiumBlockReward        = big.NewInt(3e+18) // Block reward in wei for successfully mining a block upward from Byzantium
-	ConstantinopleBlockReward   = big.NewInt(2e+18) // Block reward in wei for successfully mining a block upward from Constantinople
-	CanxiumBlockRewardPerHash   = big.NewInt(500)   // Block reward in wei per difficulty hash for successfully mining a block upward from Canxium
-	CanxiumBlockFirstYearReward = big.NewInt(25e16) // First year reward per block in canxium chain: 0.25 CLI
+	FrontierBlockReward       = big.NewInt(5e+18) // Block reward in wei for successfully mining a block
+	ByzantiumBlockReward      = big.NewInt(3e+18) // Block reward in wei for successfully mining a block upward from Byzantium
+	ConstantinopleBlockReward = big.NewInt(2e+18) // Block reward in wei for successfully mining a block upward from Constantinople
 
-	CanxiumFoundationRewardPercent          = big.NewInt(2)  // Foudation reward: 2%
-	CanxiumFoundationFirstYearRewardPercent = big.NewInt(25) // First year Foudation reward: 25%
+	CanxiumRewardPerHash                    = big.NewInt(250)   // Reward in wei per difficulty hash for successfully mining upward from Canxium
+	CanxiumBlockFirstYearReward             = big.NewInt(25e16) // First year reward per block in canxium chain: 0.25 CLI
+	CanxiumFoundationRewardPercent          = big.NewInt(2)     // Foudation reward: 2%
+	CanxiumFoundationFirstYearRewardPercent = big.NewInt(25)    // First year Foudation reward: 25%
+	// offline mining
+	CanxiumMaxTransactionReward = big.NewInt(4250)
+	CanxiumMiningReduceBlock    = big.NewInt(432000) // Offline mining reward reduce 11.76% every 432000 blocks
+	CanxiumMiningReducePeriod   = big.NewInt(24)     // Max 24 months
+	CanxiumMiningPeriodPercent  = big.NewInt(8842)
 
 	maxUncles                     = 2        // Maximum number of uncles allowed in a single block
 	allowedFutureBlockTimeSeconds = int64(7) // Max seconds from current time allowed for blocks, before they're considered future blocks
@@ -57,14 +62,19 @@ var (
 // codebase, inherently breaking if the engine is swapped out. Please put common
 // error types into the consensus package.
 var (
-	errOlderBlockTime    = errors.New("timestamp older than parent")
-	errTooManyUncles     = errors.New("too many uncles")
-	errDuplicateUncle    = errors.New("duplicate uncle")
-	errUncleIsAncestor   = errors.New("uncle is ancestor")
-	errDanglingUncle     = errors.New("uncle's parent is not ancestor")
-	errInvalidDifficulty = errors.New("non-positive difficulty")
-	errInvalidMixDigest  = errors.New("invalid mix digest")
-	errInvalidPoW        = errors.New("invalid proof-of-work")
+	errOlderBlockTime        = errors.New("timestamp older than parent")
+	errTooManyUncles         = errors.New("too many uncles")
+	errDuplicateUncle        = errors.New("duplicate uncle")
+	errUncleIsAncestor       = errors.New("uncle is ancestor")
+	errDanglingUncle         = errors.New("uncle's parent is not ancestor")
+	errInvalidDifficulty     = errors.New("non-positive difficulty")
+	errInvalidMixDigest      = errors.New("invalid mix digest")
+	errInvalidPoW            = errors.New("invalid proof-of-work")
+	errDifficultyUnderValue  = errors.New("mining transaction difficulty under value")
+	errInvalidMiningTxType   = errors.New("invalid mining transaction type")
+	errInvalidMiningTxValue  = errors.New("invalid mining transaction value")
+	ErrInvalidMiningReceiver = errors.New("invalid mining transaction receiver")
+	ErrInvalidMiningSender   = errors.New("invalid mining transaction sender")
 )
 
 // Author implements consensus.Engine, returning the header's coinbase as the
@@ -319,6 +329,7 @@ func CalcDifficulty(config *params.ChainConfig, time uint64, parent *types.Heade
 // Some weird constants to avoid constant memory allocs for them.
 var (
 	expDiffPeriod = big.NewInt(100000)
+	big0          = big.NewInt(0)
 	big1          = big.NewInt(1)
 	big2          = big.NewInt(2)
 	big6          = big.NewInt(6)
@@ -586,6 +597,175 @@ func (ethash *Ethash) verifySeal(chain consensus.ChainHeaderReader, header *type
 	return nil
 }
 
+// verifySeal checks whether a offline mining transaction satisfies the PoW difficulty requirements,
+// either using the usual ethash cache for it, or alternatively using a full DAG
+// to make remote mining fast.
+func (ethash *Ethash) VerifyTxSeal(config *params.ChainConfig, tx *types.Transaction, block *big.Int, fulldag bool) error {
+	if tx.Type() != types.MiningTxType {
+		return errInvalidMiningTxType
+	}
+	if !config.IsHydro(block) {
+		return types.ErrTxTypeNotSupported
+	}
+	// If we're running a fake PoW, accept any seal as valid
+	if ethash.config.PowMode == ModeFake || ethash.config.PowMode == ModeFullFake {
+		time.Sleep(ethash.fakeDelay)
+		return nil
+	}
+	// If we're running a shared PoW, delegate verification to it
+	if ethash.shared != nil {
+		return ethash.shared.VerifyTxSeal(config, tx, block, fulldag)
+	}
+	// Ensure the receiver is the mining smart contract
+	if tx.To() == nil || *tx.To() != config.MiningContract {
+		return ErrInvalidMiningReceiver
+	}
+	// Ensure that we have a valid difficulty for the transaction
+	if tx.Difficulty().Sign() <= 0 {
+		return errInvalidDifficulty
+	}
+	if tx.Difficulty().Cmp(config.Ethash.MinimumDifficulty) < 0 {
+		return errDifficultyUnderValue
+	}
+	// Ensure signer and from are same to avoid pow relay attack
+	signer := types.MakeSigner(config, block)
+	from, err := types.Sender(signer, tx)
+	if err != nil {
+		return err
+	}
+	if from != tx.From() {
+		return ErrInvalidMiningSender
+	}
+
+	// Ensure value is valid: reward * difficulty
+	subsidy := ethash.TransactionMiningSubsidy(config, block)
+	value := new(big.Int).Mul(subsidy, tx.Difficulty())
+	if tx.Value().Cmp(value) != 0 {
+		return errInvalidMiningTxValue
+	}
+	// Recompute the digest and PoW values, using tx nonce and the number of dataset
+	number := tx.Nonce()
+
+	var (
+		digest []byte
+		result []byte
+	)
+	// If fast-but-heavy PoW verification was requested, use an ethash dataset
+	if fulldag {
+		dataset := ethash.dataset(number, true)
+		if dataset.generated() {
+			digest, result = hashimotoFull(dataset.dataset, tx.SealHash().Bytes(), tx.PowNonce())
+
+			// Datasets are unmapped in a finalizer. Ensure that the dataset stays alive
+			// until after the call to hashimotoFull so it's not unmapped while being used.
+			runtime.KeepAlive(dataset)
+		} else {
+			// Dataset not yet generated, don't hang, use a cache instead
+			fulldag = false
+		}
+	}
+	// If slow-but-light PoW verification was requested (or DAG not yet ready), use an ethash cache
+	if !fulldag {
+		cache := ethash.cache(number)
+
+		size := datasetSize(number)
+		if ethash.config.PowMode == ModeTest {
+			size = 32 * 1024
+		}
+		digest, result = hashimotoLight(size, cache.cache, tx.SealHash().Bytes(), tx.PowNonce())
+
+		// Caches are unmapped in a finalizer. Ensure that the cache stays alive
+		// until after the call to hashimotoLight so it's not unmapped while being used.
+		runtime.KeepAlive(cache)
+	}
+	// Verify the calculated values against the ones provided in the header
+	mixDigest := tx.MixDigest()
+	if !bytes.Equal(mixDigest[:], digest) {
+		return errInvalidMixDigest
+	}
+	target := new(big.Int).Div(two256, tx.Difficulty())
+	if new(big.Int).SetBytes(result).Cmp(target) > 0 {
+		return errInvalidPoW
+	}
+	return nil
+}
+
+// VerifyTxsSeal is similar to VerifyTxSeal, but verifies a batch of mining transactions
+// concurrently. The method returns a quit channel to abort the operations and
+// a results channel to retrieve the async verifications.
+func (ethash *Ethash) VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, block *big.Int, fulldag bool) <-chan int64 {
+	// If we're running a full engine faking, accept any input as valid
+	result := make(chan int64, 1)
+	defer close(result)
+	if ethash.config.PowMode == ModeFullFake || len(txs) == 0 {
+		result <- 0
+		return result
+	}
+
+	// Spawn as many workers as allowed threads
+	workers := runtime.GOMAXPROCS(0)
+	if len(txs) < workers {
+		workers = len(txs)
+	}
+
+	// Create a task channel and spawn the verifiers
+	var (
+		inputs       = make(chan int)
+		done         = make(chan int, workers)
+		errors       = make([]error, len(txs))
+		numMiningTxs = int64(0)
+	)
+	for i := 0; i < workers; i++ {
+		go func() {
+			for index := range inputs {
+				if txs[index].Type() != types.MiningTxType {
+					errors[index] = nil
+					done <- index
+					continue
+				}
+
+				numMiningTxs += 1
+				errors[index] = ethash.VerifyTxSeal(config, txs[index], block, fulldag)
+				done <- index
+			}
+		}()
+	}
+
+	sealCh := make(chan int64, 1)
+	go func() {
+		defer close(inputs)
+		defer close(sealCh)
+		var (
+			in, out = 0, 0
+			checked = make([]bool, len(txs))
+			inputs  = inputs
+		)
+		for {
+			select {
+			case inputs <- in:
+				if in++; in == len(txs) {
+					// Reached end of headers. Stop sending to workers.
+					inputs = nil
+				}
+			case index := <-done:
+				for checked[index] = true; checked[out]; out++ {
+					if errors[out] != nil {
+						sealCh <- -1
+						// if any of txs have error, return.
+						return
+					}
+
+					if out == len(txs)-1 {
+						sealCh <- numMiningTxs
+						return
+					}
+				}
+			}
+		}
+	}()
+	return sealCh
+}
+
 // Prepare implements consensus.Engine, initializing the difficulty field of a
 // header to conform to the ethash protocol. The changes are done inline.
 func (ethash *Ethash) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
@@ -600,7 +780,7 @@ func (ethash *Ethash) Prepare(chain consensus.ChainHeaderReader, header *types.H
 // Finalize implements consensus.Engine, accumulating the block and uncle rewards.
 func (ethash *Ethash) Finalize(chain consensus.ChainHeaderReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header, withdrawals []*types.Withdrawal) {
 	// Accumulate any block and uncle rewards
-	accumulateRewards(chain.Config(), state, header, uncles)
+	accumulateRewards(chain.Config(), state, header)
 }
 
 // FinalizeAndAssemble implements consensus.Engine, accumulating the block and
@@ -612,7 +792,7 @@ func (ethash *Ethash) FinalizeAndAssemble(chain consensus.ChainHeaderReader, hea
 	// Finalize block
 	ethash.Finalize(chain, header, state, txs, uncles, nil)
 
-	reward, foundation := calculateRewards(chain.Config(), state, header)
+	reward, foundation := calculateRewards(chain.Config(), header)
 	// Assign the final reward to header.
 	header.MinerReward = reward
 	header.FundReward = foundation
@@ -660,29 +840,46 @@ func (ethash *Ethash) SealHash(header *types.Header) (hash common.Hash) {
 	return hash
 }
 
+// Calculate offline mining reward base on block number
+func (ethash *Ethash) TransactionMiningSubsidy(config *params.ChainConfig, block *big.Int) *big.Int {
+	if !config.IsHydro(block) {
+		return big0
+	}
+	blockPassed := new(big.Int).Sub(block, config.HydroBlock)
+	period := new(big.Int).Div(blockPassed, CanxiumMiningReduceBlock)
+	if period.Cmp(big0) == 0 {
+		return CanxiumMaxTransactionReward
+	}
+
+	// reduce mining reward for max 24 period
+	if period.Cmp(CanxiumMiningReducePeriod) >= 0 {
+		return CanxiumRewardPerHash
+	}
+
+	exp := new(big.Int).Exp(CanxiumMiningPeriodPercent, period, nil)
+	percentage := new(big.Int).Exp(big.NewInt(10000), period, nil)
+	periodReward := new(big.Int).Mul(CanxiumMaxTransactionReward, exp)
+	subsidy := new(big.Int).Div(periodReward, percentage)
+	return subsidy
+}
+
 // AccumulateRewards credits the coinbase of the given block with the mining
 // reward. The total reward consists of the static block reward and rewards for
 // included uncles. The coinbase of each uncle block is also rewarded.
-func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header *types.Header, uncles []*types.Header) {
+func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header *types.Header) {
 	// Select the correct block reward based on chain progression
 	if !config.IsCanxium(header.Number) {
 		return
 	}
 
-	reward, foundation := calculateRewards(config, state, header)
+	reward, foundation := calculateRewards(config, header)
 	state.AddBalance(header.Coinbase, reward)
 	state.AddBalance(config.Foundation, foundation)
 }
 
-func calculateRewards(config *params.ChainConfig, state *state.StateDB, header *types.Header) (*big.Int, *big.Int) {
+func calculateRewards(config *params.ChainConfig, header *types.Header) (*big.Int, *big.Int) {
 	blockReward := CanxiumBlockFirstYearReward
 	foundationPercent := CanxiumFoundationFirstYearRewardPercent
-	// hydro hard fork, reduce reward and foundation percent
-	if config.IsHydro(header.Number) {
-		blockReward = new(big.Int).Mul(CanxiumBlockRewardPerHash, header.Difficulty)
-		foundationPercent = CanxiumFoundationRewardPercent
-	}
-
 	// Accumulate the rewards for the miner
 	reward := new(big.Int).Set(blockReward)
 	// send reward to foundation wallet
