@@ -880,12 +880,6 @@ func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header 
 func calculateRewards(config *params.ChainConfig, header *types.Header) (*big.Int, *big.Int) {
 	blockReward := CanxiumBlockFirstYearReward
 	foundationPercent := CanxiumFoundationFirstYearRewardPercent
-	// hydro hard fork, reduce reward and foundation percent
-	if config.IsHydro(header.Number) {
-		blockReward = new(big.Int).Mul(CanxiumRewardPerHash, header.Difficulty)
-		foundationPercent = CanxiumFoundationRewardPercent
-	}
-
 	// Accumulate the rewards for the miner
 	reward := new(big.Int).Set(blockReward)
 	// send reward to foundation wallet
