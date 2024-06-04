@@ -319,7 +319,7 @@ func (tx *Transaction) PowNonce() uint64 { return tx.inner.powNonce() }
 // Seed returns the mining seed of transaction which solve the pow
 func (tx *Transaction) MixDigest() common.Hash { return tx.inner.mixDigest() }
 
-// Difficulty returns the mining diffculty of transaction
+// Is this a mining transaction
 func (tx *Transaction) IsMiningTx() bool { return tx.Type() == MiningTxType }
 
 // To returns the sender address of the transaction.

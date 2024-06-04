@@ -65,7 +65,7 @@ type Contract struct {
 }
 
 // NewContract returns a new contract environment for the execution of EVM.
-func NewContract(caller ContractRef, object ContractRef, value *big.Int, gas uint64, miningContract common.Address) *Contract {
+func NewContract(caller ContractRef, object ContractRef, value *big.Int, gas uint64, miningContract *common.Address) *Contract {
 	c := &Contract{CallerAddress: caller.Address(), caller: caller, self: object}
 
 	if parent, ok := caller.(*Contract); ok {
@@ -80,7 +80,11 @@ func NewContract(caller ContractRef, object ContractRef, value *big.Int, gas uin
 	c.Gas = gas
 	// ensures a value is set
 	c.value = value
-	c.IsMiningContract = object.Address() == miningContract
+	if miningContract != nil {
+		c.IsMiningContract = object.Address() == *miningContract
+	} else {
+		c.IsMiningContract = false
+	}
 
 	return c
 }

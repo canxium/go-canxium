@@ -64,9 +64,9 @@ func (result *ExecutionResult) Revert() []byte {
 }
 
 // IntrinsicGas computes the 'intrinsic gas' for a message with the given data.
-func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation bool, isHomestead, isEIP2028 bool, isEIP3860 bool, isMiningTx bool) (uint64, error) {
+func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation bool, isHomestead, isEIP2028 bool, isEIP3860 bool, isHydroFork bool, isMiningTx bool) (uint64, error) {
 	// Mining transaction have zero intrinsic gas
-	if isMiningTx {
+	if isHydroFork && isMiningTx {
 		return 0, nil
 	}
 	// Set the starting gas for the raw transaction
@@ -375,7 +375,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	)
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
-	gas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai, msg.IsMiningTx)
+	gas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai, rules.IsHydro, msg.IsMiningTx)
 	if err != nil {
 		return nil, err
 	}
