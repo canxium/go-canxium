@@ -52,6 +52,10 @@ var (
 	CanxiumMiningReduceBlock    = big.NewInt(432000) // Offline mining reward reduce 11.76% every 432000 blocks
 	CanxiumMiningReducePeriod   = big.NewInt(24)     // Max 24 months
 	CanxiumMiningPeriodPercent  = big.NewInt(8842)
+	// make sure miner set the correct input data for the transaction
+	CanxiumMiningTxDataLength = 36
+	// mining(address) method
+	CanxiumMiningTxDataMethod = common.Hex2Bytes("eedc3c83000000000000000000000000")
 
 	maxUncles                     = 2        // Maximum number of uncles allowed in a single block
 	allowedFutureBlockTimeSeconds = int64(7) // Max seconds from current time allowed for blocks, before they're considered future blocks
@@ -75,6 +79,7 @@ var (
 	errInvalidMiningTxValue  = errors.New("invalid mining transaction value")
 	ErrInvalidMiningReceiver = errors.New("invalid mining transaction receiver")
 	ErrInvalidMiningSender   = errors.New("invalid mining transaction sender")
+	ErrInvalidMiningInput    = errors.New("invalid mining transaction input data")
 )
 
 // Author implements consensus.Engine, returning the header's coinbase as the
@@ -635,6 +640,11 @@ func (ethash *Ethash) VerifyTxSeal(config *params.ChainConfig, tx *types.Transac
 	}
 	if from != tx.From() {
 		return ErrInvalidMiningSender
+	}
+
+	// Make sure they call the correct method of contract: mining(address)
+	if len(tx.Data()) != CanxiumMiningTxDataLength || !bytes.Equal(CanxiumMiningTxDataMethod, tx.Data()[0:16]) {
+		return ErrInvalidMiningInput
 	}
 
 	// Ensure value is valid: reward * difficulty

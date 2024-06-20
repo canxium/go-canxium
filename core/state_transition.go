@@ -441,6 +441,11 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		st.state.AddBalance(st.evm.Context.Coinbase, fee)
 	}
 
+	// Remove new CAU of offline mining tx because of failed to call evm
+	if msg.IsMiningTx && msg.Value.Sign() > 0 && vmerr != nil {
+		st.state.SubBalance(msg.From, msg.Value)
+	}
+
 	return &ExecutionResult{
 		UsedGas:    st.gasUsed(),
 		Err:        vmerr,
