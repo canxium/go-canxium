@@ -1306,9 +1306,16 @@ type RPCTransaction struct {
 	Type             hexutil.Uint64    `json:"type"`
 	Accesses         *types.AccessList `json:"accessList,omitempty"`
 	ChainID          *hexutil.Big      `json:"chainId,omitempty"`
-	V                *hexutil.Big      `json:"v"`
-	R                *hexutil.Big      `json:"r"`
-	S                *hexutil.Big      `json:"s"`
+
+	// mining fields
+	Algorithm  *hexutil.Uint64 `json:"algorithm,omitempty"`
+	Difficulty *hexutil.Big    `json:"difficulty,omitempty"`
+	MixDigest  *common.Hash    `json:"mixDigest,omitempty"`
+	PowNonce   *hexutil.Uint64 `json:"powNonce,omitempty"`
+
+	V *hexutil.Big `json:"v"`
+	R *hexutil.Big `json:"r"`
+	S *hexutil.Big `json:"s"`
 }
 
 // newRPCTransaction returns a transaction that will serialize to the RPC
@@ -1359,6 +1366,16 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 			result.GasPrice = (*hexutil.Big)(price)
 		} else {
 			result.GasPrice = (*hexutil.Big)(tx.GasFeeCap())
+		}
+
+		if tx.Type() == types.MiningTxType {
+			algorithm := uint64(tx.Algorithm())
+			result.Algorithm = (*hexutil.Uint64)(&algorithm)
+			result.Difficulty = (*hexutil.Big)(tx.Difficulty())
+			disgest := tx.MixDigest()
+			result.MixDigest = &disgest
+			nonce := tx.PowNonce()
+			result.PowNonce = (*hexutil.Uint64)(&nonce)
 		}
 	}
 	return result
