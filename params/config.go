@@ -433,6 +433,9 @@ type ChainConfig struct {
 	CancunTime   *uint64 `json:"cancunTime,omitempty"`   // Cancun switch time (nil = no fork, 0 = already on cancun)
 	PragueTime   *uint64 `json:"pragueTime,omitempty"`   // Prague switch time (nil = no fork, 0 = already on prague)
 
+	// Fork for canxium chain, after PoS
+	HeliumTime *uint64 `json:"heliumTime,omitempty"` // Second hardfork, to support merge mining
+
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
 	TerminalTotalDifficulty *big.Int `json:"terminalTotalDifficulty,omitempty"`
@@ -575,6 +578,9 @@ func (c *ChainConfig) Description() string {
 	if c.PragueTime != nil {
 		banner += fmt.Sprintf(" - Prague:                      @%-10v\n", *c.PragueTime)
 	}
+	if c.HeliumTime != nil {
+		banner += fmt.Sprintf(" - Helium:                	   @%-10v \n", *c.HeliumTime)
+	}
 
 	return banner
 }
@@ -682,6 +688,11 @@ func (c *ChainConfig) IsCanxium(num *big.Int) bool {
 // IsHydro returns whether num is either equal to the hydro fork time or greater.
 func (c *ChainConfig) IsHydro(num *big.Int) bool {
 	return isBlockForked(c.HydroBlock, num)
+}
+
+// IsHelium returns whether num is either equal to the helium fork time or greater.
+func (c *ChainConfig) IsHelium(time uint64) bool {
+	return isTimestampForked(c.HeliumTime, time)
 }
 
 // CheckCompatible checks whether scheduled fork transitions have been imported

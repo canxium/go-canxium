@@ -100,6 +100,9 @@ func (tx *DynamicFeeTx) difficulty() *big.Int   { return big.NewInt(0) }
 func (tx *DynamicFeeTx) powNonce() uint64       { return 0 }
 func (tx *DynamicFeeTx) mixDigest() common.Hash { return common.Hash{} }
 
+// merge mining
+func (tx *DynamicFeeTx) mergeProof() MergeBlock { return nil }
+
 func (tx *DynamicFeeTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		return dst.Set(tx.GasFeeCap)

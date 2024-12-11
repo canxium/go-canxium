@@ -145,7 +145,7 @@ type Message struct {
 	// This field will be set to true for operations like RPC eth_call.
 	SkipAccountChecks bool
 
-	// is mining tx
+	// is mining tx or merge mining tx
 	IsMiningTx bool
 }
 
@@ -162,7 +162,7 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 		Data:              tx.Data(),
 		AccessList:        tx.AccessList(),
 		SkipAccountChecks: false,
-		IsMiningTx:        tx.Type() == types.MiningTxType,
+		IsMiningTx:        tx.IsMiningTx(),
 	}
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	if baseFee != nil {

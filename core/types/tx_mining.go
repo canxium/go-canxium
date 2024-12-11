@@ -145,6 +145,9 @@ func (tx *MiningTx) difficulty() *big.Int   { return tx.Difficulty }
 func (tx *MiningTx) powNonce() uint64       { return tx.PowNonce.Uint64() }
 func (tx *MiningTx) mixDigest() common.Hash { return tx.MixDigest }
 
+// merge mining
+func (tx *MiningTx) mergeProof() MergeBlock { return nil }
+
 func (tx *MiningTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		return dst.Set(tx.GasFeeCap)

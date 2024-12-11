@@ -268,6 +268,7 @@ type TxPool struct {
 	eip1559  atomic.Bool // Fork indicator whether we are using EIP-1559 type transactions.
 	shanghai atomic.Bool // Fork indicator whether we are in the Shanghai stage.
 	hydro    atomic.Bool // Fork indicator whether we are in the Hydro stage.
+	helium   atomic.Bool // Fork indicator whether we are in the Helium stage.
 
 	currentState  *state.StateDB // Current state in the blockchain head
 	pendingNonces *noncer        // Pending state tracking virtual nonces
@@ -443,19 +444,24 @@ func (pool *TxPool) loop() {
 			for _, list := range pool.queue {
 				txs := list.Flatten()
 				for _, tx := range txs {
-					if tx.IsMiningTx() && !pool.isValidMiningSubsidy(head.Number, tx) {
+					if tx.IsMiningTx() && !pool.isValidMiningSubsidy(head.Number, head.Time, tx) {
 						pool.removeTx(tx.Hash(), true)
 					}
+
+					// TODO: Clear old merge mining transactions
 				}
 			}
 			for _, list := range pool.pending {
 				txs := list.Flatten()
 				for _, tx := range txs {
-					if tx.IsMiningTx() && !pool.isValidMiningSubsidy(head.Number, tx) {
+					if tx.IsMiningTx() && !pool.isValidMiningSubsidy(head.Number, head.Time, tx) {
 						pool.removeTx(tx.Hash(), true)
 					}
+
+					// TODO: Clear old merge mining transactions
 				}
 			}
+
 			pool.mu.Unlock()
 		}
 	}
@@ -650,6 +656,11 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 	if !pool.hydro.Load() && tx.Type() == types.MiningTxType {
 		return core.ErrTxTypeNotSupported
 	}
+	// fork for the merge mining tx
+	if !pool.helium.Load() && tx.Type() == types.MergeMiningTxType {
+		return core.ErrTxTypeNotSupported
+	}
+
 	// Reject transactions over defined size to prevent DOS attacks
 	if tx.Size() > txMaxSize {
 		return ErrOversizedData
@@ -678,11 +689,6 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 	if tx.GasFeeCapIntCmp(tx.GasTipCap()) < 0 {
 		return core.ErrTipAboveFeeCap
 	}
-	// Make sure the transaction is signed properly.
-	sender, err := types.Sender(pool.signer, tx)
-	if err != nil {
-		return ErrInvalidSender
-	}
 	// Drop non-local transactions under our own minimal accepted gas price or tip
 	// Always accept mining tx as gas free, because miner will earn % of reward
 	if !local && tx.GasTipCapIntCmp(pool.gasPrice) < 0 && !tx.IsMiningTx() {
@@ -697,18 +703,9 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 		return core.ErrIntrinsicGas
 	}
 
-	if tx.Type() == types.MiningTxType {
-		// Ensure destination have to be the mining contract
-		if tx.To() == nil || *tx.To() != pool.chainconfig.MiningContract {
-			return ErrInvalidMiningReceiver
-		}
-		// check consensus rule: tx sender have to match with tx from to prevent replaying
-		if sender != tx.From() {
-			return ErrInvalidMiningSender
-		}
+	if tx.IsMiningTx() {
 		// check tx seal, minimum difficulty
-		pendingBlock := new(big.Int).Add(pool.chain.CurrentBlock().Number, big.NewInt(1))
-		if err := pool.engine.VerifyTxSeal(pool.chainconfig, tx, pendingBlock, false); err != nil {
+		if err := pool.engine.VerifyMiningTxSeal(pool.chainconfig, tx, pool.chain.CurrentBlock(), false); err != nil {
 			return err
 		}
 	}
@@ -1464,6 +1461,7 @@ func (pool *TxPool) reset(oldHead, newHead *types.Header) {
 	pool.eip1559.Store(pool.chainconfig.IsLondon(next))
 	pool.shanghai.Store(pool.chainconfig.IsShanghai(uint64(time.Now().Unix())))
 	pool.hydro.Store(pool.chainconfig.IsHydro(next))
+	pool.helium.Store(pool.chainconfig.IsHelium(uint64(time.Now().Unix())))
 }
 
 // promoteExecutables moves transactions that have become processable from the
@@ -1723,10 +1721,22 @@ func (pool *TxPool) demoteUnexecutables() {
 }
 
 // Check if the mining transaction has correct value, mining rewards will be reduced every month
-func (pool *TxPool) isValidMiningSubsidy(headNumber *big.Int, tx *types.Transaction) bool {
-	subsidy := pool.engine.TransactionMiningSubsidy(pool.chainconfig, headNumber)
-	value := new(big.Int).Mul(subsidy, tx.Difficulty())
-	return tx.Value().Cmp(value) == 0
+func (pool *TxPool) isValidMiningSubsidy(headNumber *big.Int, headTime uint64, tx *types.Transaction) bool {
+	if tx.Type() == types.MiningTxType {
+		subsidy := misc.TransactionMiningSubsidy(pool.chainconfig, headNumber)
+		value := new(big.Int).Mul(subsidy, tx.Difficulty())
+		return tx.Value().Cmp(value) == 0
+	}
+
+	if tx.Type() == types.MergeMiningTxType {
+		forkTime := misc.MergeMiningForkTime(pool.chainconfig, tx.MergeProof().Chain())
+		subsidy := misc.MergeMiningSubsidy(tx.MergeProof().Chain(), forkTime, headTime)
+		value := new(big.Int).Mul(subsidy, tx.Difficulty())
+		return tx.Value().Cmp(value) == 0
+	}
+
+	// always return true for other tx types
+	return true
 }
 
 // addressByHeartbeat is an account address tagged with its last activity timestamp.

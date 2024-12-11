@@ -916,14 +916,14 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 			txs.Pop()
 			continue
 		}
-		if tx.Type() == types.MiningTxType {
+		if tx.IsMiningTx() {
 			if env.miningTxcount >= core.MaxMiningTransactionPerBlock {
 				log.Trace("Ignoring mining transaction, out of slot", "hash", tx.Hash(), "current", env.miningTxcount, "max", core.MaxMiningTransactionPerBlock)
 				txs.Shift()
 				continue
 			}
 			// skip old mining transaction have different mining reward, not match this period
-			subsidy := w.engine.TransactionMiningSubsidy(w.chainConfig, env.header.Number)
+			subsidy := misc.TransactionMiningSubsidy(w.chainConfig, env.header.Number)
 			value := new(big.Int).Mul(subsidy, tx.Difficulty())
 			if tx.Value().Cmp(value) != 0 {
 				log.Trace("Ignoring mining transaction, not match subsidy period", "hash", tx.Hash(), "tx value", tx.Value(), "subsidy", value)
@@ -945,7 +945,7 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 			// Everything ok, collect the logs and shift in the next transaction from the same account
 			coalescedLogs = append(coalescedLogs, logs...)
 			env.tcount++
-			if tx.Type() == types.MiningTxType {
+			if tx.IsMiningTx() {
 				env.miningTxcount++
 			}
 			txs.Shift()

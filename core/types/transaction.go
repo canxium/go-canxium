@@ -46,6 +46,8 @@ const (
 	AccessListTxType
 	DynamicFeeTxType
 	MiningTxType
+
+	MergeMiningTxType = 126
 )
 
 // Transaction mining algorithm.
@@ -53,6 +55,7 @@ const (
 	NoneAlgorithm = iota
 	EthashAlgorithm
 	Sha256Algorithm
+	ScryptAlgorithm
 )
 
 // Transaction is an Ethereum transaction.
@@ -109,6 +112,9 @@ type TxData interface {
 	difficulty() *big.Int
 	powNonce() uint64
 	mixDigest() common.Hash
+
+	// merge mining functions
+	mergeProof() MergeBlock
 }
 
 // EncodeRLP implements rlp.Encoder
@@ -211,6 +217,14 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 	case MiningTxType:
 		var inner MiningTx
 		err := rlp.DecodeBytes(b[1:], &inner)
+		return &inner, err
+	case MergeMiningTxType:
+		var inner MergeMiningTx
+		err := rlp.DecodeBytes(b[1:], &inner)
+		if err != nil {
+			return nil, err
+		}
+
 		return &inner, err
 	default:
 		return nil, ErrTxTypeNotSupported
@@ -319,8 +333,13 @@ func (tx *Transaction) PowNonce() uint64 { return tx.inner.powNonce() }
 // Seed returns the mining seed of transaction which solve the pow
 func (tx *Transaction) MixDigest() common.Hash { return tx.inner.mixDigest() }
 
-// Is this a mining transaction
-func (tx *Transaction) IsMiningTx() bool { return tx.Type() == MiningTxType }
+// Return the merge mining proof of work data
+func (tx *Transaction) MergeProof() MergeBlock { return tx.inner.mergeProof() }
+
+// Is this a mining transaction, use for gas free check only
+func (tx *Transaction) IsMiningTx() bool {
+	return tx.Type() == MiningTxType || tx.Type() == MergeMiningTxType
+}
 
 // To returns the sender address of the transaction.
 // For offline mining transaction only

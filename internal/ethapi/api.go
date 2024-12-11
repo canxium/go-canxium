@@ -1353,7 +1353,7 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		al := tx.AccessList()
 		result.Accesses = &al
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
-	case types.DynamicFeeTxType, types.MiningTxType:
+	case types.DynamicFeeTxType, types.MiningTxType, types.MergeMiningTxType:
 		al := tx.AccessList()
 		result.Accesses = &al
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
@@ -1376,6 +1376,17 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 			result.MixDigest = &disgest
 			nonce := tx.PowNonce()
 			result.PowNonce = (*hexutil.Uint64)(&nonce)
+		}
+
+		if tx.Type() == types.MergeMiningTxType {
+			algorithm := uint64(tx.Algorithm())
+			result.Algorithm = (*hexutil.Uint64)(&algorithm)
+			mergeProof := tx.MergeProof()
+			if mergeProof != nil {
+				result.Difficulty = (*hexutil.Big)(mergeProof.Difficulty())
+				nonce := mergeProof.PowNonce()
+				result.PowNonce = (*hexutil.Uint64)(&nonce)
+			}
 		}
 	}
 	return result

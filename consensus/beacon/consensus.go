@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"runtime"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -46,6 +47,17 @@ var (
 	errInvalidNonce     = errors.New("invalid nonce")
 	errInvalidUncleHash = errors.New("invalid uncle hash")
 	errInvalidTimestamp = errors.New("invalid timestamp")
+
+	errDifficultyUnderValue   = errors.New("mining transaction difficulty under value")
+	errInvalidMiningTxType    = errors.New("invalid mining transaction type")
+	errInvalidMiningTxValue   = errors.New("invalid mining transaction value")
+	ErrInvalidMiningReceiver  = errors.New("invalid mining transaction receiver")
+	ErrInvalidMiningSender    = errors.New("invalid mining transaction sender")
+	ErrInvalidMiningInput     = errors.New("invalid mining transaction input data")
+	ErrInvalidMiningAlgorithm = errors.New("invalid mining transaction algorithm")
+
+	ErrInvalidMergePoW      = errors.New("invalid merge mining transaction proof of work")
+	ErrInvalidMergeCoinbase = errors.New("invalid merge mining transaction coinbase")
 )
 
 // Beacon is a consensus engine that combines the eth1 consensus and proof-of-stake
@@ -214,18 +226,95 @@ func (beacon *Beacon) VerifyUncles(chain consensus.ChainReader, block *types.Blo
 	return nil
 }
 
-// VerifyTxSeal checks whether a offline mining transaction satisfies the PoW difficulty requirements,
-// either using the usual ethash cache for it, or alternatively using a full DAG
-// to make remote mining fast.
-func (beacon *Beacon) VerifyTxSeal(config *params.ChainConfig, tx *types.Transaction, block *big.Int, fulldag bool) error {
-	return beacon.ethone.VerifyTxSeal(config, tx, block, fulldag)
+// VerifyMiningTxSeal checks whether a offline mining or merge mining transaction satisfies the PoW difficulty requirements,
+func (beacon *Beacon) VerifyMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error {
+	if !tx.IsMiningTx() {
+		return errInvalidMiningTxType
+	}
+
+	if tx.Type() == types.MiningTxType && tx.Algorithm() == types.EthashAlgorithm {
+		return beacon.ethone.VerifyMiningTxSeal(config, tx, block, fulldag)
+	} else if tx.Type() == types.MiningTxType && tx.Algorithm() != types.EthashAlgorithm {
+		return ErrInvalidMiningAlgorithm
+	}
+
+	if tx.Type() == types.MergeMiningTxType {
+		return misc.VerifyMergeMiningTxSeal(config, tx, block)
+	}
+
+	return errInvalidMiningTxType
 }
 
-// VerifyTxsSeal checks whether offline mining transactions satisfies the PoW difficulty requirements,
-// either using the usual ethash cache for it, or alternatively using a full DAG
-// to make remote mining fast.
-func (c *Beacon) VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, block *big.Int, fulldag bool) <-chan int64 {
-	return c.ethone.VerifyTxsSeal(config, txs, block, fulldag)
+// VerifyMiningTxsSeal is similar to VerifyTxSeal, but verifies a batch of mining transactions
+// concurrently. The method returns a quit channel to abort the operations and
+// a results channel to retrieve the async verifications.
+func (beacon *Beacon) VerifyMiningTxsSeal(config *params.ChainConfig, txs types.Transactions, block *types.Header, fulldag bool) <-chan int64 {
+	// If we're running a full engine faking, accept any input as valid
+	result := make(chan int64, 1)
+	defer close(result)
+
+	// Spawn as many workers as allowed threads
+	workers := runtime.GOMAXPROCS(0)
+	if len(txs) < workers {
+		workers = len(txs)
+	}
+
+	// Create a task channel and spawn the verifiers
+	var (
+		inputs       = make(chan int)
+		done         = make(chan int, workers)
+		errors       = make([]error, len(txs))
+		numMiningTxs = int64(0)
+	)
+	for i := 0; i < workers; i++ {
+		go func() {
+			for index := range inputs {
+				if !txs[index].IsMiningTx() {
+					errors[index] = nil
+					done <- index
+					continue
+				}
+
+				numMiningTxs += 1
+				errors[index] = beacon.VerifyMiningTxSeal(config, txs[index], block, fulldag)
+				done <- index
+			}
+		}()
+	}
+
+	sealCh := make(chan int64, 1)
+	go func() {
+		defer close(inputs)
+		defer close(sealCh)
+		var (
+			in, out = 0, 0
+			checked = make([]bool, len(txs))
+			inputs  = inputs
+		)
+		for {
+			select {
+			case inputs <- in:
+				if in++; in == len(txs) {
+					// Reached end of headers. Stop sending to workers.
+					inputs = nil
+				}
+			case index := <-done:
+				for checked[index] = true; checked[out]; out++ {
+					if errors[out] != nil {
+						sealCh <- -1
+						// if any of txs have error, return.
+						return
+					}
+
+					if out == len(txs)-1 {
+						sealCh <- numMiningTxs
+						return
+					}
+				}
+			}
+		}
+	}()
+	return sealCh
 }
 
 // verifyHeader checks whether a header conforms to the consensus rules of the
@@ -457,11 +546,6 @@ func (beacon *Beacon) SetThreads(threads int) {
 	if th, ok := beacon.ethone.(threaded); ok {
 		th.SetThreads(threads)
 	}
-}
-
-// Calculate offline mining reward base on block number
-func (beacon *Beacon) TransactionMiningSubsidy(config *params.ChainConfig, block *big.Int) *big.Int {
-	return beacon.ethone.TransactionMiningSubsidy(config, block)
 }
 
 // IsTTDReached checks if the TotalTerminalDifficulty has been surpassed on the `parentHash` block.
