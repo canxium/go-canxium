@@ -441,13 +441,13 @@ func NewImmutableKaspaBlockHeader(
 }
 
 type KaspaBlock struct {
-	Header      KaspaBlockHeader               `json:"header"`
+	Header      *KaspaBlockHeader              `json:"header"`
 	MerkleProof []*externalapi.DomainHash      `json:"merkleProof"` // merge proof path to verify the coinbase tx
 	Coinbase    *externalapi.DomainTransaction `json:"coinbase"`
 }
 
 type RlpKaspaBlock struct {
-	Header      KaspaBlockHeader
+	Header      *KaspaBlockHeader
 	MerkleProof []byte
 	Coinbase    *externalapi.DomainTransaction
 }
