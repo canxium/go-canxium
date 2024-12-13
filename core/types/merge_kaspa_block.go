@@ -8,11 +8,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"math/big"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rlp"
 
 	"github.com/kaspanet/kaspad/domain/consensus/model/externalapi"
 	"github.com/kaspanet/kaspad/domain/consensus/utils/consensushashing"
@@ -37,7 +39,7 @@ var (
 
 // BlockHeader defines information about a block and is used in the bitcoin
 // block (MsgBlock) and headers (MsgHeaders) messages.
-type KaspaBLockHeader struct {
+type KaspaBlockHeader struct {
 	// Version of the block. This is not the same as the protocol version.
 	Kversion uint16 `json:"version"`
 
@@ -74,47 +76,83 @@ type KaspaBLockHeader struct {
 	KpruningPoint *externalapi.DomainHash `json:"pruningPoint"`
 }
 
-func (header *KaspaBLockHeader) BlueScore() uint64 {
+type RlpKaspaBlockHeader struct {
+	// Version of the block. This is not the same as the protocol version.
+	Version uint16
+	// Parents are the parent block hashes of the block in the DAG per superblock level.
+	Parents []byte
+
+	// HashMerkleRoot is the merkle tree reference to hash of all transactions for the block.
+	HashMerkleRoot []byte
+
+	// AcceptedIDMerkleRoot is merkle tree reference to hash all transactions
+	// accepted form the block.Blues
+	AcceptedIDMerkleRoot []byte
+
+	// UTXOCommitment is an ECMH UTXO commitment to the block UTXO.
+	UtxoCommitment []byte
+
+	// Time the block was created.
+	Timestamp uint64
+
+	// Difficulty target for the block.
+	Bits uint32
+
+	// Nonce used to generate the block.
+	Nonce uint64
+
+	// DAASCore is the DAA score of the block.
+	DaaScore uint64
+
+	BlueScore uint64
+
+	// BlueWork is the blue work of the block.
+	BlueWork *big.Int
+
+	PruningPoint []byte
+}
+
+func (header *KaspaBlockHeader) BlueScore() uint64 {
 	return header.KblueScore
 }
 
-func (header *KaspaBLockHeader) PruningPoint() *externalapi.DomainHash {
+func (header *KaspaBlockHeader) PruningPoint() *externalapi.DomainHash {
 	return header.KpruningPoint
 }
 
-func (header *KaspaBLockHeader) DAAScore() uint64 {
+func (header *KaspaBlockHeader) DAAScore() uint64 {
 	return header.KdaaScore
 }
 
-func (header *KaspaBLockHeader) BlueWork() *big.Int {
+func (header *KaspaBlockHeader) BlueWork() *big.Int {
 	return header.KblueWork
 }
 
-func (header *KaspaBLockHeader) ToImmutable() externalapi.BlockHeader {
+func (header *KaspaBlockHeader) ToImmutable() externalapi.BlockHeader {
 	return header.clone()
 }
 
-func (header *KaspaBLockHeader) SetNonce(nonce uint64) {
+func (header *KaspaBlockHeader) SetNonce(nonce uint64) {
 	header.Knonce = nonce
 }
 
-func (header *KaspaBLockHeader) SetTimeInMilliseconds(timeInMilliseconds int64) {
+func (header *KaspaBlockHeader) SetTimeInMilliseconds(timeInMilliseconds int64) {
 	header.Ktimestamp = uint64(timeInMilliseconds)
 }
 
-func (header *KaspaBLockHeader) SetHashMerkleRoot(hashMerkleRoot *externalapi.DomainHash) {
+func (header *KaspaBlockHeader) SetHashMerkleRoot(hashMerkleRoot *externalapi.DomainHash) {
 	header.KhashMerkleRoot = hashMerkleRoot
 }
 
-func (header *KaspaBLockHeader) Version() uint16 {
+func (header *KaspaBlockHeader) Version() uint16 {
 	return header.Kversion
 }
 
-func (header *KaspaBLockHeader) Parents() []externalapi.BlockLevelParents {
+func (header *KaspaBlockHeader) Parents() []externalapi.BlockLevelParents {
 	return header.Kparents
 }
 
-func (header *KaspaBLockHeader) DirectParents() externalapi.BlockLevelParents {
+func (header *KaspaBlockHeader) DirectParents() externalapi.BlockLevelParents {
 	if len(header.Kparents) == 0 {
 		return externalapi.BlockLevelParents{}
 	}
@@ -122,31 +160,31 @@ func (header *KaspaBLockHeader) DirectParents() externalapi.BlockLevelParents {
 	return header.Kparents[0]
 }
 
-func (header *KaspaBLockHeader) HashMerkleRoot() *externalapi.DomainHash {
+func (header *KaspaBlockHeader) HashMerkleRoot() *externalapi.DomainHash {
 	return header.KhashMerkleRoot
 }
 
-func (header *KaspaBLockHeader) AcceptedIDMerkleRoot() *externalapi.DomainHash {
+func (header *KaspaBlockHeader) AcceptedIDMerkleRoot() *externalapi.DomainHash {
 	return header.KacceptedIDMerkleRoot
 }
 
-func (header *KaspaBLockHeader) UTXOCommitment() *externalapi.DomainHash {
+func (header *KaspaBlockHeader) UTXOCommitment() *externalapi.DomainHash {
 	return header.KutxoCommitment
 }
 
-func (header *KaspaBLockHeader) TimeInMilliseconds() int64 {
+func (header *KaspaBlockHeader) TimeInMilliseconds() int64 {
 	return int64(header.Ktimestamp)
 }
 
-func (header *KaspaBLockHeader) Bits() uint32 {
+func (header *KaspaBlockHeader) Bits() uint32 {
 	return header.Kbits
 }
 
-func (header *KaspaBLockHeader) Nonce() uint64 {
+func (header *KaspaBlockHeader) Nonce() uint64 {
 	return header.Knonce
 }
 
-func (header *KaspaBLockHeader) Equal(other externalapi.BaseBlockHeader) bool {
+func (header *KaspaBlockHeader) Equal(other externalapi.BaseBlockHeader) bool {
 	if header == nil || other == nil {
 		return header == other
 	}
@@ -154,7 +192,7 @@ func (header *KaspaBLockHeader) Equal(other externalapi.BaseBlockHeader) bool {
 	// If only the underlying value of other is nil it'll
 	// make `other == nil` return false, so we check it
 	// explicitly.
-	downcastedOther := other.(*KaspaBLockHeader)
+	downcastedOther := other.(*KaspaBlockHeader)
 	if header == nil || downcastedOther == nil {
 		return header == downcastedOther
 	}
@@ -210,8 +248,8 @@ func (header *KaspaBLockHeader) Equal(other externalapi.BaseBlockHeader) bool {
 	return true
 }
 
-func (header *KaspaBLockHeader) clone() *KaspaBLockHeader {
-	return &KaspaBLockHeader{
+func (header *KaspaBlockHeader) clone() *KaspaBlockHeader {
+	return &KaspaBlockHeader{
 		Kversion:              header.Kversion,
 		Kparents:              externalapi.CloneParents(header.Kparents),
 		KhashMerkleRoot:       header.KhashMerkleRoot,
@@ -227,18 +265,149 @@ func (header *KaspaBLockHeader) clone() *KaspaBLockHeader {
 	}
 }
 
-func (header *KaspaBLockHeader) ToMutable() externalapi.MutableBlockHeader {
+func (header *KaspaBlockHeader) ToMutable() externalapi.MutableBlockHeader {
 	return header.clone()
 }
 
-func (header *KaspaBLockHeader) BlockLevel(maxBlockLevel int) int {
+func (header *KaspaBlockHeader) BlockLevel(maxBlockLevel int) int {
 	return 0
 }
 
 // PowHash returns the litecoin scrypt hash of this block header. This value is
 // used to check the PoW on blocks advertised on the network.
-func (h *KaspaBLockHeader) PowHash() *externalapi.DomainHash {
+func (h *KaspaBlockHeader) PowHash() *externalapi.DomainHash {
 	return consensushashing.HeaderHash(h)
+}
+
+func encodeBlockLevelParentsList(parents []externalapi.BlockLevelParents) ([]byte, error) {
+	// Prepare a representation of the parents for RLP encoding
+	var encodedParentsList [][][]byte
+	for _, levelParents := range parents {
+		var encodedLevel [][]byte
+		for _, parent := range levelParents {
+			if parent == nil {
+				encodedLevel = append(encodedLevel, nil)
+			} else {
+				encodedLevel = append(encodedLevel, parent.ByteSlice())
+			}
+		}
+		encodedParentsList = append(encodedParentsList, encodedLevel)
+	}
+
+	// Use RLP to encode the entire structure
+	encodedBytes, err := rlp.EncodeToBytes(encodedParentsList)
+	if err != nil {
+		return nil, err
+	}
+	return encodedBytes, nil
+}
+
+func decodeBlockLevelParentsList(data []byte) ([]externalapi.BlockLevelParents, error) {
+	// Decode the raw RLP data into a nested slice of byte slices
+	var decoded [][][]byte
+	if err := rlp.DecodeBytes(data, &decoded); err != nil {
+		return nil, err
+	}
+
+	// Transform back into the desired structure
+	var result []externalapi.BlockLevelParents
+	for _, level := range decoded {
+		var levelParents externalapi.BlockLevelParents
+		for _, data := range level {
+			if len(data) == 0 {
+				levelParents = append(levelParents, nil)
+			} else if len(data) != externalapi.DomainHashSize {
+				return nil, fmt.Errorf("invalid DomainHash size: expected %d bytes, got %d", externalapi.DomainHashSize, len(data))
+			} else {
+				var hashArray [32]byte
+				copy(hashArray[:], data)
+				parent := externalapi.NewDomainHashFromByteArray(&hashArray)
+				levelParents = append(levelParents, parent)
+			}
+		}
+		result = append(result, levelParents)
+	}
+	return result, nil
+}
+
+func encodeDomainHash(domainHash *externalapi.DomainHash) []byte {
+	if domainHash == nil {
+		return nil
+	}
+	return domainHash.ByteSlice()
+}
+
+func decodeDomainHash(data []byte) (*externalapi.DomainHash, error) {
+	if len(data) != 32 {
+		return nil, fmt.Errorf("invalid data size: expected 32 bytes, got %d", len(data))
+	}
+
+	var hashArray [32]byte
+	copy(hashArray[:], data)
+	return externalapi.NewDomainHashFromByteArray(&hashArray), nil
+}
+
+func (header *KaspaBlockHeader) EncodeRLP(w io.Writer) error {
+	parents, err := encodeBlockLevelParentsList(header.Kparents)
+	if err != nil {
+		return fmt.Errorf("failed to encode parents: %w", err)
+	}
+
+	// Encode all fields as an RLP list
+	return rlp.Encode(w, []interface{}{
+		header.Kversion,
+		parents,
+		encodeDomainHash(header.KhashMerkleRoot),
+		encodeDomainHash(header.KacceptedIDMerkleRoot),
+		encodeDomainHash(header.KutxoCommitment),
+		header.Ktimestamp,
+		header.Kbits,
+		header.Knonce,
+		header.KdaaScore,
+		header.KblueScore,
+		header.KblueWork,
+		encodeDomainHash(header.KpruningPoint),
+	})
+}
+
+func (header *KaspaBlockHeader) DecodeRLP(s *rlp.Stream) error {
+	var decoded RlpKaspaBlockHeader
+	if err := s.Decode(&decoded); err != nil {
+		return fmt.Errorf("failed to decode kaspa block header: %w", err)
+	}
+
+	header.Kversion = decoded.Version
+	parents, err := decodeBlockLevelParentsList(decoded.Parents)
+	if err != nil {
+		return fmt.Errorf("failed to decode kaspa block parents: %w", err)
+	}
+
+	header.Kparents = parents
+	header.Ktimestamp = decoded.Timestamp
+	header.Kbits = decoded.Bits
+	header.Knonce = decoded.Nonce
+	header.KdaaScore = decoded.DaaScore
+	header.KblueScore = decoded.BlueScore
+	header.KblueWork = decoded.BlueWork
+
+	header.KhashMerkleRoot, err = decodeDomainHash(decoded.HashMerkleRoot)
+	if err != nil {
+		return fmt.Errorf("failed to decode kaspa domain hash: %w", err)
+	}
+	header.KacceptedIDMerkleRoot, err = decodeDomainHash(decoded.AcceptedIDMerkleRoot)
+	if err != nil {
+		return fmt.Errorf("failed to decode kaspa domain hash: %w", err)
+	}
+	header.KutxoCommitment, err = decodeDomainHash(decoded.UtxoCommitment)
+	if err != nil {
+		return fmt.Errorf("failed to decode kaspa domain hash: %w", err)
+	}
+	header.KpruningPoint, err = decodeDomainHash(decoded.PruningPoint)
+	if err != nil {
+		return fmt.Errorf("failed to decode kaspa domain hash: %w", err)
+	}
+
+	return nil
 }
 
 // NewImmutableBlockHeader returns a new immutable header
@@ -255,8 +424,8 @@ func NewImmutableKaspaBlockHeader(
 	blueScore uint64,
 	blueWork *big.Int,
 	pruningPoint *externalapi.DomainHash,
-) KaspaBLockHeader {
-	return KaspaBLockHeader{
+) KaspaBlockHeader {
+	return KaspaBlockHeader{
 		Kversion:              version,
 		Kparents:              parents,
 		KhashMerkleRoot:       hashMerkleRoot,
@@ -273,7 +442,7 @@ func NewImmutableKaspaBlockHeader(
 }
 
 type KaspaBlock struct {
-	Header      KaspaBLockHeader               `json:"header"`
+	Header      KaspaBlockHeader               `json:"header"`
 	MerkleProof []*externalapi.DomainHash      `json:"merkleProof"` // merge proof path to verify the coinbase tx
 	Coinbase    *externalapi.DomainTransaction `json:"coinbase"`
 }
@@ -290,6 +459,8 @@ func (b *KaspaBlock) VerifyPoW() error {
 	}
 	fmt.Print(string(j))
 
+	fmt.Println(b.Header.PruningPoint().String())
+
 	// The target difficulty must be larger than zero.
 	state := pow.NewState(b.Header.ToMutable())
 	target := &state.Target
@@ -303,6 +474,8 @@ func (b *KaspaBlock) VerifyPoW() error {
 	}
 
 	// The block pow must be valid unless the flag to avoid proof of work checks is set.
+	powNum := state.CalculateProofOfWorkValue()
+	fmt.Printf("powNum: %s, target: %s\n", powNum.String(), state.Target.String())
 	valid := state.CheckProofOfWork()
 	if !valid {
 		return errors.New("kaspa block has invalid proof of work")
