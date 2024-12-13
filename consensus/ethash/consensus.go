@@ -76,9 +76,6 @@ var (
 	ErrInvalidMiningSender    = errors.New("invalid mining transaction sender")
 	ErrInvalidMiningInput     = errors.New("invalid mining transaction input data")
 	ErrInvalidMiningAlgorithm = errors.New("invalid mining transaction algorithm")
-
-	ErrInvalidMergePoW      = errors.New("invalid merge mining transaction proof of work")
-	ErrInvalidMergeCoinbase = errors.New("invalid merge mining transaction coinbase")
 )
 
 // Author implements consensus.Engine, returning the header's coinbase as the

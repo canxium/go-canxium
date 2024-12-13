@@ -48,16 +48,8 @@ var (
 	errInvalidUncleHash = errors.New("invalid uncle hash")
 	errInvalidTimestamp = errors.New("invalid timestamp")
 
-	errDifficultyUnderValue   = errors.New("mining transaction difficulty under value")
 	errInvalidMiningTxType    = errors.New("invalid mining transaction type")
-	errInvalidMiningTxValue   = errors.New("invalid mining transaction value")
-	ErrInvalidMiningReceiver  = errors.New("invalid mining transaction receiver")
-	ErrInvalidMiningSender    = errors.New("invalid mining transaction sender")
-	ErrInvalidMiningInput     = errors.New("invalid mining transaction input data")
 	ErrInvalidMiningAlgorithm = errors.New("invalid mining transaction algorithm")
-
-	ErrInvalidMergePoW      = errors.New("invalid merge mining transaction proof of work")
-	ErrInvalidMergeCoinbase = errors.New("invalid merge mining transaction coinbase")
 )
 
 // Beacon is a consensus engine that combines the eth1 consensus and proof-of-stake

@@ -5,7 +5,6 @@
 package types
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -447,20 +446,18 @@ type KaspaBlock struct {
 	Coinbase    *externalapi.DomainTransaction `json:"coinbase"`
 }
 
+type RlpKaspaBlock struct {
+	Header      KaspaBlockHeader
+	MerkleProof []byte
+	Coinbase    *externalapi.DomainTransaction
+}
+
 func (b *KaspaBlock) Chain() ParentChain {
 	return KaspaChain
 }
 
 // Verify block's PoW
 func (b *KaspaBlock) VerifyPoW() error {
-	j, err := json.MarshalIndent(b, "", "  ")
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Print(string(j))
-
-	fmt.Println(b.Header.PruningPoint().String())
-
 	// The target difficulty must be larger than zero.
 	state := pow.NewState(b.Header.ToMutable())
 	target := &state.Target
@@ -542,7 +539,7 @@ func (b *KaspaBlock) GetMinerAddress() (common.Address, error) {
 func (b *KaspaBlock) verifyMerkleProofForCoinbaseTx() bool {
 	computedHash := consensushashing.TransactionHash(b.Coinbase)
 	if len(b.MerkleProof) == 0 {
-		computedHash.Equal(b.Header.HashMerkleRoot())
+		return computedHash.Equal(b.Header.HashMerkleRoot())
 	}
 
 	// Iterate through the proof and compute the root
@@ -554,9 +551,68 @@ func (b *KaspaBlock) verifyMerkleProofForCoinbaseTx() bool {
 	return computedHash.Equal(b.Header.HashMerkleRoot())
 }
 
-type KaspaMiningTx struct {
-	MergeMiningTx
-	MergeProof KaspaBlock
+func encodeMerkleProof(proof []*externalapi.DomainHash) ([]byte, error) {
+	var encodedProof [][]byte
+	for _, hash := range proof {
+		encodedProof = append(encodedProof, hash.ByteSlice())
+	}
+
+	// Use RLP to encode the entire structure
+	encodedBytes, err := rlp.EncodeToBytes(encodedProof)
+	if err != nil {
+		return nil, err
+	}
+	return encodedBytes, nil
+}
+
+func (block *KaspaBlock) EncodeRLP(w io.Writer) error {
+	mergeProof, err := encodeMerkleProof(block.MerkleProof)
+	if err != nil {
+		return fmt.Errorf("failed to encode parents: %w", err)
+	}
+
+	// Encode all fields as an RLP list
+	return rlp.Encode(w, []interface{}{
+		block.Header,
+		mergeProof,
+		block.Coinbase,
+	})
+}
+
+func decodeMerkleProof(data []byte) ([]*externalapi.DomainHash, error) {
+	// Decode the raw RLP data into a nested slice of byte slices
+	var decoded [][]byte
+	if err := rlp.DecodeBytes(data, &decoded); err != nil {
+		return nil, err
+	}
+
+	// Transform back into the desired structure
+	var result []*externalapi.DomainHash
+	for _, data := range decoded {
+
+		var hashArray [32]byte
+		copy(hashArray[:], data)
+		hash := externalapi.NewDomainHashFromByteArray(&hashArray)
+		result = append(result, hash)
+	}
+	return result, nil
+}
+
+func (block *KaspaBlock) DecodeRLP(s *rlp.Stream) error {
+	var decoded RlpKaspaBlock
+	if err := s.Decode(&decoded); err != nil {
+		return fmt.Errorf("failed to decode kaspa block: %w", err)
+	}
+
+	block.Header = decoded.Header
+	block.Coinbase = decoded.Coinbase
+	merkleProof, err := decodeMerkleProof(decoded.MerkleProof)
+	if err != nil {
+		return fmt.Errorf("failed to decode kaspa block merkle proof: %w", err)
+	}
+	block.MerkleProof = merkleProof
+
+	return nil
 }
 
 // hashMerkleBranches takes two hashes, treated as the left and right tree
