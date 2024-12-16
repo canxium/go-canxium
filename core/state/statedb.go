@@ -389,6 +389,14 @@ func (s *StateDB) HasSuicided(addr common.Address) bool {
 	return false
 }
 
+func (s *StateDB) GetMergeMiningTimestamp(address common.Address) uint64 {
+	stateObject := s.getStateObject(address)
+	if stateObject != nil {
+		return stateObject.MergeMiningTimestamp(s.db)
+	}
+	return 0
+}
+
 /*
  * SETTERS
  */
@@ -449,6 +457,13 @@ func (s *StateDB) SetStorage(addr common.Address, storage map[common.Hash]common
 	stateObject := s.GetOrNewStateObject(addr)
 	for k, v := range storage {
 		stateObject.SetState(s.db, k, v)
+	}
+}
+
+func (s *StateDB) SetMergeMiningTimestamp(address common.Address, timestamp uint64) {
+	stateObject := s.GetOrNewStateObject(address)
+	if stateObject != nil {
+		stateObject.SetMergeMiningTimestamp(timestamp)
 	}
 }
 
@@ -980,6 +995,9 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 			if obj.code != nil && obj.dirtyCode {
 				rawdb.WriteCode(codeWriter, common.BytesToHash(obj.CodeHash()), obj.code)
 				obj.dirtyCode = false
+			}
+			if obj.mergeMiningTimestamp > 0 {
+				rawdb.WriteMergeMiningTimestamp(codeWriter, obj.address, obj.mergeMiningTimestamp)
 			}
 			// Write any storage changes in the state object to its storage trie
 			set, err := obj.commitTrie(s.db)

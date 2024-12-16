@@ -44,6 +44,7 @@ type MergeBlock interface {
 	GetMinerAddress() (common.Address, error)
 	Difficulty() *big.Int
 	PowNonce() uint64
+	Timestamp() uint64
 }
 
 type MergeMiningTx struct {

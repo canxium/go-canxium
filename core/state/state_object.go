@@ -80,11 +80,14 @@ type stateObject struct {
 	dirtyCode bool // true if the code was updated
 	suicided  bool
 	deleted   bool
+
+	// Merge Mining Timestamp
+	mergeMiningTimestamp uint64
 }
 
 // empty returns whether the account is considered empty.
 func (s *stateObject) empty() bool {
-	return s.data.Nonce == 0 && s.data.Balance.Sign() == 0 && bytes.Equal(s.data.CodeHash, types.EmptyCodeHash.Bytes())
+	return s.data.Nonce == 0 && s.data.Balance.Sign() == 0 && bytes.Equal(s.data.CodeHash, types.EmptyCodeHash.Bytes()) && s.mergeMiningTimestamp == 0
 }
 
 // newObject creates a state object.
@@ -99,13 +102,14 @@ func newObject(db *StateDB, address common.Address, data types.StateAccount) *st
 		data.Root = types.EmptyRootHash
 	}
 	return &stateObject{
-		db:             db,
-		address:        address,
-		addrHash:       crypto.Keccak256Hash(address[:]),
-		data:           data,
-		originStorage:  make(Storage),
-		pendingStorage: make(Storage),
-		dirtyStorage:   make(Storage),
+		db:                   db,
+		address:              address,
+		addrHash:             crypto.Keccak256Hash(address[:]),
+		data:                 data,
+		originStorage:        make(Storage),
+		pendingStorage:       make(Storage),
+		dirtyStorage:         make(Storage),
+		mergeMiningTimestamp: 0,
 	}
 }
 
@@ -414,6 +418,7 @@ func (s *stateObject) deepCopy(db *StateDB) *stateObject {
 	stateObject.pendingStorage = s.pendingStorage.Copy()
 	stateObject.suicided = s.suicided
 	stateObject.dirtyCode = s.dirtyCode
+	stateObject.mergeMiningTimestamp = s.mergeMiningTimestamp
 	stateObject.deleted = s.deleted
 	return stateObject
 }
@@ -488,6 +493,18 @@ func (s *stateObject) setNonce(nonce uint64) {
 	s.data.Nonce = nonce
 }
 
+func (s *stateObject) SetMergeMiningTimestamp(timestamp uint64) {
+	s.db.journal.append(mergeMiningChange{
+		account: &s.address,
+		prev:    s.mergeMiningTimestamp,
+	})
+	s.setMergeMiningTimestamp(timestamp)
+}
+
+func (s *stateObject) setMergeMiningTimestamp(timestamp uint64) {
+	s.mergeMiningTimestamp = timestamp
+}
+
 func (s *stateObject) CodeHash() []byte {
 	return s.data.CodeHash
 }
@@ -498,4 +515,17 @@ func (s *stateObject) Balance() *big.Int {
 
 func (s *stateObject) Nonce() uint64 {
 	return s.data.Nonce
+}
+
+func (s *stateObject) MergeMiningTimestamp(db Database) uint64 {
+	if s.mergeMiningTimestamp > 0 {
+		return s.mergeMiningTimestamp
+	}
+
+	timestamp, err := db.MergeMiningTimestamp(s.address)
+	if err != nil {
+		return 0
+	}
+
+	return timestamp
 }

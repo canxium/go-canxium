@@ -34,6 +34,9 @@ const (
 
 	// Cache size granted for caching clean code.
 	codeCacheSize = 64 * 1024 * 1024
+
+	// Number of miner->timestamp to keep
+	mergeMiningCacheSize = 1000
 )
 
 // Database wraps access to tries and contract code.
@@ -49,6 +52,9 @@ type Database interface {
 
 	// ContractCode retrieves a particular contract's code.
 	ContractCode(addrHash, codeHash common.Hash) ([]byte, error)
+
+	// MergeMiningTimestamp retrieves latest merge mining block timestamp of a miner
+	MergeMiningTimestamp(address common.Address) (uint64, error)
 
 	// ContractCodeSize retrieves a particular contracts code's size.
 	ContractCodeSize(addrHash, codeHash common.Hash) (int, error)
@@ -137,28 +143,31 @@ func NewDatabase(db ethdb.Database) Database {
 // large memory cache.
 func NewDatabaseWithConfig(db ethdb.Database, config *trie.Config) Database {
 	return &cachingDB{
-		disk:          db,
-		codeSizeCache: lru.NewCache[common.Hash, int](codeSizeCacheSize),
-		codeCache:     lru.NewSizeConstrainedCache[common.Hash, []byte](codeCacheSize),
-		triedb:        trie.NewDatabaseWithConfig(db, config),
+		disk:             db,
+		codeSizeCache:    lru.NewCache[common.Hash, int](codeSizeCacheSize),
+		codeCache:        lru.NewSizeConstrainedCache[common.Hash, []byte](codeCacheSize),
+		triedb:           trie.NewDatabaseWithConfig(db, config),
+		mergeMiningCache: lru.NewCache[common.Address, uint64](mergeMiningCacheSize),
 	}
 }
 
 // NewDatabaseWithNodeDB creates a state database with an already initialized node database.
 func NewDatabaseWithNodeDB(db ethdb.Database, triedb *trie.Database) Database {
 	return &cachingDB{
-		disk:          db,
-		codeSizeCache: lru.NewCache[common.Hash, int](codeSizeCacheSize),
-		codeCache:     lru.NewSizeConstrainedCache[common.Hash, []byte](codeCacheSize),
-		triedb:        triedb,
+		disk:             db,
+		codeSizeCache:    lru.NewCache[common.Hash, int](codeSizeCacheSize),
+		codeCache:        lru.NewSizeConstrainedCache[common.Hash, []byte](codeCacheSize),
+		triedb:           triedb,
+		mergeMiningCache: lru.NewCache[common.Address, uint64](mergeMiningCacheSize),
 	}
 }
 
 type cachingDB struct {
-	disk          ethdb.KeyValueStore
-	codeSizeCache *lru.Cache[common.Hash, int]
-	codeCache     *lru.SizeConstrainedCache[common.Hash, []byte]
-	triedb        *trie.Database
+	disk             ethdb.KeyValueStore
+	codeSizeCache    *lru.Cache[common.Hash, int]
+	codeCache        *lru.SizeConstrainedCache[common.Hash, []byte]
+	mergeMiningCache *lru.Cache[common.Address, uint64]
+	triedb           *trie.Database
 }
 
 // OpenTrie opens the main account trie at a specific root hash.
@@ -238,4 +247,18 @@ func (db *cachingDB) DiskDB() ethdb.KeyValueStore {
 // TrieDB retrieves any intermediate trie-node caching layer.
 func (db *cachingDB) TrieDB() *trie.Database {
 	return db.triedb
+}
+
+// ContractCode retrieves a particular contract's code.
+func (db *cachingDB) MergeMiningTimestamp(address common.Address) (uint64, error) {
+	timestamp, _ := db.mergeMiningCache.Get(address)
+	if timestamp > 0 {
+		return timestamp, nil
+	}
+	timestamp = rawdb.ReadMergeMiningTimestamp(db.disk, address)
+	if timestamp > 0 {
+		db.mergeMiningCache.Add(address, timestamp)
+		return timestamp, nil
+	}
+	return 0, errors.New("not found")
 }

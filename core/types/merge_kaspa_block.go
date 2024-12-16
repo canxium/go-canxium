@@ -456,6 +456,10 @@ func (b *KaspaBlock) Chain() ParentChain {
 	return KaspaChain
 }
 
+func (b *KaspaBlock) Timestamp() uint64 {
+	return uint64(b.Header.TimeInMilliseconds())
+}
+
 // Verify block's PoW
 func (b *KaspaBlock) VerifyPoW() error {
 	// The target difficulty must be larger than zero.

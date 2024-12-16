@@ -147,6 +147,9 @@ type Message struct {
 
 	// is mining tx or merge mining tx
 	IsMiningTx bool
+	// to present dupplicate merge mining block, compare the block's timestamp
+	MergeMiningFromMiner common.Address
+	MergeMiningBlockTime uint64
 }
 
 // TransactionToMessage converts a transaction into a Message.
@@ -167,6 +170,14 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 	// If baseFee provided, set gasPrice to effectiveGasPrice.
 	if baseFee != nil {
 		msg.GasPrice = cmath.BigMin(msg.GasPrice.Add(msg.GasTipCap, baseFee), msg.GasFeeCap)
+	}
+	if tx.Type() == types.MergeMiningTxType {
+		msg.MergeMiningBlockTime = tx.MergeProof().Timestamp()
+		miner, err := tx.MergeProof().GetMinerAddress()
+		if err != nil {
+			return nil, err
+		}
+		msg.MergeMiningFromMiner = miner
 	}
 	var err error
 	msg.From, err = types.Sender(s, tx)
@@ -305,6 +316,15 @@ func (st *StateTransition) preCheck(contractCreation bool) error {
 		}
 	}
 
+	// TODO, Check KaspaDaaScore (same as nonce)
+	if msg.IsMiningTx && msg.MergeMiningBlockTime > 0 {
+		stTimeStamp := st.state.GetMergeMiningTimestamp(msg.MergeMiningFromMiner)
+		if msg.MergeMiningBlockTime <= stTimeStamp {
+			return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrMergeMiningTimestampTooLow,
+				msg.MergeMiningFromMiner.Hex(), msg.MergeMiningBlockTime, stTimeStamp)
+		}
+	}
+
 	// Make sure that transaction gasFeeCap is greater than the baseFee (post london)
 	if st.evm.ChainConfig().IsLondon(st.evm.Context.BlockNumber) {
 		// Skip the checks if gas fields are zero and baseFee was explicitly disabled (eth_call)
@@ -387,6 +407,10 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// Create new CAU for offline mining tx and add to from address before calling contract
 	if msg.IsMiningTx && msg.Value.Sign() > 0 {
 		st.state.AddBalance(msg.From, msg.Value)
+	}
+	// cache the merge mininbg block timestamp for this miner
+	if msg.IsMiningTx && msg.MergeMiningBlockTime > 0 {
+		st.state.SetMergeMiningTimestamp(msg.MergeMiningFromMiner, msg.MergeMiningBlockTime)
 	}
 
 	// Check clause 6

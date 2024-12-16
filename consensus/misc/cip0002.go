@@ -100,6 +100,8 @@ func VerifyMergeMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 		return err
 	}
 
+	// TODO: Check if reciever in the data match with mergeProof: coinbase address
+
 	return nil
 }
 

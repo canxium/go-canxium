@@ -107,4 +107,7 @@ var (
 
 	// ErrSenderNoEOA is returned if the sender of a transaction is a contract.
 	ErrSenderNoEOA = errors.New("sender not an eoa")
+
+	// ErrSenderNoEOA is returned if the daa score of the block is too low (per miner)
+	ErrMergeMiningTimestampTooLow = errors.New("merge mining block timestamp too old")
 )

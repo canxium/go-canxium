@@ -99,6 +99,11 @@ func (db *odrDatabase) DiskDB() ethdb.KeyValueStore {
 	panic("not implemented")
 }
 
+func (db *odrDatabase) MergeMiningTimestamp(address common.Address) (uint64, error) {
+	timestamp := rawdb.ReadMergeMiningTimestamp(db.backend.Database(), address)
+	return timestamp, nil
+}
+
 type odrTrie struct {
 	db   *odrDatabase
 	id   *TrieID

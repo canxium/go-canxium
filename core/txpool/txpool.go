@@ -722,6 +722,17 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if pool.currentState.GetNonce(from) > tx.Nonce() {
 		return core.ErrNonceTooLow
 	}
+	// Ensure the merge mining transaction adheres to DaaScore ordering if it's kaspa block
+	if tx.Type() == types.MergeMiningTxType {
+		miner, err := tx.MergeProof().GetMinerAddress()
+		if err != nil {
+			return err
+		}
+
+		if tx.MergeProof().Timestamp() <= pool.currentState.GetMergeMiningTimestamp(miner) {
+			return core.ErrMergeMiningTimestampTooLow
+		}
+	}
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL + Contract Creation Fee
 	balance := pool.currentState.GetBalance(from)

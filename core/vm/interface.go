@@ -76,6 +76,9 @@ type StateDB interface {
 
 	AddLog(*types.Log)
 	AddPreimage(common.Hash, []byte)
+
+	GetMergeMiningTimestamp(common.Address) uint64
+	SetMergeMiningTimestamp(common.Address, uint64)
 }
 
 // CallContext provides a basic interface for the EVM calling conventions. The EVM
