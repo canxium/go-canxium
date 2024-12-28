@@ -224,17 +224,17 @@ func (beacon *Beacon) VerifyMiningTxSeal(config *params.ChainConfig, tx *types.T
 		return errInvalidMiningTxType
 	}
 
-	if tx.Type() == types.MiningTxType && tx.Algorithm() == types.EthashAlgorithm {
-		return beacon.ethone.VerifyMiningTxSeal(config, tx, block, fulldag)
-	} else if tx.Type() == types.MiningTxType && tx.Algorithm() != types.EthashAlgorithm {
-		return ErrInvalidMiningAlgorithm
-	}
-
+	// merge mining
 	if tx.Type() == types.MergeMiningTxType {
 		return misc.VerifyMergeMiningTxSeal(config, tx, block)
 	}
 
-	return errInvalidMiningTxType
+	// offline mining
+	if tx.Algorithm() == types.EthashAlgorithm {
+		return beacon.ethone.VerifyMiningTxSeal(config, tx, block, fulldag)
+	}
+
+	return ErrInvalidMiningAlgorithm
 }
 
 // VerifyMiningTxsSeal is similar to VerifyTxSeal, but verifies a batch of mining transactions

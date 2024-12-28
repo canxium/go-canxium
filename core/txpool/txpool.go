@@ -722,7 +722,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if pool.currentState.GetNonce(from) > tx.Nonce() {
 		return core.ErrNonceTooLow
 	}
-	// Ensure the merge mining transaction adheres to DaaScore ordering if it's kaspa block
+	// Ensure the merge mining transaction adheres to block timestamp ordering
 	if tx.Type() == types.MergeMiningTxType {
 		miner, err := tx.MergeProof().GetMinerAddress()
 		if err != nil {
@@ -1741,8 +1741,7 @@ func (pool *TxPool) isValidMiningSubsidy(headNumber *big.Int, headTime uint64, t
 
 	if tx.Type() == types.MergeMiningTxType {
 		forkTime := misc.MergeMiningForkTime(pool.chainconfig, tx.MergeProof().Chain())
-		subsidy := misc.MergeMiningSubsidy(tx.MergeProof().Chain(), forkTime, headTime)
-		value := new(big.Int).Mul(subsidy, tx.Difficulty())
+		value := misc.MergeMiningReward(tx.MergeProof(), forkTime, headTime)
 		return tx.Value().Cmp(value) == 0
 	}
 

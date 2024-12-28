@@ -923,18 +923,18 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 				continue
 			}
 
-			subsidy := big.NewInt(0)
+			reward := big.NewInt(0)
 			if tx.Type() == types.MiningTxType {
 				// skip old mining transaction have different mining reward, not match this period
-				subsidy = misc.TransactionMiningSubsidy(w.chainConfig, env.header.Number)
+				subsidy := misc.TransactionMiningSubsidy(w.chainConfig, env.header.Number)
+				reward = new(big.Int).Mul(subsidy, tx.Difficulty())
 			} else if tx.Type() == types.MergeMiningTxType {
 				forkTime := misc.MergeMiningForkTime(w.chainConfig, tx.MergeProof().Chain())
-				subsidy = misc.MergeMiningSubsidy(tx.MergeProof().Chain(), forkTime, env.header.Time)
+				reward = misc.MergeMiningReward(tx.MergeProof(), forkTime, env.header.Time)
 			}
 
-			value := new(big.Int).Mul(subsidy, tx.Difficulty())
-			if tx.Value().Cmp(value) != 0 {
-				log.Trace("Ignoring mining transaction, not match subsidy period", "hash", tx.Hash(), "tx value", tx.Value(), "subsidy", value)
+			if tx.Value().Cmp(reward) != 0 {
+				log.Trace("Ignoring mining transaction, not match subsidy period", "hash", tx.Hash(), "tx value", tx.Value(), "subsidy", reward)
 				txs.Shift()
 				continue
 			}
