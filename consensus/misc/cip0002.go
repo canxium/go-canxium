@@ -37,6 +37,7 @@ var (
 	KaspaMergePhraseThreeReward = big.NewFloat(0.022) // 0.022 wei per difficulty
 	KaspaPhaseTwoDayNum         = uint64(3)
 	KaspaPhaseThreeDayNum       = uint64(115)
+	KaspaPhaseFourEndDayNum     = uint64(5404)
 
 	// Kaspa Merge Mining
 	KaspaDecayFactorOne   = powFloat64(0.1, 1.0/(0.5*30))  // Daily decay factor for the first phase
@@ -177,8 +178,10 @@ func kaspaMergeMiningReward(difficulty *big.Int, dayNum uint64) (*big.Int, big.A
 		baseReward.Mul(KaspaMergePhraseOneReward, powBig(KaspaDecayFactorOne, dayBig))
 	} else if dayNum <= KaspaPhaseThreeDayNum {
 		baseReward.Mul(KaspaMergePhraseTwoReward, powBig(KaspaDecayFactorTwo, dayBig))
-	} else {
+	} else if dayNum <= KaspaPhaseFourEndDayNum {
 		baseReward.Mul(KaspaMergePhraseThreeReward, powBig(KaspaDecayFactorThree, dayBig))
+	} else {
+		return big0, 0
 	}
 
 	difficultyInFloat := new(big.Float).SetInt(difficulty)
