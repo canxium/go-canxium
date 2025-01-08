@@ -178,6 +178,6 @@ var (
 	CanxiumBaseFeePer100Kh          = big.NewInt(2)      // Base fee in wei per 100 KH difficulty
 	Big100Kh                        = big.NewInt(100000) // 100 KH to Hash
 
-	CanxiumContractCreationFee    = new(big.Int).Exp(big.NewInt(10), big.NewInt(20), big.NewInt(0)) // 1e20 ~ 100 CA
-	KaspaMergeMiningMinDifficulty = big.NewInt(10000000000000000)                                   // 10 PH
+	CanxiumContractCreationFee = new(big.Int).Exp(big.NewInt(10), big.NewInt(20), big.NewInt(0)) // 1e20 ~ 100 CA
+	// KaspaMergeMiningMinDifficulty = big.NewInt(10000000000000000)                                   // 10 PH
 )

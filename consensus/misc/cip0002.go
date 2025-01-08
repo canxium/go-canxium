@@ -23,7 +23,6 @@ var (
 	CanxiumMergeMiningTxDataLength = 36
 
 	// mergeMining(address) method
-	// TODO: Update method signature
 	CanxiumMergeMiningTxDataMethod = common.Hex2Bytes("f7b78a49")
 
 	big0   = big.NewInt(0)
@@ -52,7 +51,7 @@ var (
 var (
 	errInvalidDifficulty         = errors.New("non-positive difficulty")
 	errDifficultyUnderValue      = errors.New("mining transaction difficulty under value")
-	errInvalidMiningTxChain      = errors.New("invalid merge mining transaction parent chain")
+	errInvalidMiningTimeLine     = errors.New("invalid merge mining transaction timeline")
 	errInvalidMiningBlockTime    = errors.New("invalid merge mining block timestamp")
 	errInvalidMiningTxValue      = errors.New("invalid merge mining transaction value")
 	ErrInvalidMiningReceiver     = errors.New("invalid merge mining transaction receiver")
@@ -71,8 +70,8 @@ func VerifyMergeMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 	if tx.MergeProof() == nil {
 		return ErrInvalidMergeBlock
 	}
-	if !isSupportedParentChain(config, tx, block.Time) {
-		return errInvalidMiningTxChain
+	if !isSupportedMergeMining(config, tx, block.Time) {
+		return errInvalidMiningTimeLine
 	}
 	// Ensure the receiver is the mining smart contract
 	if tx.To() == nil || *tx.To() != config.MiningContract {
@@ -83,7 +82,7 @@ func VerifyMergeMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 		return errInvalidDifficulty
 	}
 	mergeBlock := tx.MergeProof()
-	minDiff := MergeMiningMinDifficulty(mergeBlock.Chain())
+	minDiff := MergeMiningMinDifficulty(config, mergeBlock.Chain())
 	if tx.Difficulty().Cmp(minDiff) < 0 {
 		return errDifficultyUnderValue
 	}
@@ -150,19 +149,24 @@ func MergeMiningReward(mergeBlock types.MergeBlock, forkTime uint64, time uint64
 }
 
 // MergeMiningMinDifficulty return the minimum difficulty for each chain
-func MergeMiningMinDifficulty(parentChain types.ParentChain) *big.Int {
+func MergeMiningMinDifficulty(config *params.ChainConfig, parentChain types.ParentChain) *big.Int {
 	switch parentChain {
 	case types.KaspaChain:
-		return params.KaspaMergeMiningMinDifficulty
+		return config.MergeMining.MinimumKaspaDifficulty
 	}
 
 	return mainPowMax
 }
 
-// isSupportedParentChain check if this fork support for this parent chain
-func isSupportedParentChain(config *params.ChainConfig, tx *types.Transaction, blockTime uint64) bool {
-	if config.IsHelium(blockTime) && tx.MergeProof().Chain() == types.KaspaChain {
-		return true
+// isSupportedMergeMining check if this timeline support for this parent chain
+func isSupportedMergeMining(config *params.ChainConfig, tx *types.Transaction, blockTime uint64) bool {
+	if tx.MergeProof().Chain() == types.KaspaChain {
+		if !config.IsHelium(blockTime) {
+			return false
+		}
+
+		dayNum := dayNumberBetweenTime(*config.HeliumTime, blockTime)
+		return dayNum <= KaspaPhaseFourEndDayNum
 	}
 
 	return false

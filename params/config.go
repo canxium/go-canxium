@@ -77,6 +77,7 @@ var (
 		TerminalTotalDifficultyPassed: true,
 		ShanghaiTime:                  newUint64(1681338455),
 		Ethash:                        new(EthashConfig),
+		MergeMining:                   new(MergeMiningConfig),
 	}
 
 	// MainnetTrustedCheckpoint contains the light client trusted checkpoint for the main network.
@@ -121,6 +122,7 @@ var (
 		MergeNetsplitBlock:            big.NewInt(1735371),
 		ShanghaiTime:                  newUint64(1677557088),
 		Ethash:                        new(EthashConfig),
+		MergeMining:                   new(MergeMiningConfig),
 	}
 
 	// SepoliaTrustedCheckpoint contains the light client trusted checkpoint for the Sepolia test network.
@@ -247,6 +249,7 @@ var (
 		TerminalTotalDifficulty:       nil,
 		TerminalTotalDifficultyPassed: false,
 		Ethash:                        new(EthashConfig),
+		MergeMining:                   new(MergeMiningConfig),
 		Clique:                        nil,
 	}
 
@@ -305,6 +308,7 @@ var (
 		TerminalTotalDifficulty:       nil,
 		TerminalTotalDifficultyPassed: false,
 		Ethash:                        new(EthashConfig),
+		MergeMining:                   new(MergeMiningConfig),
 		Clique:                        nil,
 	}
 
@@ -334,6 +338,7 @@ var (
 		TerminalTotalDifficulty:       nil,
 		TerminalTotalDifficultyPassed: false,
 		Ethash:                        new(EthashConfig),
+		MergeMining:                   new(MergeMiningConfig),
 		Clique:                        nil,
 	}
 	TestRules = TestChainConfig.Rules(new(big.Int), false, 0)
@@ -452,6 +457,19 @@ type ChainConfig struct {
 	// Canxium foundation wallet, should change to multi sig wallet in the future fork
 	Foundation     common.Address `json:"foundation,omitempty"`
 	MiningContract common.Address `json:"miningContract,omitempty"`
+
+	// Merge Mining
+	MergeMining *MergeMiningConfig `json:"mergeMining,omitempty"`
+}
+
+// MergeMiningConfig is the consensus engine configs for merge mining
+type MergeMiningConfig struct {
+	MinimumKaspaDifficulty *big.Int `json:"minimumKaspaDifficulty,omitempty"`
+}
+
+// String implements the stringer interface, returning the consensus engine details.
+func (c *MergeMiningConfig) String() string {
+	return "mergeMining"
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
@@ -580,6 +598,13 @@ func (c *ChainConfig) Description() string {
 	}
 	if c.HeliumTime != nil {
 		banner += fmt.Sprintf(" - Helium:                	   @%-10v \n", *c.HeliumTime)
+	}
+
+	banner += "\n"
+	// Create a list of forks post-merge
+	banner += "Merge Mining configured:\n"
+	if c.MergeMining != nil {
+		banner += fmt.Sprintf(" - Kaspa:                      @%-10v\n", *c.MergeMining.MinimumKaspaDifficulty)
 	}
 
 	return banner
@@ -992,11 +1017,11 @@ func (err *ConfigCompatError) Error() string {
 // Rules is a one time interface meaning that it shouldn't be used in between transition
 // phases.
 type Rules struct {
-	ChainID                                                 *big.Int
-	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
-	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
-	IsBerlin, IsLondon                                      bool
-	IsMerge, IsShanghai, IsCancun, IsPrague, IsHydro        bool
+	ChainID                                                    *big.Int
+	IsHomestead, IsEIP150, IsEIP155, IsEIP158                  bool
+	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul    bool
+	IsBerlin, IsLondon                                         bool
+	IsMerge, IsShanghai, IsCancun, IsPrague, IsHydro, IsHelium bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1022,5 +1047,6 @@ func (c *ChainConfig) Rules(num *big.Int, isMerge bool, timestamp uint64) Rules 
 		IsCancun:         c.IsCancun(timestamp),
 		IsPrague:         c.IsPrague(timestamp),
 		IsHydro:          c.IsHydro(num),
+		IsHelium:         c.IsHelium(timestamp),
 	}
 }
