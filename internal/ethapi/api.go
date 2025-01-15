@@ -1313,6 +1313,12 @@ type RPCTransaction struct {
 	MixDigest  *common.Hash    `json:"mixDigest,omitempty"`
 	PowNonce   *hexutil.Uint64 `json:"powNonce,omitempty"`
 
+	// merge mining fields
+	MergeChain      *hexutil.Uint   `json:"mergeChain,omitempty"`
+	MergeBlockHash  *string         `json:"mergeBlockHash,omitempty"`
+	MergeBlockMiner *common.Address `json:"mergeBlockMiner,omitempty"`
+	MergeBlockTime  *hexutil.Uint64 `json:"mergeBlockTime,omitempty"`
+
 	V *hexutil.Big `json:"v"`
 	R *hexutil.Big `json:"r"`
 	S *hexutil.Big `json:"s"`
@@ -1383,6 +1389,14 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 			result.Algorithm = (*hexutil.Uint64)(&algorithm)
 			mergeProof := tx.MergeProof()
 			if mergeProof != nil {
+				chain := uint(mergeProof.Chain())
+				hash := mergeProof.BlockHash()
+				timestamp := mergeProof.Timestamp()
+				miner, _ := mergeProof.GetMinerAddress()
+				result.MergeChain = (*hexutil.Uint)(&chain)
+				result.MergeBlockHash = &hash
+				result.MergeBlockMiner = &miner
+				result.MergeBlockTime = (*hexutil.Uint64)(&timestamp)
 				result.Difficulty = (*hexutil.Big)(mergeProof.Difficulty())
 				nonce := mergeProof.PowNonce()
 				result.PowNonce = (*hexutil.Uint64)(&nonce)

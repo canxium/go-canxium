@@ -172,8 +172,9 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 		msg.GasPrice = cmath.BigMin(msg.GasPrice.Add(msg.GasTipCap, baseFee), msg.GasFeeCap)
 	}
 	if tx.Type() == types.MergeMiningTxType {
-		msg.MergeMiningBlockTime = tx.MergeProof().Timestamp()
-		miner, err := tx.MergeProof().GetMinerAddress()
+		proof := tx.MergeProof()
+		msg.MergeMiningBlockTime = proof.Timestamp()
+		miner, err := proof.GetMinerAddress()
 		if err != nil {
 			return nil, err
 		}
@@ -316,7 +317,6 @@ func (st *StateTransition) preCheck(contractCreation bool) error {
 		}
 	}
 
-	// TODO, Check KaspaDaaScore (same as nonce)
 	if msg.IsMiningTx && msg.MergeMiningBlockTime > 0 {
 		stTimeStamp := st.state.GetMergeMiningTimestamp(msg.MergeMiningFromMiner)
 		if msg.MergeMiningBlockTime <= stTimeStamp {

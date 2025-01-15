@@ -443,26 +443,40 @@ func (pool *TxPool) loop() {
 			// Mining reward will decrease every month for 24 consecutive months.
 			for _, list := range pool.queue {
 				txs := list.Flatten()
-				for _, tx := range txs {
-					if tx.IsMiningTx() && !pool.isValidMiningSubsidy(head.Number, head.Time, tx) {
-						pool.removeTx(tx.Hash(), true)
-					}
-
-					// TODO: Clear old merge mining transactions
-				}
+				pool.removeOldMiningTxs(head, txs)
 			}
 			for _, list := range pool.pending {
 				txs := list.Flatten()
-				for _, tx := range txs {
-					if tx.IsMiningTx() && !pool.isValidMiningSubsidy(head.Number, head.Time, tx) {
-						pool.removeTx(tx.Hash(), true)
-					}
-
-					// TODO: Clear old merge mining transactions
-				}
+				pool.removeOldMiningTxs(head, txs)
 			}
 
 			pool.mu.Unlock()
+		}
+	}
+}
+
+func (pool *TxPool) removeOldMiningTxs(currentHeader *types.Header, txs types.Transactions) {
+	for _, tx := range txs {
+		if !tx.IsMiningTx() {
+			continue
+		}
+		// Clear old merge mining transactions
+		if tx.Type() == types.MergeMiningTxType {
+			proof := tx.MergeProof()
+			miner, err := proof.GetMinerAddress()
+			if err != nil {
+				pool.removeTx(tx.Hash(), true)
+				continue
+			}
+			if proof.Timestamp() <= pool.currentState.GetMergeMiningTimestamp(miner) {
+				log.Trace("Removing old merge mining transaction because of invalid block's timestamp", "tx timestamp", proof.Timestamp(), "database timestamp", pool.currentState.GetMergeMiningTimestamp(miner))
+				pool.removeTx(tx.Hash(), true)
+				continue
+			}
+		}
+		// Clear old mining tx which is not valid subsidy for this current block time
+		if !pool.isValidMiningSubsidy(currentHeader.Number, currentHeader.Time, tx) {
+			pool.removeTx(tx.Hash(), true)
 		}
 	}
 }
@@ -724,12 +738,16 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 	// Ensure the merge mining transaction adheres to block timestamp ordering
 	if tx.Type() == types.MergeMiningTxType {
-		miner, err := tx.MergeProof().GetMinerAddress()
+		if tx.MergeProof() == nil {
+			return misc.ErrInvalidMergeBlock
+		}
+		proof := tx.MergeProof()
+		miner, err := proof.GetMinerAddress()
 		if err != nil {
 			return err
 		}
 
-		if tx.MergeProof().Timestamp() <= pool.currentState.GetMergeMiningTimestamp(miner) {
+		if proof.Timestamp() <= pool.currentState.GetMergeMiningTimestamp(miner) {
 			return core.ErrMergeMiningTimestampTooLow
 		}
 	}

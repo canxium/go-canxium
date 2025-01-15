@@ -524,8 +524,17 @@ func (s *stateObject) MergeMiningTimestamp(db Database) uint64 {
 
 	timestamp, err := db.MergeMiningTimestamp(s.address)
 	if err != nil {
+		s.db.setError(fmt.Errorf("can't load merge mining block's timestamp of address %x: %v", s.address, err))
 		return 0
 	}
 
 	return timestamp
+}
+
+func (s *stateObject) WriteMergeMiningTimestamp(db Database) error {
+	if s.mergeMiningTimestamp == 0 {
+		return nil
+	}
+
+	return db.WriteMergeMiningTimestamp(s.address, s.mergeMiningTimestamp)
 }

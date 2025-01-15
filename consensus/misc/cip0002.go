@@ -11,13 +11,6 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-const (
-	// Merge mining protocol constants.
-	LitecoinMergeMiningSubsidy                  = uint64(28000000000) // 28 gwei per difficulty ~ 1.4 CAU/50 MH difficulty
-	LitecoinMergeMiningSubsidyReductionInterval = uint64(63000000)    // 63000000 second ~ 420,000 litecoin blocks ~ 2 years
-	LitecoinMergeMiningPeriod                   = uint64(252460800)   // 8 years
-)
-
 var (
 	// make sure miner set the correct input data for the transaction
 	CanxiumMergeMiningTxDataLength = 36
@@ -49,17 +42,18 @@ var (
 // codebase, inherently breaking if the engine is swapped out. Please put common
 // error types into the consensus package.
 var (
-	errInvalidDifficulty         = errors.New("non-positive difficulty")
-	errDifficultyUnderValue      = errors.New("mining transaction difficulty under value")
-	errInvalidMiningTimeLine     = errors.New("invalid merge mining transaction timeline")
-	errInvalidMiningBlockTime    = errors.New("invalid merge mining block timestamp")
-	errInvalidMiningTxValue      = errors.New("invalid merge mining transaction value")
+	ErrInvalidDifficulty         = errors.New("non-positive difficulty")
+	ErrDifficultyUnderValue      = errors.New("mining transaction difficulty under value")
+	ErrInvalidMiningTimeLine     = errors.New("invalid merge mining transaction timeline")
+	ErrInvalidMiningBlockTime    = errors.New("invalid merge mining block timestamp")
+	ErrInvalidMiningTxValue      = errors.New("invalid merge mining transaction value")
 	ErrInvalidMiningReceiver     = errors.New("invalid merge mining transaction receiver")
 	ErrInvalidMiningSender       = errors.New("invalid merge mining transaction sender")
 	ErrInvalidMiningInput        = errors.New("invalid merge mining transaction input data")
 	ErrInvalidMiningAlgorithm    = errors.New("invalid merge mining transaction algorithm")
 	ErrInvalidMiningInputAddress = errors.New("invalid merge mining transaction receiver address and block's miner")
 
+	ErrInvalidMergeNilBlock = errors.New("invalid merge mining block, block is nil")
 	ErrInvalidMergeBlock    = errors.New("invalid merge mining block")
 	ErrInvalidMergePoW      = errors.New("invalid merge mining transaction proof of work")
 	ErrInvalidMergeCoinbase = errors.New("invalid merge mining transaction coinbase")
@@ -68,10 +62,13 @@ var (
 // verifyMergeMiningTxSeal checks whether a merge mining satisfies the PoW difficulty requirements,
 func VerifyMergeMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header) error {
 	if tx.MergeProof() == nil {
+		return ErrInvalidMergeNilBlock
+	}
+	if !tx.MergeProof().IsValidBlock() {
 		return ErrInvalidMergeBlock
 	}
 	if !isSupportedMergeMining(config, tx, block.Time) {
-		return errInvalidMiningTimeLine
+		return ErrInvalidMiningTimeLine
 	}
 	// Ensure the receiver is the mining smart contract
 	if tx.To() == nil || *tx.To() != config.MiningContract {
@@ -79,12 +76,12 @@ func VerifyMergeMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 	}
 	// Ensure that we have a valid difficulty for the transaction
 	if tx.Difficulty().Sign() <= 0 {
-		return errInvalidDifficulty
+		return ErrInvalidDifficulty
 	}
 	mergeBlock := tx.MergeProof()
 	minDiff := MergeMiningMinDifficulty(config, mergeBlock.Chain())
 	if tx.Difficulty().Cmp(minDiff) < 0 {
-		return errDifficultyUnderValue
+		return ErrDifficultyUnderValue
 	}
 	// Make sure they call the correct method of contract: mining(address)
 	if len(tx.Data()) != CanxiumMergeMiningTxDataLength || !bytes.Equal(CanxiumMergeMiningTxDataMethod, tx.Data()[:4]) {
@@ -95,14 +92,14 @@ func VerifyMergeMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 	// Check block's timestamp
 	timestamp := mergeBlock.Timestamp()
 	if timestamp < chainForkTime {
-		return errInvalidMiningBlockTime
+		return ErrInvalidMiningBlockTime
 	}
 	reward := MergeMiningReward(mergeBlock, chainForkTime, block.Time)
 	if tx.Value().Cmp(reward) != 0 {
-		return errInvalidMiningTxValue
+		return ErrInvalidMiningTxValue
 	}
 
-	if mergeBlock.VerifyPoW() != nil {
+	if err := mergeBlock.VerifyPoW(); err != nil {
 		return ErrInvalidMergePoW
 	}
 	if !mergeBlock.VerifyCoinbase() {

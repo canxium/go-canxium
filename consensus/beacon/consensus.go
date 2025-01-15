@@ -49,7 +49,7 @@ var (
 	errInvalidTimestamp = errors.New("invalid timestamp")
 
 	errInvalidMiningTxType    = errors.New("invalid mining transaction type")
-	ErrInvalidMiningAlgorithm = errors.New("invalid mining transaction algorithm")
+	errInvalidMiningAlgorithm = errors.New("invalid mining transaction algorithm")
 )
 
 // Beacon is a consensus engine that combines the eth1 consensus and proof-of-stake
@@ -220,21 +220,15 @@ func (beacon *Beacon) VerifyUncles(chain consensus.ChainReader, block *types.Blo
 
 // VerifyMiningTxSeal checks whether a offline mining or merge mining transaction satisfies the PoW difficulty requirements,
 func (beacon *Beacon) VerifyMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error {
-	if !tx.IsMiningTx() {
-		return errInvalidMiningTxType
-	}
-
 	// merge mining
 	if tx.Type() == types.MergeMiningTxType {
 		return misc.VerifyMergeMiningTxSeal(config, tx, block)
 	}
-
 	// offline mining
-	if tx.Algorithm() == types.EthashAlgorithm {
+	if tx.Type() == types.MiningTxType && misc.IsEthashAlgorithm(config, block.Time, tx.Algorithm()) {
 		return beacon.ethone.VerifyMiningTxSeal(config, tx, block, fulldag)
 	}
-
-	return ErrInvalidMiningAlgorithm
+	return errInvalidMiningAlgorithm
 }
 
 // VerifyMiningTxsSeal is similar to VerifyTxSeal, but verifies a batch of mining transactions
@@ -244,6 +238,10 @@ func (beacon *Beacon) VerifyMiningTxsSeal(config *params.ChainConfig, txs types.
 	// If we're running a full engine faking, accept any input as valid
 	result := make(chan int64, 1)
 	defer close(result)
+	if len(txs) == 0 {
+		result <- 0
+		return result
+	}
 
 	// Spawn as many workers as allowed threads
 	workers := runtime.GOMAXPROCS(0)

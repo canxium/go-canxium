@@ -3,6 +3,7 @@ package misc
 import (
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -37,4 +38,22 @@ func TransactionMiningSubsidy(config *params.ChainConfig, block *big.Int) *big.I
 	periodReward := new(big.Int).Mul(CanxiumMaxTransactionReward, exp)
 	subsidy := new(big.Int).Div(periodReward, percentage)
 	return subsidy
+}
+
+// Check to see if an algorithm number is presenting for ethash
+// Because before the Helium fork, we didn't verify the tx.Algorithm number, so all number = ethash, but we want it is 1.
+// Some miner set a different number (2, 3, 4) and the transaction is excuted success, now we have to defined all that number to be ethash
+func IsEthashAlgorithm(config *params.ChainConfig, blockTime uint64, algorithm uint8) bool {
+	// before helium fork, all number is ethash
+	if !config.IsHelium(blockTime) {
+		return true
+	}
+
+	// after helium fork, only number 1
+	switch algorithm {
+	case types.EthashAlgorithm:
+		return true
+	}
+
+	return false
 }

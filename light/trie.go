@@ -100,8 +100,16 @@ func (db *odrDatabase) DiskDB() ethdb.KeyValueStore {
 }
 
 func (db *odrDatabase) MergeMiningTimestamp(address common.Address) (uint64, error) {
-	timestamp := rawdb.ReadMergeMiningTimestamp(db.backend.Database(), address)
-	return timestamp, nil
+	timestamp, err := rawdb.ReadMergeMiningTimestamp(db.backend.Database(), address)
+	return timestamp, err
+}
+
+func (db *odrDatabase) WriteMergeMiningTimestamp(address common.Address, timestamp uint64) error {
+	if timestamp == 0 {
+		return nil
+	}
+
+	return rawdb.WriteMergeMiningTimestamp(db.backend.Database(), address, timestamp)
 }
 
 type odrTrie struct {

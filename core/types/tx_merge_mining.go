@@ -39,9 +39,11 @@ var (
 
 type MergeBlock interface {
 	Chain() ParentChain
+	IsValidBlock() bool
 	VerifyPoW() error
 	VerifyCoinbase() bool
 	GetMinerAddress() (common.Address, error)
+	BlockHash() string
 	Difficulty() *big.Int
 	PowNonce() uint64
 	Timestamp() uint64
@@ -152,7 +154,12 @@ func (tx *MergeMiningTx) from() common.Address   { return tx.From }
 
 func (tx *MergeMiningTx) mergeProof() MergeBlock { return tx.MergeProof }
 func (tx *MergeMiningTx) algorithm() byte        { return tx.Algorithm }
-func (tx *MergeMiningTx) difficulty() *big.Int   { return tx.MergeProof.Difficulty() }
+func (tx *MergeMiningTx) difficulty() *big.Int {
+	if tx.MergeProof == nil {
+		return common.Big0
+	}
+	return tx.MergeProof.Difficulty()
+}
 func (tx *MergeMiningTx) powNonce() uint64       { return 0 }
 func (tx *MergeMiningTx) mixDigest() common.Hash { return common.Hash{} }
 

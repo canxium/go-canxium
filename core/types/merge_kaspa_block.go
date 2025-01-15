@@ -36,6 +36,10 @@ var (
 	zeroAddress = common.Address{}
 )
 
+var (
+	ErrInvalidMergeBlockHeader = errors.New("invalid merge mining block header")
+)
+
 // BlockHeader defines information about a block and is used in the bitcoin
 // block (MsgBlock) and headers (MsgHeaders) messages.
 type KaspaBlockHeader struct {
@@ -456,6 +460,28 @@ func (b *KaspaBlock) Chain() ParentChain {
 	return KaspaChain
 }
 
+// IsValidBlock check to see if this is a valid kaspa block, header and coinbase are valid
+func (b *KaspaBlock) IsValidBlock() bool {
+	if b.Header == nil {
+		return false
+	}
+	if b.Coinbase == nil {
+		return false
+	}
+	if b.Header.Knonce == 0 || b.Header.Ktimestamp == 0 || b.Header.Kbits == 0 {
+		return false
+	}
+	if len(b.Coinbase.Payload) == 0 {
+		return false
+	}
+	return true
+}
+
+func (b *KaspaBlock) BlockHash() string {
+	hash := b.Header.PowHash()
+	return hash.String()
+}
+
 func (b *KaspaBlock) Timestamp() uint64 {
 	return uint64(b.Header.TimeInMilliseconds())
 }
@@ -475,8 +501,6 @@ func (b *KaspaBlock) VerifyPoW() error {
 	}
 
 	// The block pow must be valid unless the flag to avoid proof of work checks is set.
-	powNum := state.CalculateProofOfWorkValue()
-	fmt.Printf("powNum: %s, target: %s\n", powNum.String(), state.Target.String())
 	valid := state.CheckProofOfWork()
 	if !valid {
 		return errors.New("kaspa block has invalid proof of work")
@@ -505,22 +529,17 @@ func (b *KaspaBlock) PowNonce() uint64 {
 	return b.Header.Knonce
 }
 
-// Verify block's PoW
+// VerifyCoinbase verify kaspa block coin base transaction
 func (b *KaspaBlock) VerifyCoinbase() bool {
 	if !transactionhelper.IsCoinBase(b.Coinbase) {
 		return false
 	}
-
 	// verify merke root
 	return b.verifyMerkleProofForCoinbaseTx()
 }
 
-// Verify block's PoW
+// GetMinerAddress return canxium miner of a kaspa block
 func (b *KaspaBlock) GetMinerAddress() (common.Address, error) {
-	if b.Coinbase == nil {
-		return common.Address{}, errors.New("kaspa coinbase transaction is nil")
-	}
-
 	payload := b.Coinbase.Payload
 	tagLength := len(minerTagPrefix) + 40 // 40 characters for the address
 	if len(payload) < tagLength {
@@ -548,6 +567,9 @@ func (b *KaspaBlock) verifyMerkleProofForCoinbaseTx() bool {
 
 	// Iterate through the proof and compute the root
 	for _, siblingHash := range b.MerkleProof {
+		if siblingHash == nil {
+			return false
+		}
 		computedHash = hashMerkleBranches(computedHash, siblingHash)
 	}
 

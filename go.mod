@@ -4,8 +4,6 @@ go 1.23
 
 toolchain go1.23.0
 
-replace github.com/kaspanet/kaspad => /Users/neo/projects/kaspad
-
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v0.3.0
 	github.com/VictoriaMetrics/fastcache v1.6.0

@@ -61,17 +61,18 @@ var (
 // codebase, inherently breaking if the engine is swapped out. Please put common
 // error types into the consensus package.
 var (
-	errOlderBlockTime         = errors.New("timestamp older than parent")
-	errTooManyUncles          = errors.New("too many uncles")
-	errDuplicateUncle         = errors.New("duplicate uncle")
-	errUncleIsAncestor        = errors.New("uncle is ancestor")
-	errDanglingUncle          = errors.New("uncle's parent is not ancestor")
-	errInvalidDifficulty      = errors.New("non-positive difficulty")
-	errInvalidMixDigest       = errors.New("invalid mix digest")
-	errInvalidPoW             = errors.New("invalid proof-of-work")
-	errDifficultyUnderValue   = errors.New("mining transaction difficulty under value")
-	errInvalidMiningTxType    = errors.New("invalid mining transaction type")
-	errInvalidMiningTxValue   = errors.New("invalid mining transaction value")
+	errOlderBlockTime       = errors.New("timestamp older than parent")
+	errTooManyUncles        = errors.New("too many uncles")
+	errDuplicateUncle       = errors.New("duplicate uncle")
+	errUncleIsAncestor      = errors.New("uncle is ancestor")
+	errDanglingUncle        = errors.New("uncle's parent is not ancestor")
+	errInvalidDifficulty    = errors.New("non-positive difficulty")
+	errInvalidMixDigest     = errors.New("invalid mix digest")
+	errInvalidPoW           = errors.New("invalid proof-of-work")
+	errDifficultyUnderValue = errors.New("mining transaction difficulty under value")
+	errInvalidMiningTxType  = errors.New("invalid mining transaction type")
+	errInvalidMiningTxValue = errors.New("invalid mining transaction value")
+
 	ErrInvalidMiningReceiver  = errors.New("invalid mining transaction receiver")
 	ErrInvalidMiningSender    = errors.New("invalid mining transaction sender")
 	ErrInvalidMiningInput     = errors.New("invalid mining transaction input data")
@@ -695,20 +696,14 @@ func (ethash *Ethash) verifyEthashMiningTxSeal(config *params.ChainConfig, tx *t
 
 // VerifyMiningTxSeal checks whether a offline mining or merge mining transaction satisfies the PoW difficulty requirements,
 func (ethash *Ethash) VerifyMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error {
-	if !tx.IsMiningTx() {
-		return errInvalidMiningTxType
+	// offline mining
+	if tx.Type() == types.MiningTxType && misc.IsEthashAlgorithm(config, block.Time, tx.Algorithm()) {
+		return ethash.verifyEthashMiningTxSeal(config, tx, block, fulldag)
 	}
-
 	// merge mining
 	if tx.Type() == types.MergeMiningTxType {
 		return misc.VerifyMergeMiningTxSeal(config, tx, block)
 	}
-
-	// offline mining
-	if tx.Algorithm() == types.EthashAlgorithm {
-		return ethash.VerifyMiningTxSeal(config, tx, block, fulldag)
-	}
-
 	return ErrInvalidMiningAlgorithm
 }
 

@@ -56,6 +56,9 @@ type Database interface {
 	// MergeMiningTimestamp retrieves latest merge mining block timestamp of a miner
 	MergeMiningTimestamp(address common.Address) (uint64, error)
 
+	// WriteMergeMiningTimestamp save the latest merge mining block timestamp of a miner to database
+	WriteMergeMiningTimestamp(address common.Address, timestamp uint64) error
+
 	// ContractCodeSize retrieves a particular contracts code's size.
 	ContractCodeSize(addrHash, codeHash common.Hash) (int, error)
 
@@ -249,16 +252,26 @@ func (db *cachingDB) TrieDB() *trie.Database {
 	return db.triedb
 }
 
-// ContractCode retrieves a particular contract's code.
+// MergeMiningTimestamp retrieves latest merge mining block's timestamp of a miner address
 func (db *cachingDB) MergeMiningTimestamp(address common.Address) (uint64, error) {
 	timestamp, _ := db.mergeMiningCache.Get(address)
 	if timestamp > 0 {
 		return timestamp, nil
 	}
-	timestamp = rawdb.ReadMergeMiningTimestamp(db.disk, address)
+	timestamp, err := rawdb.ReadMergeMiningTimestamp(db.disk, address)
 	if timestamp > 0 {
 		db.mergeMiningCache.Add(address, timestamp)
-		return timestamp, nil
 	}
-	return 0, errors.New("not found")
+
+	return timestamp, err
+}
+
+// WriteMergeMiningTimestamp write the latest merge mining block's timestamp of a miner address to cache and database
+func (db *cachingDB) WriteMergeMiningTimestamp(address common.Address, timestamp uint64) error {
+	if timestamp == 0 {
+		return nil
+	}
+
+	db.mergeMiningCache.Add(address, timestamp)
+	return rawdb.WriteMergeMiningTimestamp(db.disk, address, timestamp)
 }

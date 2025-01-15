@@ -996,8 +996,9 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 				rawdb.WriteCode(codeWriter, common.BytesToHash(obj.CodeHash()), obj.code)
 				obj.dirtyCode = false
 			}
-			if obj.mergeMiningTimestamp > 0 {
-				rawdb.WriteMergeMiningTimestamp(codeWriter, obj.address, obj.mergeMiningTimestamp)
+			// Write the merge block's timestamp if any
+			if err := obj.WriteMergeMiningTimestamp(s.db); err != nil {
+				log.Crit("Failed to store merge mining block's timestamp", "err", err)
 			}
 			// Write any storage changes in the state object to its storage trie
 			set, err := obj.commitTrie(s.db)

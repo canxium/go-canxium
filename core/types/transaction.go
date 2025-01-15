@@ -205,6 +205,7 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 	if len(b) <= 1 {
 		return nil, errShortTypedTx
 	}
+
 	switch b[0] {
 	case AccessListTxType:
 		var inner AccessListTx
@@ -221,10 +222,6 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 	case MergeMiningTxType:
 		var inner MergeMiningTx
 		err := rlp.DecodeBytes(b[1:], &inner)
-		if err != nil {
-			return nil, err
-		}
-
 		return &inner, err
 	default:
 		return nil, ErrTxTypeNotSupported
