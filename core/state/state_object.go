@@ -26,6 +26,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
@@ -524,7 +525,7 @@ func (s *stateObject) MergeMiningTimestamp(db Database) uint64 {
 
 	timestamp, err := db.MergeMiningTimestamp(s.address)
 	if err != nil {
-		s.db.setError(fmt.Errorf("can't load merge mining block's timestamp of address %x: %v", s.address, err))
+		log.Debug("can't load merge mining block's timestamp of address", "address", s.address, "error", err)
 		return 0
 	}
 
