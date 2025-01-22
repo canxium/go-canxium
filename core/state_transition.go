@@ -315,13 +315,14 @@ func (st *StateTransition) preCheck(contractCreation bool) error {
 			return fmt.Errorf("%w: address %v, codehash: %s", ErrSenderNoEOA,
 				msg.From.Hex(), codeHash)
 		}
-	}
 
-	if msg.IsMiningTx && msg.MergeMiningBlockTime > 0 {
-		stTimeStamp := st.state.GetMergeMiningTimestamp(msg.MergeMiningFromMiner)
-		if msg.MergeMiningBlockTime <= stTimeStamp {
-			return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrMergeMiningTimestampTooLow,
-				msg.MergeMiningFromMiner.Hex(), msg.MergeMiningBlockTime, stTimeStamp)
+		// Make sure merge mining tx block timestamp is in order
+		if msg.IsMiningTx && msg.MergeMiningBlockTime > 0 {
+			stTimeStamp := st.state.GetMergeMiningTimestamp(msg.MergeMiningFromMiner)
+			if msg.MergeMiningBlockTime <= stTimeStamp {
+				return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrMergeMiningTimestampTooLow,
+					msg.MergeMiningFromMiner.Hex(), msg.MergeMiningBlockTime, stTimeStamp)
+			}
 		}
 	}
 
