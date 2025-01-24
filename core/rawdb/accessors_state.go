@@ -17,9 +17,6 @@
 package rawdb
 
 import (
-	"encoding/binary"
-	"errors"
-
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethdb"
 	"github.com/ethereum/go-ethereum/log"
@@ -94,24 +91,4 @@ func DeleteCode(db ethdb.KeyValueWriter, hash common.Hash) {
 	if err := db.Delete(codeKey(hash)); err != nil {
 		log.Crit("Failed to delete contract code", "err", err)
 	}
-}
-
-// ReadCode retrieves the contract code of the provided code hash.
-func ReadMergeMiningTimestamp(db ethdb.KeyValueReader, address common.Address) (uint64, error) {
-	data, err := db.Get(mergeMiningKey(address))
-	if err != nil {
-		return 0, err
-	}
-	if len(data) > 0 {
-		num := binary.BigEndian.Uint64(data)
-		return num, nil
-	}
-	return 0, errors.New("invalid merge mining timestamp from database")
-}
-
-// WriteCode writes the provided contract code database.
-func WriteMergeMiningTimestamp(db ethdb.KeyValueWriter, address common.Address, timestamp uint64) error {
-	buf := make([]byte, 8) // uint64 is 8 bytes
-	binary.BigEndian.PutUint64(buf, timestamp)
-	return db.Put(mergeMiningKey(address), buf)
 }

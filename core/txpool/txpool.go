@@ -61,6 +61,10 @@ var (
 	// within the pool.
 	ErrAlreadyKnown = errors.New("already known")
 
+	// ErrMergeTxAlreadyKnown is returned if the merge transaction block's hash is already contained
+	// within the pool.
+	ErrMergeTxAlreadyKnown = errors.New("merge tx already known")
+
 	// ErrInvalidSender is returned if the transaction contains an invalid signature.
 	ErrInvalidSender = errors.New("invalid sender")
 
@@ -468,8 +472,9 @@ func (pool *TxPool) removeOldMiningTxs(currentHeader *types.Header, txs types.Tr
 				pool.removeTx(tx.Hash(), true)
 				continue
 			}
-			if proof.Timestamp() <= pool.currentState.GetMergeMiningTimestamp(miner) {
-				log.Trace("Removing old merge mining transaction because of invalid block's timestamp", "tx timestamp", proof.Timestamp(), "database timestamp", pool.currentState.GetMergeMiningTimestamp(miner))
+			stTimestamp := pool.currentState.GetMergeMiningTimestamp(pool.chainconfig.MiningContract, miner, proof.Chain())
+			if proof.Timestamp() <= stTimestamp {
+				log.Trace("Removing old merge mining transaction because of invalid block's timestamp", "tx timestamp", proof.Timestamp(), "database timestamp", stTimestamp)
 				pool.removeTx(tx.Hash(), true)
 				continue
 			}
@@ -747,7 +752,9 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			return err
 		}
 
-		if proof.Timestamp() <= pool.currentState.GetMergeMiningTimestamp(miner) {
+		stTimestamp := pool.currentState.GetMergeMiningTimestamp(pool.chainconfig.MiningContract, miner, proof.Chain())
+		log.Trace("[TxPool] Getting merge mining timestamp: ", "tx nonce", tx.Nonce(), "miner", miner, "tx timestamp", proof.Timestamp(), "state timestamp", stTimestamp)
+		if proof.Timestamp() <= stTimestamp {
 			return core.ErrMergeMiningTimestampTooLow
 		}
 	}
@@ -793,6 +800,11 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		log.Trace("Discarding already known transaction", "hash", hash)
 		knownTxMeter.Mark(1)
 		return false, ErrAlreadyKnown
+	}
+	if tx.Type() == types.MergeMiningTxType && pool.all.GetMerge(tx.MergeProof().BlockHash()) != nil {
+		log.Trace("Discarding already known merge mining transaction", "hash", hash)
+		knownTxMeter.Mark(1)
+		return false, ErrMergeTxAlreadyKnown
 	}
 	// Make the local flag. If it's from local source or it's from the network but
 	// the sender is marked as local previously, treat it as the local transaction.
@@ -1077,6 +1089,11 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 		// If the transaction is known, pre-set the error slot
 		if pool.all.Get(tx.Hash()) != nil {
 			errs[i] = ErrAlreadyKnown
+			knownTxMeter.Mark(1)
+			continue
+		}
+		if tx.Type() == types.MergeMiningTxType && pool.all.GetMerge(tx.MergeProof().BlockHash()) != nil {
+			errs[i] = ErrMergeTxAlreadyKnown
 			knownTxMeter.Mark(1)
 			continue
 		}
@@ -1866,6 +1883,8 @@ type lookup struct {
 	lock    sync.RWMutex
 	locals  map[common.Hash]*types.Transaction
 	remotes map[common.Hash]*types.Transaction
+	// Map of merge block's hash to transaction hash, to make sure no dupplicate merge block
+	merges map[string]*common.Hash
 }
 
 // newLookup returns a new lookup structure.
@@ -1873,6 +1892,7 @@ func newLookup() *lookup {
 	return &lookup{
 		locals:  make(map[common.Hash]*types.Transaction),
 		remotes: make(map[common.Hash]*types.Transaction),
+		merges:  make(map[string]*common.Hash),
 	}
 }
 
@@ -1926,6 +1946,14 @@ func (t *lookup) GetRemote(hash common.Hash) *types.Transaction {
 	return t.remotes[hash]
 }
 
+// GetMerge returns transaction hash if it exists in the lookup, or false if not found.
+func (t *lookup) GetMerge(hash string) *common.Hash {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+
+	return t.merges[hash]
+}
+
 // Count returns the current number of transactions in the lookup.
 func (t *lookup) Count() int {
 	t.lock.RLock()
@@ -1971,6 +1999,11 @@ func (t *lookup) Add(tx *types.Transaction, local bool) {
 	} else {
 		t.remotes[tx.Hash()] = tx
 	}
+
+	if tx.Type() == types.MergeMiningTxType {
+		txHash := tx.Hash()
+		t.merges[tx.MergeProof().BlockHash()] = &txHash
+	}
 }
 
 // Remove removes a transaction from the lookup.
@@ -1991,6 +2024,9 @@ func (t *lookup) Remove(hash common.Hash) {
 
 	delete(t.locals, hash)
 	delete(t.remotes, hash)
+	if tx.Type() == types.MergeMiningTxType {
+		delete(t.merges, tx.MergeProof().BlockHash())
+	}
 }
 
 // RemoteToLocals migrates the transactions belongs to the given locals to locals

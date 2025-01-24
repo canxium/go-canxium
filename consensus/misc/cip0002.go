@@ -2,7 +2,9 @@ package misc
 
 import (
 	"bytes"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"math"
 	"math/big"
 
@@ -15,8 +17,8 @@ var (
 	// make sure miner set the correct input data for the transaction
 	CanxiumMergeMiningTxDataLength = 36
 
-	// mergeMining(address) method
-	CanxiumMergeMiningTxDataMethod = common.Hex2Bytes("f7b78a49")
+	// mergeMining(address,uint16,uint256) method
+	CanxiumMergeMiningTxDataMethod = common.Hex2Bytes("2979ee24")
 
 	big0   = big.NewInt(0)
 	bigOne = big.NewInt(1)
@@ -42,21 +44,21 @@ var (
 // codebase, inherently breaking if the engine is swapped out. Please put common
 // error types into the consensus package.
 var (
-	ErrInvalidDifficulty         = errors.New("non-positive difficulty")
-	ErrDifficultyUnderValue      = errors.New("mining transaction difficulty under value")
-	ErrInvalidMiningTimeLine     = errors.New("invalid merge mining transaction timeline")
-	ErrInvalidMiningBlockTime    = errors.New("invalid merge mining block timestamp")
-	ErrInvalidMiningTxValue      = errors.New("invalid merge mining transaction value")
-	ErrInvalidMiningReceiver     = errors.New("invalid merge mining transaction receiver")
-	ErrInvalidMiningSender       = errors.New("invalid merge mining transaction sender")
-	ErrInvalidMiningInput        = errors.New("invalid merge mining transaction input data")
-	ErrInvalidMiningAlgorithm    = errors.New("invalid merge mining transaction algorithm")
-	ErrInvalidMiningInputAddress = errors.New("invalid merge mining transaction receiver address and block's miner")
+	ErrInvalidDifficulty         = errors.New("invalid merge mining transaction: non-positive difficulty")
+	ErrDifficultyUnderValue      = errors.New("invalid merge mining transaction: difficulty under value")
+	ErrInvalidMiningTimeLine     = errors.New("invalid merge mining transaction: merge mining not supported yet")
+	ErrInvalidMiningBlockTime    = errors.New("invalid merge mining transaction: invalid block timestamp")
+	ErrInvalidMiningTxValue      = errors.New("invalid merge mining transaction: invalid value")
+	ErrInvalidMiningReceiver     = errors.New("invalid merge mining transaction: invalid receiver")
+	ErrInvalidMiningSender       = errors.New("invalid merge mining transaction: invalid sender")
+	ErrInvalidMiningInput        = errors.New("invalid merge mining transaction: invalid input data")
+	ErrInvalidMiningAlgorithm    = errors.New("invalid merge mining transaction: invalid algorithm")
+	ErrInvalidMiningInputAddress = errors.New("invalid merge mining transaction: invalid receiver address and block's miner")
 
-	ErrInvalidMergeNilBlock = errors.New("invalid merge mining block, block is nil")
-	ErrInvalidMergeBlock    = errors.New("invalid merge mining block")
-	ErrInvalidMergePoW      = errors.New("invalid merge mining transaction proof of work")
-	ErrInvalidMergeCoinbase = errors.New("invalid merge mining transaction coinbase")
+	ErrInvalidMergeNilBlock = errors.New("invalid merge mining transaction: block is nil")
+	ErrInvalidMergeBlock    = errors.New("invalid merge mining transaction: invalid block")
+	ErrInvalidMergePoW      = errors.New("invalid merge mining transaction: invalid proof of work")
+	ErrInvalidMergeCoinbase = errors.New("invalid merge mining transaction: invalid coinbase")
 )
 
 // verifyMergeMiningTxSeal checks whether a merge mining satisfies the PoW difficulty requirements,
@@ -83,17 +85,14 @@ func VerifyMergeMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 	if tx.Difficulty().Cmp(minDiff) < 0 {
 		return ErrDifficultyUnderValue
 	}
-	// Make sure they call the correct method of contract: mining(address)
-	if len(tx.Data()) != CanxiumMergeMiningTxDataLength || !bytes.Equal(CanxiumMergeMiningTxDataMethod, tx.Data()[:4]) {
-		return ErrInvalidMiningInput
+	// Check block's timestamp
+	chainForkTimeMilli := MergeMiningForkTimeMilli(config, mergeBlock.Chain())
+	timestamp := mergeBlock.Timestamp()
+	if timestamp < chainForkTimeMilli {
+		return ErrInvalidMiningBlockTime
 	}
 	// Ensure value is valid: reward * difficulty
 	chainForkTime := MergeMiningForkTime(config, mergeBlock.Chain())
-	// Check block's timestamp
-	timestamp := mergeBlock.Timestamp()
-	if timestamp < chainForkTime {
-		return ErrInvalidMiningBlockTime
-	}
 	reward := MergeMiningReward(mergeBlock, chainForkTime, block.Time)
 	if tx.Value().Cmp(reward) != 0 {
 		return ErrInvalidMiningTxValue
@@ -110,17 +109,27 @@ func VerifyMergeMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 		return err
 	}
 
-	receiverBytes := tx.Data()[4:36]
-	receiver := common.BytesToAddress(receiverBytes)
-	if receiver != miner {
-		return ErrInvalidMiningInputAddress
+	// Make sure they call the correct method of contract, with the correct args
+	inputData := buildMergeMiningTxInput(mergeBlock.Chain(), miner, timestamp)
+	if !bytes.Equal(inputData, tx.Data()) {
+		return ErrInvalidMiningInput
 	}
 
 	return nil
 }
 
-// Calculate merge mining reward base
-func MergeMiningForkTime(config *params.ChainConfig, parentChain types.ParentChain) uint64 {
+// MergeMiningForkTimeMilli Return fork time, in millisecond to compare the merge block time
+func MergeMiningForkTimeMilli(config *params.ChainConfig, parentChain types.MergeChain) uint64 {
+	forkTime := MergeMiningForkTime(config, parentChain)
+	if forkTime != math.MaxUint64 {
+		return forkTime * 1000
+	}
+
+	return math.MaxUint64
+}
+
+// MergeMiningForkTime Return fork time, in second to calculate mining reward
+func MergeMiningForkTime(config *params.ChainConfig, parentChain types.MergeChain) uint64 {
 	switch parentChain {
 	case types.KaspaChain:
 		return *config.HeliumTime
@@ -146,7 +155,7 @@ func MergeMiningReward(mergeBlock types.MergeBlock, forkTime uint64, time uint64
 }
 
 // MergeMiningMinDifficulty return the minimum difficulty for each chain
-func MergeMiningMinDifficulty(config *params.ChainConfig, parentChain types.ParentChain) *big.Int {
+func MergeMiningMinDifficulty(config *params.ChainConfig, parentChain types.MergeChain) *big.Int {
 	switch parentChain {
 	case types.KaspaChain:
 		return config.MergeMining.MinimumKaspaDifficulty
@@ -214,4 +223,22 @@ func powBig(base, exponent *big.Float) *big.Float {
 	res, _ := base.Float64()
 
 	return new(big.Float).SetFloat64(math.Pow(res, exp))
+}
+
+func buildMergeMiningTxInput(chain types.MergeChain, address common.Address, timestamp uint64) []byte {
+	// Check input data, match: method_receiver_chain_timestamp
+	paddedAddress := common.LeftPadBytes(address.Bytes(), 32)
+	// Timestamp (uint256) is padded to 32 bytes
+	timestampBig := new(big.Int).SetUint64(timestamp)
+	timestampPadded := make([]byte, 32)
+	timestampBig.FillBytes(timestampPadded)
+	// Convert the chain ID to a hexadecimal value and pad it to 32 bytes
+	chainHex := fmt.Sprintf("%04x", chain)                             // Convert uint16 to a 4-character hex string
+	chainPadded, _ := hex.DecodeString(fmt.Sprintf("%064s", chainHex)) // Pad with leading zeros to 32 bytes
+	var data []byte
+	data = append(data, CanxiumMergeMiningTxDataMethod...)
+	data = append(data, paddedAddress...)
+	data = append(data, chainPadded...)
+	data = append(data, timestampPadded...)
+	return data
 }

@@ -25,6 +25,7 @@ import (
 	cmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/core/vm"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -128,6 +129,15 @@ func toWordSize(size uint64) uint64 {
 
 // A Message contains the data derived from a single transaction that is relevant to state
 // processing.
+type MergeMiningMessage struct {
+	ToContract common.Address
+	FromMiner  common.Address
+	BlockTime  uint64
+	FromChain  types.MergeChain
+}
+
+// A Message contains the data derived from a single transaction that is relevant to state
+// processing.
 type Message struct {
 	To         *common.Address
 	From       common.Address
@@ -148,8 +158,7 @@ type Message struct {
 	// is mining tx or merge mining tx
 	IsMiningTx bool
 	// to present dupplicate merge mining block, compare the block's timestamp
-	MergeMiningFromMiner common.Address
-	MergeMiningBlockTime uint64
+	MergeMining *MergeMiningMessage
 }
 
 // TransactionToMessage converts a transaction into a Message.
@@ -173,12 +182,16 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 	}
 	if tx.Type() == types.MergeMiningTxType {
 		proof := tx.MergeProof()
-		msg.MergeMiningBlockTime = proof.Timestamp()
 		miner, err := proof.GetMinerAddress()
 		if err != nil {
 			return nil, err
 		}
-		msg.MergeMiningFromMiner = miner
+		msg.MergeMining = &MergeMiningMessage{
+			ToContract: *tx.To(),
+			FromMiner:  miner,
+			FromChain:  proof.Chain(),
+			BlockTime:  proof.Timestamp(),
+		}
 	}
 	var err error
 	msg.From, err = types.Sender(s, tx)
@@ -317,11 +330,12 @@ func (st *StateTransition) preCheck(contractCreation bool) error {
 		}
 
 		// Make sure merge mining tx block timestamp is in order
-		if msg.IsMiningTx && msg.MergeMiningBlockTime > 0 {
-			stTimeStamp := st.state.GetMergeMiningTimestamp(msg.MergeMiningFromMiner)
-			if msg.MergeMiningBlockTime <= stTimeStamp {
+		if msg.IsMiningTx && msg.MergeMining != nil {
+			stTimeStamp := st.state.GetMergeMiningTimestamp(msg.MergeMining.ToContract, msg.MergeMining.FromMiner, msg.MergeMining.FromChain)
+			log.Trace("[State] Getting merge mining timestamp: ", "tx nonce", msg.Nonce, "miner", msg.MergeMining.FromMiner, "tx timestamp", msg.MergeMining.BlockTime, "state timestamp", stTimeStamp)
+			if msg.MergeMining.BlockTime <= stTimeStamp {
 				return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrMergeMiningTimestampTooLow,
-					msg.MergeMiningFromMiner.Hex(), msg.MergeMiningBlockTime, stTimeStamp)
+					msg.MergeMining.FromMiner.Hex(), msg.MergeMining.BlockTime, stTimeStamp)
 			}
 		}
 	}
@@ -409,11 +423,6 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if msg.IsMiningTx && msg.Value.Sign() > 0 {
 		st.state.AddBalance(msg.From, msg.Value)
 	}
-	// cache the merge mininbg block timestamp for this miner
-	if msg.IsMiningTx && msg.MergeMiningBlockTime > 0 {
-		st.state.SetMergeMiningTimestamp(msg.MergeMiningFromMiner, msg.MergeMiningBlockTime)
-	}
-
 	// Check clause 6
 	if msg.Value.Sign() > 0 && !st.evm.Context.CanTransfer(st.state, msg.From, msg.Value) {
 		return nil, fmt.Errorf("%w: address %v", ErrInsufficientFundsForTransfer, msg.From.Hex())

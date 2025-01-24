@@ -143,11 +143,6 @@ type (
 		account       *common.Address
 		key, prevalue common.Hash
 	}
-
-	mergeMiningChange struct {
-		account *common.Address
-		prev    uint64
-	}
 )
 
 func (ch createObjectChange) revert(s *StateDB) {
@@ -284,12 +279,4 @@ func (ch accessListAddSlotChange) revert(s *StateDB) {
 
 func (ch accessListAddSlotChange) dirtied() *common.Address {
 	return nil
-}
-
-func (m mergeMiningChange) revert(s *StateDB) {
-	s.getStateObject(*m.account).setMergeMiningTimestamp(m.prev)
-}
-
-func (m mergeMiningChange) dirtied() *common.Address {
-	return m.account
 }

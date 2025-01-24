@@ -51,6 +51,8 @@ type StateDB interface {
 	GetTransientState(addr common.Address, key common.Hash) common.Hash
 	SetTransientState(addr common.Address, key, value common.Hash)
 
+	GetMergeMiningTimestamp(common.Address, common.Address, types.MergeChain) uint64
+
 	Suicide(common.Address) bool
 	HasSuicided(common.Address) bool
 
@@ -76,9 +78,6 @@ type StateDB interface {
 
 	AddLog(*types.Log)
 	AddPreimage(common.Hash, []byte)
-
-	GetMergeMiningTimestamp(common.Address) uint64
-	SetMergeMiningTimestamp(common.Address, uint64)
 }
 
 // CallContext provides a basic interface for the EVM calling conventions. The EVM

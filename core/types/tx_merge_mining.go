@@ -26,10 +26,10 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
-type ParentChain uint8
+type MergeChain uint16
 
 const (
-	UnknownChain ParentChain = iota
+	UnknownChain MergeChain = iota
 	KaspaChain
 )
 
@@ -38,14 +38,22 @@ var (
 )
 
 type MergeBlock interface {
-	Chain() ParentChain
+	Chain() MergeChain
+	// Basic check if this is a valid merge mining block
 	IsValidBlock() bool
+	// Verify block PoW
 	VerifyPoW() error
+	// Verify coinbase transaction if follow consensus rules
 	VerifyCoinbase() bool
+	// Canxium miner address
 	GetMinerAddress() (common.Address, error)
+	// Block hash, in string
 	BlockHash() string
+	// Block difficulty
 	Difficulty() *big.Int
+	// Nonce number of the block
 	PowNonce() uint64
+	// block timestamp in millisecond
 	Timestamp() uint64
 }
 
@@ -205,7 +213,7 @@ func DecodeMergeBlock(data []byte) (MergeBlock, error) {
 		return nil, errShortTypedTx // No merge block present
 	}
 
-	switch ParentChain(data[0]) {
+	switch MergeChain(data[0]) {
 	case KaspaChain:
 		var proof KaspaBlock
 		err := rlp.DecodeBytes(data[1:], &proof)

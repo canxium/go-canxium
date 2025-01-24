@@ -456,7 +456,7 @@ type RlpKaspaBlock struct {
 	Coinbase    *externalapi.DomainTransaction
 }
 
-func (b *KaspaBlock) Chain() ParentChain {
+func (b *KaspaBlock) Chain() MergeChain {
 	return KaspaChain
 }
 

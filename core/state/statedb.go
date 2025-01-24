@@ -34,6 +34,12 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
+	"golang.org/x/crypto/sha3"
+)
+
+var (
+	// slot of the mining contract for mapping(address => mapping(uint16 => uint256)) public mergeMiningTimestamp;
+	MiningContractSlotBytes = common.LeftPadBytes(big.NewInt(317).Bytes(), 32)
 )
 
 type revision struct {
@@ -389,12 +395,12 @@ func (s *StateDB) HasSuicided(addr common.Address) bool {
 	return false
 }
 
-func (s *StateDB) GetMergeMiningTimestamp(address common.Address) uint64 {
-	stateObject := s.getStateObject(address)
-	if stateObject != nil {
-		return stateObject.MergeMiningTimestamp(s.db)
-	}
-	return 0
+// GetMergeMiningTimestamp return merge mining timestamp of an address of a chain id
+// This data is set by miningContract.
+func (s *StateDB) GetMergeMiningTimestamp(contract common.Address, address common.Address, chain types.MergeChain) uint64 {
+	key := mergeMiningStorageKey(address, uint16(chain))
+	data := s.GetState(contract, key)
+	return data.Big().Uint64()
 }
 
 /*
@@ -457,13 +463,6 @@ func (s *StateDB) SetStorage(addr common.Address, storage map[common.Hash]common
 	stateObject := s.GetOrNewStateObject(addr)
 	for k, v := range storage {
 		stateObject.SetState(s.db, k, v)
-	}
-}
-
-func (s *StateDB) SetMergeMiningTimestamp(address common.Address, timestamp uint64) {
-	stateObject := s.GetOrNewStateObject(address)
-	if stateObject != nil {
-		stateObject.SetMergeMiningTimestamp(timestamp)
 	}
 }
 
@@ -996,10 +995,6 @@ func (s *StateDB) Commit(deleteEmptyObjects bool) (common.Hash, error) {
 				rawdb.WriteCode(codeWriter, common.BytesToHash(obj.CodeHash()), obj.code)
 				obj.dirtyCode = false
 			}
-			// Write the merge block's timestamp if any
-			if err := obj.WriteMergeMiningTimestamp(s.db); err != nil {
-				log.Crit("Failed to store merge mining block's timestamp", "err", err)
-			}
 			// Write any storage changes in the state object to its storage trie
 			set, err := obj.commitTrie(s.db)
 			if err != nil {
@@ -1189,4 +1184,26 @@ func (s *StateDB) convertAccountSet(set map[common.Address]struct{}) map[common.
 		}
 	}
 	return ret
+}
+
+// mergeMiningStorageKey return storage key of the miningContract where store the merge mining timestamp
+func mergeMiningStorageKey(address common.Address, chainID uint16) common.Hash {
+	// Encode outer key (address) + slot
+	addressBytes := common.LeftPadBytes(address.Bytes(), 32)
+
+	// keccak256(address_key + slot)
+	hash := sha3.NewLegacyKeccak256()
+	hash.Write(append(addressBytes, MiningContractSlotBytes...))
+	outerKeyHash := hash.Sum(nil)
+
+	// Encode inner key (chainID)
+	chainBytes := common.LeftPadBytes(big.NewInt(int64(chainID)).Bytes(), 32)
+
+	// keccak256(chainID + outerHash)
+	hash = sha3.NewLegacyKeccak256()
+	hash.Write(append(chainBytes, outerKeyHash...))
+	finalStorageKey := hash.Sum(nil)
+
+	storageKeyHash := common.BytesToHash(finalStorageKey)
+	return storageKeyHash
 }
