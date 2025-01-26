@@ -93,8 +93,7 @@ type RlpMergeMiningTx struct {
 	Data      []byte
 
 	// Merge mining fields
-	Algorithm PoWAlgorithm // hash algorithm: sha-256, scrypt...
-	AuxPoW    []byte
+	AuxPoW []byte
 
 	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`

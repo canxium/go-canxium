@@ -1288,6 +1288,13 @@ func (s *BlockChainAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, inc
 	return fields, err
 }
 
+type RPCAuxPoW struct {
+	Chain     *hexutil.Uint   `json:"chain,omitempty"`
+	Hash      *string         `json:"hash,omitempty"`
+	Miner     *common.Address `json:"miner,omitempty"`
+	Timestamp *hexutil.Uint64 `json:"timestamp,omitempty"`
+}
+
 // RPCTransaction represents a transaction that will serialize to the RPC representation of a transaction
 type RPCTransaction struct {
 	BlockHash        *common.Hash      `json:"blockHash"`
@@ -1314,10 +1321,7 @@ type RPCTransaction struct {
 	PowNonce   *hexutil.Uint64 `json:"powNonce,omitempty"`
 
 	// merge mining fields
-	MergeChain      *hexutil.Uint   `json:"mergeChain,omitempty"`
-	MergeBlockHash  *string         `json:"mergeBlockHash,omitempty"`
-	MergeBlockMiner *common.Address `json:"mergeBlockMiner,omitempty"`
-	MergeBlockTime  *hexutil.Uint64 `json:"mergeBlockTime,omitempty"`
+	AuxPow RPCAuxPoW `json:"auxPoW,omitempty"`
 
 	V *hexutil.Big `json:"v"`
 	R *hexutil.Big `json:"r"`
@@ -1392,14 +1396,16 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 				chain := uint(mergeProof.Chain())
 				hash := mergeProof.BlockHash()
 				timestamp := mergeProof.Timestamp()
-				miner, _ := mergeProof.GetMinerAddress()
-				result.MergeChain = (*hexutil.Uint)(&chain)
-				result.MergeBlockHash = &hash
-				result.MergeBlockMiner = &miner
-				result.MergeBlockTime = (*hexutil.Uint64)(&timestamp)
-				result.Difficulty = (*hexutil.Big)(mergeProof.Difficulty())
 				nonce := mergeProof.PowNonce()
+				miner, _ := mergeProof.GetMinerAddress()
+				result.Difficulty = (*hexutil.Big)(mergeProof.Difficulty())
 				result.PowNonce = (*hexutil.Uint64)(&nonce)
+				result.AuxPow = RPCAuxPoW{
+					Chain:     (*hexutil.Uint)(&chain),
+					Hash:      &hash,
+					Miner:     &miner,
+					Timestamp: (*hexutil.Uint64)(&timestamp),
+				}
 			}
 		}
 	}
