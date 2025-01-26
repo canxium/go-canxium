@@ -55,6 +55,10 @@ type MergeBlock interface {
 	PowNonce() uint64
 	// block timestamp in millisecond
 	Timestamp() uint64
+	// PoW Algorithm
+	PoWAlgorithm() PoWAlgorithm
+	// Deep copy
+	Copy() MergeBlock
 }
 
 type MergeMiningTx struct {
@@ -69,8 +73,7 @@ type MergeMiningTx struct {
 	Data      []byte
 
 	// Merge mining fields
-	Algorithm  uint8 // hash algorithm: sha-256, scrypt...
-	MergeProof MergeBlock
+	AuxPoW MergeBlock
 
 	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`
@@ -90,8 +93,8 @@ type RlpMergeMiningTx struct {
 	Data      []byte
 
 	// Merge mining fields
-	Algorithm  uint8 // hash algorithm: sha-256, scrypt...
-	MergeProof []byte
+	Algorithm PoWAlgorithm // hash algorithm: sha-256, scrypt...
+	AuxPoW    []byte
 
 	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`
@@ -101,6 +104,7 @@ type RlpMergeMiningTx struct {
 
 // copy creates a deep copy of the transaction data and initializes all decoded.
 func (tx *MergeMiningTx) copy() TxData {
+	auxPoW := tx.AuxPoW.Copy()
 	cpy := &MergeMiningTx{
 		Nonce: tx.Nonce,
 		From:  tx.From,
@@ -113,8 +117,7 @@ func (tx *MergeMiningTx) copy() TxData {
 		GasTipCap: new(big.Int),
 		GasFeeCap: new(big.Int),
 		// merge mining fields
-		Algorithm:  tx.Algorithm,
-		MergeProof: tx.MergeProof,
+		AuxPoW: auxPoW,
 		// signature
 		V: new(big.Int),
 		R: new(big.Int),
@@ -160,13 +163,18 @@ func (tx *MergeMiningTx) nonce() uint64          { return tx.Nonce }
 func (tx *MergeMiningTx) to() *common.Address    { return &tx.To }
 func (tx *MergeMiningTx) from() common.Address   { return tx.From }
 
-func (tx *MergeMiningTx) mergeProof() MergeBlock { return tx.MergeProof }
-func (tx *MergeMiningTx) algorithm() byte        { return tx.Algorithm }
+func (tx *MergeMiningTx) auxPoW() MergeBlock { return tx.AuxPoW }
+func (tx *MergeMiningTx) algorithm() PoWAlgorithm {
+	if tx.AuxPoW == nil {
+		return NoneAlgorithm
+	}
+	return tx.AuxPoW.PoWAlgorithm()
+}
 func (tx *MergeMiningTx) difficulty() *big.Int {
-	if tx.MergeProof == nil {
+	if tx.AuxPoW == nil {
 		return common.Big0
 	}
-	return tx.MergeProof.Difficulty()
+	return tx.AuxPoW.Difficulty()
 }
 func (tx *MergeMiningTx) powNonce() uint64       { return 0 }
 func (tx *MergeMiningTx) mixDigest() common.Hash { return common.Hash{} }
@@ -225,7 +233,7 @@ func DecodeMergeBlock(data []byte) (MergeBlock, error) {
 
 func (tx *MergeMiningTx) EncodeRLP(w io.Writer) error {
 	// Encode all fields, including MergeBlock
-	mergeBlockBytes, err := EncodeMergeBlock(tx.MergeProof)
+	mergeBlockBytes, err := EncodeMergeBlock(tx.AuxPoW)
 	if err != nil {
 		return err
 	}
@@ -240,7 +248,6 @@ func (tx *MergeMiningTx) EncodeRLP(w io.Writer) error {
 		tx.To,
 		tx.Value,
 		tx.Data,
-		tx.Algorithm,
 		mergeBlockBytes, // Serialized MergeBlock as bytes
 		// Signature values
 		tx.V,
@@ -264,18 +271,17 @@ func (tx *MergeMiningTx) DecodeRLP(s *rlp.Stream) error {
 	tx.To = decoded.To
 	tx.Value = decoded.Value
 	tx.Data = decoded.Data
-	tx.Algorithm = decoded.Algorithm
 	tx.V = decoded.V
 	tx.R = decoded.R
 	tx.S = decoded.S
 
-	if len(decoded.MergeProof) > 0 {
-		mergeBlock, err := DecodeMergeBlock(decoded.MergeProof)
+	if len(decoded.AuxPoW) > 0 {
+		mergeBlock, err := DecodeMergeBlock(decoded.AuxPoW)
 		if err != nil {
 			return err
 		}
 
-		tx.MergeProof = mergeBlock
+		tx.AuxPoW = mergeBlock
 	}
 
 	return nil

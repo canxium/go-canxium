@@ -460,6 +460,10 @@ func (b *KaspaBlock) Chain() MergeChain {
 	return KaspaChain
 }
 
+func (b *KaspaBlock) PoWAlgorithm() PoWAlgorithm {
+	return KHeavyHashAlgorithm
+}
+
 // IsValidBlock check to see if this is a valid kaspa block, header and coinbase are valid
 func (b *KaspaBlock) IsValidBlock() bool {
 	if b.Header == nil {
@@ -475,6 +479,27 @@ func (b *KaspaBlock) IsValidBlock() bool {
 		return false
 	}
 	return true
+}
+
+func (b *KaspaBlock) Copy() MergeBlock {
+	header := b.Header.clone()
+	coinbase := b.Coinbase.Clone()
+	clonedProof := make([]*externalapi.DomainHash, len(b.MerkleProof))
+	for i, hash := range b.MerkleProof {
+		if hash != nil {
+			// Deep copy each *DomainHash to avoid sharing memory
+			clonedHash := *hash // Dereference to copy the value
+			clonedProof[i] = &clonedHash
+		}
+	}
+
+	block := KaspaBlock{
+		Header:      header,
+		MerkleProof: clonedProof,
+		Coinbase:    coinbase,
+	}
+
+	return &block
 }
 
 func (b *KaspaBlock) BlockHash() string {

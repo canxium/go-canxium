@@ -181,7 +181,7 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 		msg.GasPrice = cmath.BigMin(msg.GasPrice.Add(msg.GasTipCap, baseFee), msg.GasFeeCap)
 	}
 	if tx.Type() == types.MergeMiningTxType {
-		proof := tx.MergeProof()
+		proof := tx.AuxPoW()
 		miner, err := proof.GetMinerAddress()
 		if err != nil {
 			return nil, err

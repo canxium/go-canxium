@@ -1387,7 +1387,7 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		if tx.Type() == types.MergeMiningTxType {
 			algorithm := uint64(tx.Algorithm())
 			result.Algorithm = (*hexutil.Uint64)(&algorithm)
-			mergeProof := tx.MergeProof()
+			mergeProof := tx.AuxPoW()
 			if mergeProof != nil {
 				chain := uint(mergeProof.Chain())
 				hash := mergeProof.BlockHash()

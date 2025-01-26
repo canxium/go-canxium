@@ -466,7 +466,7 @@ func (pool *TxPool) removeOldMiningTxs(currentHeader *types.Header, txs types.Tr
 		}
 		// Clear old merge mining transactions
 		if tx.Type() == types.MergeMiningTxType {
-			proof := tx.MergeProof()
+			proof := tx.AuxPoW()
 			miner, err := proof.GetMinerAddress()
 			if err != nil {
 				pool.removeTx(tx.Hash(), true)
@@ -743,10 +743,10 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	}
 	// Ensure the merge mining transaction adheres to block timestamp ordering
 	if tx.Type() == types.MergeMiningTxType {
-		if tx.MergeProof() == nil {
+		if tx.AuxPoW() == nil {
 			return misc.ErrInvalidMergeBlock
 		}
-		proof := tx.MergeProof()
+		proof := tx.AuxPoW()
 		miner, err := proof.GetMinerAddress()
 		if err != nil {
 			return err
@@ -801,7 +801,7 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		knownTxMeter.Mark(1)
 		return false, ErrAlreadyKnown
 	}
-	if tx.Type() == types.MergeMiningTxType && pool.all.GetMerge(tx.MergeProof().BlockHash()) != nil {
+	if tx.Type() == types.MergeMiningTxType && pool.all.GetMerge(tx.AuxPoW().BlockHash()) != nil {
 		log.Trace("Discarding already known merge mining transaction", "hash", hash)
 		knownTxMeter.Mark(1)
 		return false, ErrMergeTxAlreadyKnown
@@ -1092,7 +1092,7 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 			knownTxMeter.Mark(1)
 			continue
 		}
-		if tx.Type() == types.MergeMiningTxType && pool.all.GetMerge(tx.MergeProof().BlockHash()) != nil {
+		if tx.Type() == types.MergeMiningTxType && pool.all.GetMerge(tx.AuxPoW().BlockHash()) != nil {
 			errs[i] = ErrMergeTxAlreadyKnown
 			knownTxMeter.Mark(1)
 			continue
@@ -1775,8 +1775,8 @@ func (pool *TxPool) isValidMiningSubsidy(headNumber *big.Int, headTime uint64, t
 	}
 
 	if tx.Type() == types.MergeMiningTxType {
-		forkTime := misc.MergeMiningForkTime(pool.chainconfig, tx.MergeProof().Chain())
-		value := misc.MergeMiningReward(tx.MergeProof(), forkTime, headTime)
+		forkTime := misc.MergeMiningForkTime(pool.chainconfig, tx.AuxPoW().Chain())
+		value := misc.MergeMiningReward(tx.AuxPoW(), forkTime, headTime)
 		return tx.Value().Cmp(value) == 0
 	}
 
@@ -2002,7 +2002,7 @@ func (t *lookup) Add(tx *types.Transaction, local bool) {
 
 	if tx.Type() == types.MergeMiningTxType {
 		txHash := tx.Hash()
-		t.merges[tx.MergeProof().BlockHash()] = &txHash
+		t.merges[tx.AuxPoW().BlockHash()] = &txHash
 	}
 }
 
@@ -2025,7 +2025,7 @@ func (t *lookup) Remove(hash common.Hash) {
 	delete(t.locals, hash)
 	delete(t.remotes, hash)
 	if tx.Type() == types.MergeMiningTxType {
-		delete(t.merges, tx.MergeProof().BlockHash())
+		delete(t.merges, tx.AuxPoW().BlockHash())
 	}
 }
 

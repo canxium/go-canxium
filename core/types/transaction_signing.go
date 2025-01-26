@@ -299,7 +299,7 @@ func (s londonSigner) Hash(tx *Transaction) common.Hash {
 				tx.Value(),
 				tx.Data(),
 				tx.Algorithm(),
-				tx.MergeProof(),
+				tx.AuxPoW(),
 			})
 	}
 

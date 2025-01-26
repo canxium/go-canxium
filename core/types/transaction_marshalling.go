@@ -54,7 +54,7 @@ type txJSON struct {
 	PowNonce   *hexutil.Uint64 `json:"powNonce,omitempty"`
 
 	// Merge Mining transaction
-	MergeProof *MergeBlock `json:"mergeProof,omitempty"`
+	AuxPoW *MergeBlock `json:"auxPoW,omitempty"`
 
 	// Only used for encoding:
 	Hash common.Hash `json:"hash"`
@@ -138,10 +138,8 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 
 		from := tx.From()
 		enc.From = &from
-		algorithm := uint(itx.Algorithm)
-		enc.Algorithm = (*hexutil.Uint)(&algorithm)
 
-		enc.MergeProof = &itx.MergeProof
+		enc.AuxPoW = &itx.AuxPoW
 
 		enc.V = (*hexutil.Big)(itx.V)
 		enc.R = (*hexutil.Big)(itx.R)
@@ -368,7 +366,7 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		if dec.Algorithm == nil {
 			return errors.New("missing required field 'algorithm' in transaction")
 		}
-		itx.Algorithm = uint8(*dec.Algorithm)
+		itx.Algorithm = PoWAlgorithm(*dec.Algorithm)
 		if dec.Difficulty == nil {
 			return errors.New("missing required field 'difficulty' in transaction")
 		}
@@ -441,11 +439,10 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		if dec.Algorithm == nil {
 			return errors.New("missing required field 'algorithm' in transaction")
 		}
-		itx.Algorithm = uint8(*dec.Algorithm)
-		if dec.MergeProof == nil {
-			return errors.New("missing required field 'mergeProof' in transaction")
+		if dec.AuxPoW == nil {
+			return errors.New("missing required field 'auxPoW' in transaction")
 		}
-		itx.MergeProof = *dec.MergeProof
+		itx.AuxPoW = *dec.AuxPoW
 		withSignature := itx.V.Sign() != 0 || itx.R.Sign() != 0 || itx.S.Sign() != 0
 		if withSignature {
 			if err := sanityCheckSignature(itx.V, itx.R, itx.S, false); err != nil {

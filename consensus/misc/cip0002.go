@@ -63,10 +63,10 @@ var (
 
 // verifyMergeMiningTxSeal checks whether a merge mining satisfies the PoW difficulty requirements,
 func VerifyMergeMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header) error {
-	if tx.MergeProof() == nil {
+	if tx.AuxPoW() == nil {
 		return ErrInvalidMergeNilBlock
 	}
-	if !tx.MergeProof().IsValidBlock() {
+	if !tx.AuxPoW().IsValidBlock() {
 		return ErrInvalidMergeBlock
 	}
 	if !isSupportedMergeMining(config, tx, block.Time) {
@@ -80,7 +80,7 @@ func VerifyMergeMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 	if tx.Difficulty().Sign() <= 0 {
 		return ErrInvalidDifficulty
 	}
-	mergeBlock := tx.MergeProof()
+	mergeBlock := tx.AuxPoW()
 	minDiff := MergeMiningMinDifficulty(config, mergeBlock.Chain())
 	if tx.Difficulty().Cmp(minDiff) < 0 {
 		return ErrDifficultyUnderValue
@@ -166,7 +166,7 @@ func MergeMiningMinDifficulty(config *params.ChainConfig, parentChain types.Merg
 
 // isSupportedMergeMining check if this timeline support for this parent chain
 func isSupportedMergeMining(config *params.ChainConfig, tx *types.Transaction, blockTime uint64) bool {
-	if tx.MergeProof().Chain() == types.KaspaChain {
+	if tx.AuxPoW().Chain() == types.KaspaChain {
 		if !config.IsHelium(blockTime) {
 			return false
 		}
