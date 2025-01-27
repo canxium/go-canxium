@@ -1179,6 +1179,11 @@ func (pool *TxPool) Get(hash common.Hash) *types.Transaction {
 	return pool.all.Get(hash)
 }
 
+// Get returns a transaction if it is contained in the pool and nil otherwise.
+func (pool *TxPool) GetByAuxPoWHash(hash string) *common.Hash {
+	return pool.all.GetMerge(hash)
+}
+
 // Has returns an indicator whether txpool has a transaction cached with the
 // given hash.
 func (pool *TxPool) Has(hash common.Hash) bool {

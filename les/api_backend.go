@@ -209,8 +209,16 @@ func (b *LesApiBackend) GetPoolTransaction(txHash common.Hash) *types.Transactio
 	return b.eth.txPool.GetTransaction(txHash)
 }
 
+func (b *LesApiBackend) GetPoolTransactionByAuxPoWHash(auxHash string) *types.Transaction {
+	return nil
+}
+
 func (b *LesApiBackend) GetTransaction(ctx context.Context, txHash common.Hash) (*types.Transaction, common.Hash, uint64, uint64, error) {
 	return light.GetTransaction(ctx, b.eth.odr, txHash)
+}
+
+func (b *LesApiBackend) GetTransactionByAuxPoWHash(ctx context.Context, txHash string) (*types.Transaction, common.Hash, uint64, uint64, error) {
+	return nil, common.Hash{}, 0, 0, nil
 }
 
 func (b *LesApiBackend) GetPoolNonce(ctx context.Context, addr common.Address) (uint64, error) {

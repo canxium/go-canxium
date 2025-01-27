@@ -1652,6 +1652,29 @@ func (s *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	return nil, nil
 }
 
+// GetTransactionByAuxPoWHash returns the transaction for the given AuxPoW hash
+func (s *TransactionAPI) GetTransactionByAuxPoWHash(ctx context.Context, hash string) (*RPCTransaction, error) {
+	// Try to return an already finalized transaction
+	tx, blockHash, blockNumber, index, err := s.b.GetTransactionByAuxPoWHash(ctx, hash)
+	if err != nil {
+		return nil, err
+	}
+	if tx != nil {
+		header, err := s.b.HeaderByHash(ctx, blockHash)
+		if err != nil {
+			return nil, err
+		}
+		return newRPCTransaction(tx, blockHash, blockNumber, index, header.BaseFee, s.b.ChainConfig()), nil
+	}
+	// No finalized transaction, try to retrieve it from the pool
+	if tx := s.b.GetPoolTransactionByAuxPoWHash(hash); tx != nil {
+		return NewRPCPendingTransaction(tx, s.b.CurrentHeader(), s.b.ChainConfig()), nil
+	}
+
+	// Transaction unknown, return as such
+	return nil, nil
+}
+
 // GetRawTransactionByHash returns the bytes of the transaction for the given hash.
 func (s *TransactionAPI) GetRawTransactionByHash(ctx context.Context, hash common.Hash) (hexutil.Bytes, error) {
 	// Retrieve a finalized transaction, or a pooled otherwise
