@@ -342,8 +342,12 @@ func (b *backendMock) SendTx(ctx context.Context, signedTx *types.Transaction) e
 func (b *backendMock) GetTransaction(ctx context.Context, txHash common.Hash) (*types.Transaction, common.Hash, uint64, uint64, error) {
 	return nil, [32]byte{}, 0, 0, nil
 }
-func (b *backendMock) GetPoolTransactions() (types.Transactions, error)         { return nil, nil }
-func (b *backendMock) GetPoolTransaction(txHash common.Hash) *types.Transaction { return nil }
+func (b *backendMock) GetTransactionByAuxPoWHash(ctx context.Context, auxHash string) (*types.Transaction, common.Hash, uint64, uint64, error) {
+	return nil, [32]byte{}, 0, 0, nil
+}
+func (b *backendMock) GetPoolTransactions() (types.Transactions, error)                 { return nil, nil }
+func (b *backendMock) GetPoolTransaction(txHash common.Hash) *types.Transaction         { return nil }
+func (b *backendMock) GetPoolTransactionByAuxPoWHash(auxHash string) *types.Transaction { return nil }
 func (b *backendMock) GetPoolNonce(ctx context.Context, addr common.Address) (uint64, error) {
 	return 0, nil
 }

@@ -95,10 +95,13 @@ func (tx *DynamicFeeTx) nonce() uint64          { return tx.Nonce }
 func (tx *DynamicFeeTx) to() *common.Address    { return tx.To }
 func (tx *DynamicFeeTx) from() common.Address   { return common.Address{} }
 
-func (tx *DynamicFeeTx) algorithm() byte        { return NoneAlgorithm }
-func (tx *DynamicFeeTx) difficulty() *big.Int   { return big.NewInt(0) }
-func (tx *DynamicFeeTx) powNonce() uint64       { return 0 }
-func (tx *DynamicFeeTx) mixDigest() common.Hash { return common.Hash{} }
+func (tx *DynamicFeeTx) algorithm() PoWAlgorithm { return NoneAlgorithm }
+func (tx *DynamicFeeTx) difficulty() *big.Int    { return big.NewInt(0) }
+func (tx *DynamicFeeTx) powNonce() uint64        { return 0 }
+func (tx *DynamicFeeTx) mixDigest() common.Hash  { return common.Hash{} }
+
+// merge mining
+func (tx *DynamicFeeTx) auxPoW() MergeBlock { return nil }
 
 func (tx *DynamicFeeTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	if baseFee == nil {

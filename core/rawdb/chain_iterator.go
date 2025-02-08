@@ -84,8 +84,9 @@ func InitDatabaseFromFreezer(db ethdb.Database) {
 }
 
 type blockTxHashes struct {
-	number uint64
-	hashes []common.Hash
+	number         uint64
+	hashes         []common.Hash
+	mergeAuxHashes []string
 }
 
 // iterateTransactions iterates over all transactions in the (canon) block
@@ -148,12 +149,17 @@ func iterateTransactions(db ethdb.Database, from uint64, to uint64, reverse bool
 				return
 			}
 			var hashes []common.Hash
+			var mergeAuxHashes []string
 			for _, tx := range body.Transactions {
 				hashes = append(hashes, tx.Hash())
+				if tx.Type() == types.MergeMiningTxType {
+					mergeAuxHashes = append(mergeAuxHashes, tx.AuxPoW().BlockHash())
+				}
 			}
 			result := &blockTxHashes{
-				hashes: hashes,
-				number: data.number,
+				hashes:         hashes,
+				mergeAuxHashes: mergeAuxHashes,
+				number:         data.number,
 			}
 			// Feed the block to the aggregator, or abort on interrupt
 			select {
@@ -214,6 +220,7 @@ func indexTransactions(db ethdb.Database, from uint64, to uint64, interrupt chan
 			delivery := queue.PopItem()
 			lastNum = delivery.number
 			WriteTxLookupEntries(batch, delivery.number, delivery.hashes)
+			WriteMergeTxLookupEntries(batch, delivery.number, delivery.mergeAuxHashes)
 			blocks++
 			txs += len(delivery.hashes)
 			// If enough data was accumulated in memory or we're at the last block, dump to disk
@@ -303,6 +310,7 @@ func unindexTransactions(db ethdb.Database, from uint64, to uint64, interrupt ch
 			delivery := queue.PopItem()
 			nextNum = delivery.number + 1
 			DeleteTxLookupEntries(batch, delivery.hashes)
+			DeleteMergeTxLookupEntries(batch, delivery.mergeAuxHashes)
 			txs += len(delivery.hashes)
 			blocks++
 

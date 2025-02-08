@@ -179,4 +179,5 @@ var (
 	Big100Kh                        = big.NewInt(100000) // 100 KH to Hash
 
 	CanxiumContractCreationFee = new(big.Int).Exp(big.NewInt(10), big.NewInt(20), big.NewInt(0)) // 1e20 ~ 100 CA
+	// KaspaMergeMiningMinDifficulty = big.NewInt(10000000000000000)                                   // 10 PH
 )

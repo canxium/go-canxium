@@ -1288,6 +1288,13 @@ func (s *BlockChainAPI) rpcMarshalBlock(ctx context.Context, b *types.Block, inc
 	return fields, err
 }
 
+type RPCAuxPoW struct {
+	Chain     *hexutil.Uint   `json:"chain,omitempty"`
+	Hash      *string         `json:"hash,omitempty"`
+	Miner     *common.Address `json:"miner,omitempty"`
+	Timestamp *hexutil.Uint64 `json:"timestamp,omitempty"`
+}
+
 // RPCTransaction represents a transaction that will serialize to the RPC representation of a transaction
 type RPCTransaction struct {
 	BlockHash        *common.Hash      `json:"blockHash"`
@@ -1312,6 +1319,9 @@ type RPCTransaction struct {
 	Difficulty *hexutil.Big    `json:"difficulty,omitempty"`
 	MixDigest  *common.Hash    `json:"mixDigest,omitempty"`
 	PowNonce   *hexutil.Uint64 `json:"powNonce,omitempty"`
+
+	// merge mining fields
+	AuxPow RPCAuxPoW `json:"auxPoW,omitempty"`
 
 	V *hexutil.Big `json:"v"`
 	R *hexutil.Big `json:"r"`
@@ -1353,7 +1363,7 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		al := tx.AccessList()
 		result.Accesses = &al
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
-	case types.DynamicFeeTxType, types.MiningTxType:
+	case types.DynamicFeeTxType, types.MiningTxType, types.MergeMiningTxType:
 		al := tx.AccessList()
 		result.Accesses = &al
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
@@ -1376,6 +1386,27 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 			result.MixDigest = &disgest
 			nonce := tx.PowNonce()
 			result.PowNonce = (*hexutil.Uint64)(&nonce)
+		}
+
+		if tx.Type() == types.MergeMiningTxType {
+			algorithm := uint64(tx.Algorithm())
+			result.Algorithm = (*hexutil.Uint64)(&algorithm)
+			mergeProof := tx.AuxPoW()
+			if mergeProof != nil {
+				chain := uint(mergeProof.Chain())
+				hash := mergeProof.BlockHash()
+				timestamp := mergeProof.Timestamp()
+				nonce := mergeProof.PowNonce()
+				miner, _ := mergeProof.GetMinerAddress()
+				result.Difficulty = (*hexutil.Big)(mergeProof.Difficulty())
+				result.PowNonce = (*hexutil.Uint64)(&nonce)
+				result.AuxPow = RPCAuxPoW{
+					Chain:     (*hexutil.Uint)(&chain),
+					Hash:      &hash,
+					Miner:     &miner,
+					Timestamp: (*hexutil.Uint64)(&timestamp),
+				}
+			}
 		}
 	}
 	return result
@@ -1614,6 +1645,29 @@ func (s *TransactionAPI) GetTransactionByHash(ctx context.Context, hash common.H
 	}
 	// No finalized transaction, try to retrieve it from the pool
 	if tx := s.b.GetPoolTransaction(hash); tx != nil {
+		return NewRPCPendingTransaction(tx, s.b.CurrentHeader(), s.b.ChainConfig()), nil
+	}
+
+	// Transaction unknown, return as such
+	return nil, nil
+}
+
+// GetTransactionByAuxPoWHash returns the transaction for the given AuxPoW hash
+func (s *TransactionAPI) GetTransactionByAuxPoWHash(ctx context.Context, hash string) (*RPCTransaction, error) {
+	// Try to return an already finalized transaction
+	tx, blockHash, blockNumber, index, err := s.b.GetTransactionByAuxPoWHash(ctx, hash)
+	if err != nil {
+		return nil, err
+	}
+	if tx != nil {
+		header, err := s.b.HeaderByHash(ctx, blockHash)
+		if err != nil {
+			return nil, err
+		}
+		return newRPCTransaction(tx, blockHash, blockNumber, index, header.BaseFee, s.b.ChainConfig()), nil
+	}
+	// No finalized transaction, try to retrieve it from the pool
+	if tx := s.b.GetPoolTransactionByAuxPoWHash(hash); tx != nil {
 		return NewRPCPendingTransaction(tx, s.b.CurrentHeader(), s.b.ChainConfig()), nil
 	}
 

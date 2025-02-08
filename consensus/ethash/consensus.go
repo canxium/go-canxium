@@ -43,15 +43,10 @@ var (
 	ByzantiumBlockReward      = big.NewInt(3e+18) // Block reward in wei for successfully mining a block upward from Byzantium
 	ConstantinopleBlockReward = big.NewInt(2e+18) // Block reward in wei for successfully mining a block upward from Constantinople
 
-	CanxiumRewardPerHash                    = big.NewInt(250)   // Reward in wei per difficulty hash for successfully mining upward from Canxium
 	CanxiumBlockFirstYearReward             = big.NewInt(25e16) // First year reward per block in canxium chain: 0.25 CLI
 	CanxiumFoundationRewardPercent          = big.NewInt(2)     // Foudation reward: 2%
 	CanxiumFoundationFirstYearRewardPercent = big.NewInt(25)    // First year Foudation reward: 25%
-	// offline mining
-	CanxiumMaxTransactionReward = big.NewInt(4250)
-	CanxiumMiningReduceBlock    = big.NewInt(432000) // Offline mining reward reduce 11.76% every 432000 blocks
-	CanxiumMiningReducePeriod   = big.NewInt(24)     // Max 24 months
-	CanxiumMiningPeriodPercent  = big.NewInt(8842)
+
 	// make sure miner set the correct input data for the transaction
 	CanxiumMiningTxDataLength = 36
 	// mining(address) method
@@ -66,20 +61,22 @@ var (
 // codebase, inherently breaking if the engine is swapped out. Please put common
 // error types into the consensus package.
 var (
-	errOlderBlockTime        = errors.New("timestamp older than parent")
-	errTooManyUncles         = errors.New("too many uncles")
-	errDuplicateUncle        = errors.New("duplicate uncle")
-	errUncleIsAncestor       = errors.New("uncle is ancestor")
-	errDanglingUncle         = errors.New("uncle's parent is not ancestor")
-	errInvalidDifficulty     = errors.New("non-positive difficulty")
-	errInvalidMixDigest      = errors.New("invalid mix digest")
-	errInvalidPoW            = errors.New("invalid proof-of-work")
-	errDifficultyUnderValue  = errors.New("mining transaction difficulty under value")
-	errInvalidMiningTxType   = errors.New("invalid mining transaction type")
-	errInvalidMiningTxValue  = errors.New("invalid mining transaction value")
-	ErrInvalidMiningReceiver = errors.New("invalid mining transaction receiver")
-	ErrInvalidMiningSender   = errors.New("invalid mining transaction sender")
-	ErrInvalidMiningInput    = errors.New("invalid mining transaction input data")
+	errOlderBlockTime       = errors.New("timestamp older than parent")
+	errTooManyUncles        = errors.New("too many uncles")
+	errDuplicateUncle       = errors.New("duplicate uncle")
+	errUncleIsAncestor      = errors.New("uncle is ancestor")
+	errDanglingUncle        = errors.New("uncle's parent is not ancestor")
+	errInvalidDifficulty    = errors.New("non-positive difficulty")
+	errInvalidMixDigest     = errors.New("invalid mix digest")
+	errInvalidPoW           = errors.New("invalid proof-of-work")
+	errDifficultyUnderValue = errors.New("mining transaction difficulty under value")
+	errInvalidMiningTxType  = errors.New("invalid mining transaction type")
+	errInvalidMiningTxValue = errors.New("invalid mining transaction value")
+
+	ErrInvalidMiningReceiver  = errors.New("invalid mining transaction receiver")
+	ErrInvalidMiningSender    = errors.New("invalid mining transaction sender")
+	ErrInvalidMiningInput     = errors.New("invalid mining transaction input data")
+	ErrInvalidMiningAlgorithm = errors.New("invalid mining transaction algorithm")
 )
 
 // Author implements consensus.Engine, returning the header's coinbase as the
@@ -602,14 +599,11 @@ func (ethash *Ethash) verifySeal(chain consensus.ChainHeaderReader, header *type
 	return nil
 }
 
-// verifySeal checks whether a offline mining transaction satisfies the PoW difficulty requirements,
+// verifyEthashMiningTxSeal checks whether a offline mining satisfies the PoW difficulty requirements,
 // either using the usual ethash cache for it, or alternatively using a full DAG
 // to make remote mining fast.
-func (ethash *Ethash) VerifyTxSeal(config *params.ChainConfig, tx *types.Transaction, block *big.Int, fulldag bool) error {
-	if tx.Type() != types.MiningTxType {
-		return errInvalidMiningTxType
-	}
-	if !config.IsHydro(block) {
+func (ethash *Ethash) verifyEthashMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error {
+	if !config.IsHydro(block.Number) {
 		return types.ErrTxTypeNotSupported
 	}
 	// If we're running a fake PoW, accept any seal as valid
@@ -619,7 +613,7 @@ func (ethash *Ethash) VerifyTxSeal(config *params.ChainConfig, tx *types.Transac
 	}
 	// If we're running a shared PoW, delegate verification to it
 	if ethash.shared != nil {
-		return ethash.shared.VerifyTxSeal(config, tx, block, fulldag)
+		return ethash.shared.verifyEthashMiningTxSeal(config, tx, block, fulldag)
 	}
 	// Ensure the receiver is the mining smart contract
 	if tx.To() == nil || *tx.To() != config.MiningContract {
@@ -633,7 +627,7 @@ func (ethash *Ethash) VerifyTxSeal(config *params.ChainConfig, tx *types.Transac
 		return errDifficultyUnderValue
 	}
 	// Ensure signer and from are same to avoid pow relay attack
-	signer := types.MakeSigner(config, block)
+	signer := types.MakeSigner(config, block.Number)
 	from, err := types.Sender(signer, tx)
 	if err != nil {
 		return err
@@ -648,7 +642,7 @@ func (ethash *Ethash) VerifyTxSeal(config *params.ChainConfig, tx *types.Transac
 	}
 
 	// Ensure value is valid: reward * difficulty
-	subsidy := ethash.TransactionMiningSubsidy(config, block)
+	subsidy := misc.TransactionMiningSubsidy(config, block.Number)
 	value := new(big.Int).Mul(subsidy, tx.Difficulty())
 	if tx.Value().Cmp(value) != 0 {
 		return errInvalidMiningTxValue
@@ -700,10 +694,23 @@ func (ethash *Ethash) VerifyTxSeal(config *params.ChainConfig, tx *types.Transac
 	return nil
 }
 
-// VerifyTxsSeal is similar to VerifyTxSeal, but verifies a batch of mining transactions
+// VerifyMiningTxSeal checks whether a offline mining or merge mining transaction satisfies the PoW difficulty requirements,
+func (ethash *Ethash) VerifyMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error {
+	// offline mining
+	if tx.Type() == types.MiningTxType && misc.IsEthashAlgorithm(config, block.Time, tx.Algorithm()) {
+		return ethash.verifyEthashMiningTxSeal(config, tx, block, fulldag)
+	}
+	// merge mining
+	if tx.Type() == types.MergeMiningTxType {
+		return misc.VerifyMergeMiningTxSeal(config, tx, block)
+	}
+	return ErrInvalidMiningAlgorithm
+}
+
+// VerifyMiningTxsSeal is similar to VerifyTxSeal, but verifies a batch of mining transactions
 // concurrently. The method returns a quit channel to abort the operations and
 // a results channel to retrieve the async verifications.
-func (ethash *Ethash) VerifyTxsSeal(config *params.ChainConfig, txs types.Transactions, block *big.Int, fulldag bool) <-chan int64 {
+func (ethash *Ethash) VerifyMiningTxsSeal(config *params.ChainConfig, txs types.Transactions, block *types.Header, fulldag bool) <-chan int64 {
 	// If we're running a full engine faking, accept any input as valid
 	result := make(chan int64, 1)
 	defer close(result)
@@ -728,14 +735,14 @@ func (ethash *Ethash) VerifyTxsSeal(config *params.ChainConfig, txs types.Transa
 	for i := 0; i < workers; i++ {
 		go func() {
 			for index := range inputs {
-				if txs[index].Type() != types.MiningTxType {
+				if !txs[index].IsMiningTx() {
 					errors[index] = nil
 					done <- index
 					continue
 				}
 
 				numMiningTxs += 1
-				errors[index] = ethash.VerifyTxSeal(config, txs[index], block, fulldag)
+				errors[index] = ethash.VerifyMiningTxSeal(config, txs[index], block, fulldag)
 				done <- index
 			}
 		}()
@@ -848,29 +855,6 @@ func (ethash *Ethash) SealHash(header *types.Header) (hash common.Hash) {
 	rlp.Encode(hasher, enc)
 	hasher.Sum(hash[:0])
 	return hash
-}
-
-// Calculate offline mining reward base on block number
-func (ethash *Ethash) TransactionMiningSubsidy(config *params.ChainConfig, block *big.Int) *big.Int {
-	if !config.IsHydro(block) {
-		return big0
-	}
-	blockPassed := new(big.Int).Sub(block, config.HydroBlock)
-	period := new(big.Int).Div(blockPassed, CanxiumMiningReduceBlock)
-	if period.Cmp(big0) == 0 {
-		return CanxiumMaxTransactionReward
-	}
-
-	// reduce mining reward for max 24 period
-	if period.Cmp(CanxiumMiningReducePeriod) >= 0 {
-		return CanxiumRewardPerHash
-	}
-
-	exp := new(big.Int).Exp(CanxiumMiningPeriodPercent, period, nil)
-	percentage := new(big.Int).Exp(big.NewInt(10000), period, nil)
-	periodReward := new(big.Int).Mul(CanxiumMaxTransactionReward, exp)
-	subsidy := new(big.Int).Div(periodReward, percentage)
-	return subsidy
 }
 
 // AccumulateRewards credits the coinbase of the given block with the mining

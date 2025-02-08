@@ -108,10 +108,13 @@ func (tx *AccessListTx) to() *common.Address    { return tx.To }
 func (tx *AccessListTx) from() common.Address   { return common.Address{} }
 
 // mining
-func (tx *AccessListTx) algorithm() byte        { return NoneAlgorithm }
-func (tx *AccessListTx) difficulty() *big.Int   { return big.NewInt(0) }
-func (tx *AccessListTx) powNonce() uint64       { return 0 }
-func (tx *AccessListTx) mixDigest() common.Hash { return common.Hash{} }
+func (tx *AccessListTx) algorithm() PoWAlgorithm { return NoneAlgorithm }
+func (tx *AccessListTx) difficulty() *big.Int    { return big.NewInt(0) }
+func (tx *AccessListTx) powNonce() uint64        { return 0 }
+func (tx *AccessListTx) mixDigest() common.Hash  { return common.Hash{} }
+
+// merge mining
+func (tx *AccessListTx) auxPoW() MergeBlock { return nil }
 
 func (tx *AccessListTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	return dst.Set(tx.GasPrice)

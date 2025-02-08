@@ -53,6 +53,9 @@ var CheckpointOracles = map[common.Hash]*CheckpointOracleConfig{
 func newUint64(val uint64) *uint64 { return &val }
 
 var (
+	// the smallest minimum difficulty of a kaspa block that calcium can accept, if smaller it will cause a mathematical error compared to using float numbers
+	KaspaMinAcceptableDifficulty = big.NewInt(1000000)
+
 	MainnetTerminalTotalDifficulty, _ = new(big.Int).SetString("58_750_000_000_000_000_000_000", 0)
 
 	// MainnetChainConfig is the chain parameters to run a node on the main network.
@@ -77,6 +80,7 @@ var (
 		TerminalTotalDifficultyPassed: true,
 		ShanghaiTime:                  newUint64(1681338455),
 		Ethash:                        new(EthashConfig),
+		MergeMining:                   new(MergeMiningConfig),
 	}
 
 	// MainnetTrustedCheckpoint contains the light client trusted checkpoint for the main network.
@@ -121,6 +125,7 @@ var (
 		MergeNetsplitBlock:            big.NewInt(1735371),
 		ShanghaiTime:                  newUint64(1677557088),
 		Ethash:                        new(EthashConfig),
+		MergeMining:                   new(MergeMiningConfig),
 	}
 
 	// SepoliaTrustedCheckpoint contains the light client trusted checkpoint for the Sepolia test network.
@@ -247,6 +252,7 @@ var (
 		TerminalTotalDifficulty:       nil,
 		TerminalTotalDifficultyPassed: false,
 		Ethash:                        new(EthashConfig),
+		MergeMining:                   new(MergeMiningConfig),
 		Clique:                        nil,
 	}
 
@@ -305,6 +311,7 @@ var (
 		TerminalTotalDifficulty:       nil,
 		TerminalTotalDifficultyPassed: false,
 		Ethash:                        new(EthashConfig),
+		MergeMining:                   new(MergeMiningConfig),
 		Clique:                        nil,
 	}
 
@@ -334,6 +341,7 @@ var (
 		TerminalTotalDifficulty:       nil,
 		TerminalTotalDifficultyPassed: false,
 		Ethash:                        new(EthashConfig),
+		MergeMining:                   new(MergeMiningConfig),
 		Clique:                        nil,
 	}
 	TestRules = TestChainConfig.Rules(new(big.Int), false, 0)
@@ -433,6 +441,9 @@ type ChainConfig struct {
 	CancunTime   *uint64 `json:"cancunTime,omitempty"`   // Cancun switch time (nil = no fork, 0 = already on cancun)
 	PragueTime   *uint64 `json:"pragueTime,omitempty"`   // Prague switch time (nil = no fork, 0 = already on prague)
 
+	// Fork for canxium chain, after PoS
+	HeliumTime *uint64 `json:"heliumTime,omitempty"` // Second hardfork, to support merge mining
+
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
 	TerminalTotalDifficulty *big.Int `json:"terminalTotalDifficulty,omitempty"`
@@ -449,6 +460,19 @@ type ChainConfig struct {
 	// Canxium foundation wallet, should change to multi sig wallet in the future fork
 	Foundation     common.Address `json:"foundation,omitempty"`
 	MiningContract common.Address `json:"miningContract,omitempty"`
+
+	// Merge Mining
+	MergeMining *MergeMiningConfig `json:"mergeMining,omitempty"`
+}
+
+// MergeMiningConfig is the consensus engine configs for merge mining
+type MergeMiningConfig struct {
+	MinimumKaspaDifficulty *big.Int `json:"minimumKaspaDifficulty,omitempty"`
+}
+
+// String implements the stringer interface, returning the consensus engine details.
+func (c *MergeMiningConfig) String() string {
+	return "mergeMining"
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
@@ -575,6 +599,20 @@ func (c *ChainConfig) Description() string {
 	if c.PragueTime != nil {
 		banner += fmt.Sprintf(" - Prague:                      @%-10v\n", *c.PragueTime)
 	}
+	if c.HeliumTime != nil {
+		banner += fmt.Sprintf(" - Helium:                	   @%-10v \n", *c.HeliumTime)
+	}
+
+	banner += "\n"
+	// Create a list of forks post-merge
+	banner += "Merge Mining configured:\n"
+	if c.MergeMining != nil {
+		if c.MergeMining.MinimumKaspaDifficulty.Cmp(KaspaMinAcceptableDifficulty) < 0 {
+			banner += fmt.Sprintf(" - Warn: Minimum Kaspa block difficulty is too small @%v\n", *c.MergeMining.MinimumKaspaDifficulty)
+		} else {
+			banner += fmt.Sprintf(" - Kaspa:                      @%v\n", *c.MergeMining.MinimumKaspaDifficulty)
+		}
+	}
 
 	return banner
 }
@@ -682,6 +720,11 @@ func (c *ChainConfig) IsCanxium(num *big.Int) bool {
 // IsHydro returns whether num is either equal to the hydro fork time or greater.
 func (c *ChainConfig) IsHydro(num *big.Int) bool {
 	return isBlockForked(c.HydroBlock, num)
+}
+
+// IsHelium returns whether num is either equal to the helium fork time or greater.
+func (c *ChainConfig) IsHelium(time uint64) bool {
+	return isTimestampForked(c.HeliumTime, time)
 }
 
 // CheckCompatible checks whether scheduled fork transitions have been imported
@@ -981,11 +1024,11 @@ func (err *ConfigCompatError) Error() string {
 // Rules is a one time interface meaning that it shouldn't be used in between transition
 // phases.
 type Rules struct {
-	ChainID                                                 *big.Int
-	IsHomestead, IsEIP150, IsEIP155, IsEIP158               bool
-	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul bool
-	IsBerlin, IsLondon                                      bool
-	IsMerge, IsShanghai, IsCancun, IsPrague, IsHydro        bool
+	ChainID                                                    *big.Int
+	IsHomestead, IsEIP150, IsEIP155, IsEIP158                  bool
+	IsByzantium, IsConstantinople, IsPetersburg, IsIstanbul    bool
+	IsBerlin, IsLondon                                         bool
+	IsMerge, IsShanghai, IsCancun, IsPrague, IsHydro, IsHelium bool
 }
 
 // Rules ensures c's ChainID is not nil.
@@ -1011,5 +1054,6 @@ func (c *ChainConfig) Rules(num *big.Int, isMerge bool, timestamp uint64) Rules 
 		IsCancun:         c.IsCancun(timestamp),
 		IsPrague:         c.IsPrague(timestamp),
 		IsHydro:          c.IsHydro(num),
+		IsHelium:         c.IsHelium(timestamp),
 	}
 }

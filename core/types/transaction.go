@@ -46,13 +46,19 @@ const (
 	AccessListTxType
 	DynamicFeeTxType
 	MiningTxType
+
+	MergeMiningTxType = 126
 )
+
+type PoWAlgorithm uint8
 
 // Transaction mining algorithm.
 const (
-	NoneAlgorithm = iota
+	NoneAlgorithm PoWAlgorithm = iota
 	EthashAlgorithm
 	Sha256Algorithm
+	ScryptAlgorithm
+	KHeavyHashAlgorithm
 )
 
 // Transaction is an Ethereum transaction.
@@ -105,10 +111,13 @@ type TxData interface {
 	effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int
 
 	// mining functions
-	algorithm() byte
+	algorithm() PoWAlgorithm
 	difficulty() *big.Int
 	powNonce() uint64
 	mixDigest() common.Hash
+
+	// merge mining functions
+	auxPoW() MergeBlock
 }
 
 // EncodeRLP implements rlp.Encoder
@@ -199,6 +208,7 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 	if len(b) <= 1 {
 		return nil, errShortTypedTx
 	}
+
 	switch b[0] {
 	case AccessListTxType:
 		var inner AccessListTx
@@ -210,6 +220,10 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		return &inner, err
 	case MiningTxType:
 		var inner MiningTx
+		err := rlp.DecodeBytes(b[1:], &inner)
+		return &inner, err
+	case MergeMiningTxType:
+		var inner MergeMiningTx
 		err := rlp.DecodeBytes(b[1:], &inner)
 		return &inner, err
 	default:
@@ -308,7 +322,7 @@ func (tx *Transaction) Value() *big.Int { return new(big.Int).Set(tx.inner.value
 func (tx *Transaction) Nonce() uint64 { return tx.inner.nonce() }
 
 // Algorithm returns the mining algorithm of transaction which miner choosed
-func (tx *Transaction) Algorithm() uint8 { return tx.inner.algorithm() }
+func (tx *Transaction) Algorithm() PoWAlgorithm { return tx.inner.algorithm() }
 
 // Difficulty returns the mining diffculty of transaction
 func (tx *Transaction) Difficulty() *big.Int { return tx.inner.difficulty() }
@@ -319,8 +333,13 @@ func (tx *Transaction) PowNonce() uint64 { return tx.inner.powNonce() }
 // Seed returns the mining seed of transaction which solve the pow
 func (tx *Transaction) MixDigest() common.Hash { return tx.inner.mixDigest() }
 
-// Is this a mining transaction
-func (tx *Transaction) IsMiningTx() bool { return tx.Type() == MiningTxType }
+// Return the merge mining proof of work data
+func (tx *Transaction) AuxPoW() MergeBlock { return tx.inner.auxPoW() }
+
+// Is this a mining transaction, use for gas free check only
+func (tx *Transaction) IsMiningTx() bool {
+	return tx.Type() == MiningTxType || tx.Type() == MergeMiningTxType
+}
 
 // To returns the sender address of the transaction.
 // For offline mining transaction only
