@@ -53,6 +53,9 @@ var CheckpointOracles = map[common.Hash]*CheckpointOracleConfig{
 func newUint64(val uint64) *uint64 { return &val }
 
 var (
+	// the smallest minimum difficulty of a kaspa block that calcium can accept, if smaller it will cause a mathematical error compared to using float numbers
+	KaspaMinAcceptableDifficulty = big.NewInt(1000000)
+
 	MainnetTerminalTotalDifficulty, _ = new(big.Int).SetString("58_750_000_000_000_000_000_000", 0)
 
 	// MainnetChainConfig is the chain parameters to run a node on the main network.
@@ -604,7 +607,11 @@ func (c *ChainConfig) Description() string {
 	// Create a list of forks post-merge
 	banner += "Merge Mining configured:\n"
 	if c.MergeMining != nil {
-		banner += fmt.Sprintf(" - Kaspa:                      @%-10v\n", *c.MergeMining.MinimumKaspaDifficulty)
+		if c.MergeMining.MinimumKaspaDifficulty.Cmp(KaspaMinAcceptableDifficulty) < 0 {
+			banner += fmt.Sprintf(" - Warn: Minimum Kaspa block difficulty is too small @%v\n", *c.MergeMining.MinimumKaspaDifficulty)
+		} else {
+			banner += fmt.Sprintf(" - Kaspa:                      @%v\n", *c.MergeMining.MinimumKaspaDifficulty)
+		}
 	}
 
 	return banner

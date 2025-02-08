@@ -25,18 +25,14 @@ var (
 
 	mainPowMax = new(big.Int).Sub(new(big.Int).Lsh(bigOne, 255), bigOne)
 
-	// Kaspa merge mining reward constants
-	KaspaMergePhraseOneReward   = big.NewFloat(0.5)   // 0.5 wei per difficulty
-	KaspaMergePhraseTwoReward   = big.NewFloat(0.27)  // 0.27 wei per difficulty
-	KaspaMergePhraseThreeReward = big.NewFloat(0.022) // 0.022 wei per difficulty
-	KaspaPhaseTwoDayNum         = uint64(3)
-	KaspaPhaseThreeDayNum       = uint64(115)
-	KaspaPhaseFourEndDayNum     = uint64(5404)
+	// Kaspa merge mining reward constants for mainnet
+	KaspaPhaseTwoDayNum = uint64(3)
+	KaspaPhaseEndMonth  = uint64(179)
 
-	// Kaspa Merge Mining
-	KaspaDecayFactorOne   = powFloat64(0.1, 1.0/(0.5*30))  // Daily decay factor for the first phase
-	KaspaDecayFactorTwo   = powFloat64(0.25, 1.0/(2.0*30)) // Daily decay factor for the second phase
-	KaspaDecayFactorThree = powFloat64(0.4, 1.0/(17.0*30)) // Daily decay factor for the third phase
+	// map from first 3 days to base reward
+	KaspaMergeMiningIncentiveBaseRewards = [3]int64{600000, 400000, 200000}
+	// map from month to base reward: wei per params.KaspaMinAcceptableDifficulty difficulty, default 1000000
+	KaspaMergeMiningBaseRewards = [180]int64{183829, 91915, 45958, 25868, 23963, 23254, 22566, 21898, 21249, 20620, 20010, 19418, 18843, 18285, 17744, 17219, 16709, 16214, 15734, 15269, 14817, 14378, 13953, 13540, 13139, 12750, 12372, 12006, 11651, 11306, 10971, 10647, 10331, 10026, 9729, 9441, 9161, 8890, 8627, 8372, 8124, 7883, 7650, 7424, 7204, 6991, 6784, 6583, 6388, 6199, 6016, 5838, 5665, 5497, 5334, 5176, 5023, 4875, 4730, 4590, 4454, 4323, 4195, 4070, 3950, 3833, 3720, 3610, 3503, 3399, 3298, 3201, 3106, 3014, 2925, 2838, 2754, 2673, 2594, 2517, 2442, 2370, 2300, 2232, 2166, 2102, 2040, 1979, 1921, 1864, 1809, 1755, 1703, 1653, 1604, 1556, 1510, 1466, 1422, 1380, 1339, 1300, 1261, 1224, 1188, 1153, 1119, 1085, 1053, 1022, 992, 963, 934, 906, 880, 854, 828, 804, 780, 757, 735, 713, 692, 671, 651, 632, 613, 595, 578, 561, 544, 528, 512, 497, 482, 468, 454, 441, 428, 415, 403, 391, 380, 368, 357, 347, 337, 327, 317, 308, 299, 290, 281, 273, 265, 257, 249, 242, 235, 228, 221, 215, 208, 202, 196, 190, 185, 179, 174, 169, 164, 159, 154, 150, 145, 141, 137, 133, 129, 125}
 )
 
 // Various error messages to mark blocks invalid. These should be private to
@@ -146,8 +142,7 @@ func MergeMiningReward(mergeBlock types.MergeBlock, forkTime uint64, time uint64
 
 	switch mergeBlock.Chain() {
 	case types.KaspaChain:
-		dayNum := dayNumberBetweenTime(forkTime, time)
-		reward, _ := kaspaMergeMiningReward(mergeBlock.Difficulty(), uint64(dayNum))
+		reward := kaspaMergeMiningReward(mergeBlock.Difficulty(), forkTime, time)
 		return reward
 	}
 
@@ -171,58 +166,41 @@ func isSupportedMergeMining(config *params.ChainConfig, tx *types.Transaction, b
 			return false
 		}
 
-		dayNum := dayNumberBetweenTime(*config.HeliumTime, blockTime)
-		return dayNum <= KaspaPhaseFourEndDayNum
+		_, month := timePassedSinceFork(*config.HeliumTime, blockTime)
+		return month <= KaspaPhaseEndMonth
 	}
 
 	return false
 }
 
 // kaspaMergeMiningReward calculate reward for the difficulty of a kaspa block
-func kaspaMergeMiningReward(difficulty *big.Int, dayNum uint64) (*big.Int, big.Accuracy) {
-	baseReward := new(big.Float)
-	reward := new(big.Float)
-	dayBig := big.NewFloat(float64(dayNum))
+func kaspaMergeMiningReward(difficulty *big.Int, forkTime uint64, time uint64) *big.Int {
+	day, month := timePassedSinceFork(forkTime, time)
+	baseReward := new(big.Int)
 
-	if dayNum < KaspaPhaseTwoDayNum {
-		baseReward.Mul(KaspaMergePhraseOneReward, powBig(KaspaDecayFactorOne, dayBig))
-	} else if dayNum <= KaspaPhaseThreeDayNum {
-		baseReward.Mul(KaspaMergePhraseTwoReward, powBig(KaspaDecayFactorTwo, dayBig))
-	} else if dayNum <= KaspaPhaseFourEndDayNum {
-		baseReward.Mul(KaspaMergePhraseThreeReward, powBig(KaspaDecayFactorThree, dayBig))
+	if day < KaspaPhaseTwoDayNum {
+		baseReward.SetInt64(KaspaMergeMiningIncentiveBaseRewards[day])
+	} else if month <= KaspaPhaseEndMonth {
+		baseReward.SetInt64(KaspaMergeMiningBaseRewards[month])
 	} else {
-		return big0, 0
+		return big.NewInt(0) // No reward
 	}
 
-	difficultyInFloat := new(big.Float).SetInt(difficulty)
-	reward.Mul(difficultyInFloat, baseReward)
-	return reward.Int(nil)
+	// Multiply difficulty * baseReward (per 1000000 hash) / 1000000
+	reward := new(big.Int).Mul(difficulty, baseReward)
+	return reward.Div(reward, big.NewInt(1000000))
 }
 
-func dayNumberBetweenTime(forkTime, time uint64) uint64 {
+func timePassedSinceFork(forkTime, time uint64) (dayNum uint64, month uint64) {
 	// Ensure forkTime is not greater than time to avoid negative day numbers
 	if time < forkTime {
-		return 0
+		return 0, 0
 	}
 
-	// Calculate the difference in seconds and convert to days
-	secondsInADay := uint64(86400)
-	dayNumber := (time - forkTime) / secondsInADay
-
-	return uint64(dayNumber)
-}
-
-// powFloat calculates base^exponent for float64
-func powFloat64(base, exponent float64) *big.Float {
-	return new(big.Float).SetFloat64(math.Pow(base, exponent))
-}
-
-// powBig calculates base^exponent for big.Float
-func powBig(base, exponent *big.Float) *big.Float {
-	exp, _ := exponent.Float64()
-	res, _ := base.Float64()
-
-	return new(big.Float).SetFloat64(math.Pow(res, exp))
+	// Calculate the difference in seconds and convert to days and month
+	dayNum = (time - forkTime) / 86400
+	month = (time - forkTime) / 2592000
+	return
 }
 
 func buildMergeMiningTxInput(chain types.MergeChain, address common.Address, timestamp uint64) []byte {
