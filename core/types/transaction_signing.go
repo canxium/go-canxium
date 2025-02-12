@@ -182,7 +182,7 @@ func NewLondonSigner(chainId *big.Int) Signer {
 }
 
 func (s londonSigner) Sender(tx *Transaction) (common.Address, error) {
-	if tx.Type() != DynamicFeeTxType && tx.Type() != MiningTxType && tx.Type() != MergeMiningTxType {
+	if tx.Type() != DynamicFeeTxType && tx.Type() != MiningTxType && tx.Type() != CrossMiningTxType {
 		return s.eip2930Signer.Sender(tx)
 	}
 	V, R, S := tx.RawSignatureValues()
@@ -228,8 +228,8 @@ func (s londonSigner) SignatureValues(tx *Transaction, sig []byte) (R, S, V *big
 		R, S, _ = decodeSignature(sig)
 		V = big.NewInt(int64(sig[64]))
 		return R, S, V, nil
-	case MergeMiningTxType:
-		txdata, ok := tx.inner.(*MergeMiningTx)
+	case CrossMiningTxType:
+		txdata, ok := tx.inner.(*CrossMiningTx)
 		if !ok {
 			return s.eip2930Signer.SignatureValues(tx, sig)
 		}
@@ -285,7 +285,7 @@ func (s londonSigner) Hash(tx *Transaction) common.Hash {
 			})
 	}
 
-	if tx.Type() == MergeMiningTxType {
+	if tx.Type() == CrossMiningTxType {
 		return prefixedRlpHash(
 			tx.Type(),
 			[]interface{}{

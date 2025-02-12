@@ -694,15 +694,15 @@ func (ethash *Ethash) verifyEthashMiningTxSeal(config *params.ChainConfig, tx *t
 	return nil
 }
 
-// VerifyMiningTxSeal checks whether a offline mining or merge mining transaction satisfies the PoW difficulty requirements,
+// VerifyMiningTxSeal checks whether a offline mining or cross mining transaction satisfies the PoW difficulty requirements,
 func (ethash *Ethash) VerifyMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error {
 	// offline mining
 	if tx.Type() == types.MiningTxType && misc.IsEthashAlgorithm(config, block.Time, tx.Algorithm()) {
 		return ethash.verifyEthashMiningTxSeal(config, tx, block, fulldag)
 	}
-	// merge mining
-	if tx.Type() == types.MergeMiningTxType {
-		return misc.VerifyMergeMiningTxSeal(config, tx, block)
+	// cross mining
+	if tx.Type() == types.CrossMiningTxType {
+		return misc.VerifyCrossMiningTxSeal(config, tx, block)
 	}
 	return ErrInvalidMiningAlgorithm
 }

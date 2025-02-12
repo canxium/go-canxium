@@ -1320,7 +1320,7 @@ type RPCTransaction struct {
 	MixDigest  *common.Hash    `json:"mixDigest,omitempty"`
 	PowNonce   *hexutil.Uint64 `json:"powNonce,omitempty"`
 
-	// merge mining fields
+	// cross mining fields
 	AuxPow RPCAuxPoW `json:"auxPoW,omitempty"`
 
 	V *hexutil.Big `json:"v"`
@@ -1363,7 +1363,7 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 		al := tx.AccessList()
 		result.Accesses = &al
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
-	case types.DynamicFeeTxType, types.MiningTxType, types.MergeMiningTxType:
+	case types.DynamicFeeTxType, types.MiningTxType, types.CrossMiningTxType:
 		al := tx.AccessList()
 		result.Accesses = &al
 		result.ChainID = (*hexutil.Big)(tx.ChainId())
@@ -1388,7 +1388,7 @@ func newRPCTransaction(tx *types.Transaction, blockHash common.Hash, blockNumber
 			result.PowNonce = (*hexutil.Uint64)(&nonce)
 		}
 
-		if tx.Type() == types.MergeMiningTxType {
+		if tx.Type() == types.CrossMiningTxType {
 			algorithm := uint64(tx.Algorithm())
 			result.Algorithm = (*hexutil.Uint64)(&algorithm)
 			mergeProof := tx.AuxPoW()

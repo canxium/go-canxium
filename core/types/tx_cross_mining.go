@@ -26,10 +26,10 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
-type MergeChain uint16
+type CrossChain uint16
 
 const (
-	UnknownChain MergeChain = iota
+	UnknownChain CrossChain = iota
 	KaspaChain
 )
 
@@ -37,9 +37,9 @@ var (
 	ErrMergeTxChainNotSupported = errors.New("merge transaction chain not supported")
 )
 
-type MergeBlock interface {
-	Chain() MergeChain
-	// Basic check if this is a valid merge mining block
+type CrossChainBlock interface {
+	Chain() CrossChain
+	// Basic check if this is a valid cross mining block
 	IsValidBlock() bool
 	// Verify block PoW
 	VerifyPoW() error
@@ -58,10 +58,10 @@ type MergeBlock interface {
 	// PoW Algorithm
 	PoWAlgorithm() PoWAlgorithm
 	// Deep copy
-	Copy() MergeBlock
+	Copy() CrossChainBlock
 }
 
-type MergeMiningTx struct {
+type CrossMiningTx struct {
 	ChainID   *big.Int
 	Nonce     uint64   // sender nonce
 	GasTipCap *big.Int // a.k.a. maxPriorityFeePerGas
@@ -73,7 +73,7 @@ type MergeMiningTx struct {
 	Data      []byte
 
 	// Merge mining fields
-	AuxPoW MergeBlock
+	AuxPoW CrossChainBlock
 
 	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`
@@ -81,7 +81,7 @@ type MergeMiningTx struct {
 	S *big.Int `json:"s" gencodec:"required"`
 }
 
-type RlpMergeMiningTx struct {
+type RlpCrossMiningTx struct {
 	ChainID   *big.Int
 	Nonce     uint64   // sender nonce
 	GasTipCap *big.Int // a.k.a. maxPriorityFeePerGas
@@ -102,9 +102,9 @@ type RlpMergeMiningTx struct {
 }
 
 // copy creates a deep copy of the transaction data and initializes all decoded.
-func (tx *MergeMiningTx) copy() TxData {
+func (tx *CrossMiningTx) copy() TxData {
 	auxPoW := tx.AuxPoW.Copy()
-	cpy := &MergeMiningTx{
+	cpy := &CrossMiningTx{
 		Nonce: tx.Nonce,
 		From:  tx.From,
 		To:    tx.To,
@@ -115,7 +115,7 @@ func (tx *MergeMiningTx) copy() TxData {
 		ChainID:   new(big.Int),
 		GasTipCap: new(big.Int),
 		GasFeeCap: new(big.Int),
-		// merge mining fields
+		// cross mining fields
 		AuxPoW: auxPoW,
 		// signature
 		V: new(big.Int),
@@ -149,36 +149,36 @@ func (tx *MergeMiningTx) copy() TxData {
 }
 
 // accessors for innerTx.
-func (tx *MergeMiningTx) txType() byte           { return MergeMiningTxType }
-func (tx *MergeMiningTx) chainID() *big.Int      { return tx.ChainID }
-func (tx *MergeMiningTx) accessList() AccessList { return nil }
-func (tx *MergeMiningTx) data() []byte           { return tx.Data }
-func (tx *MergeMiningTx) gas() uint64            { return tx.Gas }
-func (tx *MergeMiningTx) gasFeeCap() *big.Int    { return tx.GasFeeCap }
-func (tx *MergeMiningTx) gasTipCap() *big.Int    { return tx.GasTipCap }
-func (tx *MergeMiningTx) gasPrice() *big.Int     { return tx.GasFeeCap }
-func (tx *MergeMiningTx) value() *big.Int        { return tx.Value }
-func (tx *MergeMiningTx) nonce() uint64          { return tx.Nonce }
-func (tx *MergeMiningTx) to() *common.Address    { return &tx.To }
-func (tx *MergeMiningTx) from() common.Address   { return tx.From }
+func (tx *CrossMiningTx) txType() byte           { return CrossMiningTxType }
+func (tx *CrossMiningTx) chainID() *big.Int      { return tx.ChainID }
+func (tx *CrossMiningTx) accessList() AccessList { return nil }
+func (tx *CrossMiningTx) data() []byte           { return tx.Data }
+func (tx *CrossMiningTx) gas() uint64            { return tx.Gas }
+func (tx *CrossMiningTx) gasFeeCap() *big.Int    { return tx.GasFeeCap }
+func (tx *CrossMiningTx) gasTipCap() *big.Int    { return tx.GasTipCap }
+func (tx *CrossMiningTx) gasPrice() *big.Int     { return tx.GasFeeCap }
+func (tx *CrossMiningTx) value() *big.Int        { return tx.Value }
+func (tx *CrossMiningTx) nonce() uint64          { return tx.Nonce }
+func (tx *CrossMiningTx) to() *common.Address    { return &tx.To }
+func (tx *CrossMiningTx) from() common.Address   { return tx.From }
 
-func (tx *MergeMiningTx) auxPoW() MergeBlock { return tx.AuxPoW }
-func (tx *MergeMiningTx) algorithm() PoWAlgorithm {
+func (tx *CrossMiningTx) auxPoW() CrossChainBlock { return tx.AuxPoW }
+func (tx *CrossMiningTx) algorithm() PoWAlgorithm {
 	if tx.AuxPoW == nil {
 		return NoneAlgorithm
 	}
 	return tx.AuxPoW.PoWAlgorithm()
 }
-func (tx *MergeMiningTx) difficulty() *big.Int {
+func (tx *CrossMiningTx) difficulty() *big.Int {
 	if tx.AuxPoW == nil {
 		return common.Big0
 	}
 	return tx.AuxPoW.Difficulty()
 }
-func (tx *MergeMiningTx) powNonce() uint64       { return 0 }
-func (tx *MergeMiningTx) mixDigest() common.Hash { return common.Hash{} }
+func (tx *CrossMiningTx) powNonce() uint64       { return 0 }
+func (tx *CrossMiningTx) mixDigest() common.Hash { return common.Hash{} }
 
-func (tx *MergeMiningTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
+func (tx *CrossMiningTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	if baseFee == nil {
 		return dst.Set(tx.GasFeeCap)
 	}
@@ -189,20 +189,20 @@ func (tx *MergeMiningTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.
 	return tip.Add(tip, baseFee)
 }
 
-func (tx *MergeMiningTx) rawSignatureValues() (v, r, s *big.Int) {
+func (tx *CrossMiningTx) rawSignatureValues() (v, r, s *big.Int) {
 	return tx.V, tx.R, tx.S
 }
 
-func (tx *MergeMiningTx) setSignatureValues(chainID, v, r, s *big.Int) {
+func (tx *CrossMiningTx) setSignatureValues(chainID, v, r, s *big.Int) {
 	tx.ChainID, tx.V, tx.R, tx.S = chainID, v, r, s
 }
 
 type WrapData struct {
 	TypeID byte
-	Data   MergeBlock
+	Data   CrossChainBlock
 }
 
-func EncodeMergeBlock(mb MergeBlock) ([]byte, error) {
+func EncodeCrossChainBlock(mb CrossChainBlock) ([]byte, error) {
 	if mb == nil {
 		return nil, nil
 	}
@@ -215,12 +215,12 @@ func EncodeMergeBlock(mb MergeBlock) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func DecodeMergeBlock(data []byte) (MergeBlock, error) {
+func DecodeCrossChainBlock(data []byte) (CrossChainBlock, error) {
 	if len(data) == 0 {
 		return nil, errShortTypedTx // No merge block present
 	}
 
-	switch MergeChain(data[0]) {
+	switch CrossChain(data[0]) {
 	case KaspaChain:
 		var proof KaspaBlock
 		err := rlp.DecodeBytes(data[1:], &proof)
@@ -230,9 +230,9 @@ func DecodeMergeBlock(data []byte) (MergeBlock, error) {
 	}
 }
 
-func (tx *MergeMiningTx) EncodeRLP(w io.Writer) error {
-	// Encode all fields, including MergeBlock
-	mergeBlockBytes, err := EncodeMergeBlock(tx.AuxPoW)
+func (tx *CrossMiningTx) EncodeRLP(w io.Writer) error {
+	// Encode all fields, including CrossChainBlock
+	mergeBlockBytes, err := EncodeCrossChainBlock(tx.AuxPoW)
 	if err != nil {
 		return err
 	}
@@ -247,7 +247,7 @@ func (tx *MergeMiningTx) EncodeRLP(w io.Writer) error {
 		tx.To,
 		tx.Value,
 		tx.Data,
-		mergeBlockBytes, // Serialized MergeBlock as bytes
+		mergeBlockBytes, // Serialized CrossChainBlock as bytes
 		// Signature values
 		tx.V,
 		tx.R,
@@ -255,8 +255,8 @@ func (tx *MergeMiningTx) EncodeRLP(w io.Writer) error {
 	})
 }
 
-func (tx *MergeMiningTx) DecodeRLP(s *rlp.Stream) error {
-	var decoded RlpMergeMiningTx
+func (tx *CrossMiningTx) DecodeRLP(s *rlp.Stream) error {
+	var decoded RlpCrossMiningTx
 	if err := s.Decode(&decoded); err != nil {
 		return err
 	}
@@ -275,7 +275,7 @@ func (tx *MergeMiningTx) DecodeRLP(s *rlp.Stream) error {
 	tx.S = decoded.S
 
 	if len(decoded.AuxPoW) > 0 {
-		mergeBlock, err := DecodeMergeBlock(decoded.AuxPoW)
+		mergeBlock, err := DecodeCrossChainBlock(decoded.AuxPoW)
 		if err != nil {
 			return err
 		}

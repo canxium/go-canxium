@@ -8,12 +8,12 @@ import (
 )
 
 var (
-	CanxiumRewardPerHash = big.NewInt(250) // Reward in wei per difficulty hash for successfully mining upward from Canxium
+	CanxiumRewardPerHash = big.NewInt(13) // Reward in wei per difficulty hash for successfully mining upward from Canxium
 
 	// offline mining
 	CanxiumMaxTransactionReward = big.NewInt(4250)
 	CanxiumMiningReduceBlock    = big.NewInt(432000) // Offline mining reward reduce 11.76% every 432000 blocks
-	CanxiumMiningReducePeriod   = big.NewInt(24)     // Max 24 months
+	CanxiumMiningReducePeriod   = big.NewInt(48)     // Max 48 months
 	CanxiumMiningPeriodPercent  = big.NewInt(8842)
 )
 
@@ -28,7 +28,7 @@ func TransactionMiningSubsidy(config *params.ChainConfig, block *big.Int) *big.I
 		return CanxiumMaxTransactionReward
 	}
 
-	// reduce mining reward for max 24 period
+	// reduce mining reward for max 48 period
 	if period.Cmp(CanxiumMiningReducePeriod) >= 0 {
 		return CanxiumRewardPerHash
 	}

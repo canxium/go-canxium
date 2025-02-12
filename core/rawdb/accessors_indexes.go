@@ -53,7 +53,7 @@ func ReadTxLookupEntry(db ethdb.Reader, hash common.Hash) *uint64 {
 	return &entry.BlockIndex
 }
 
-// ReadMergeTxLookupEntry retrieves the positional metadata associated with a merge mining transaction by aux block hash
+// ReadMergeTxLookupEntry retrieves the positional metadata associated with a cross mining transaction by aux block hash
 // hash to allow retrieving the transaction or receipt by hash.
 func ReadMergeTxLookupEntry(db ethdb.Reader, hash string) *uint64 {
 	data, _ := db.Get(mergeTxLookupKey(hash))
@@ -77,11 +77,11 @@ func writeTxLookupEntry(db ethdb.KeyValueWriter, hash common.Hash, numberBytes [
 	}
 }
 
-// writeMergeTxLookupEntry stores a positional metadata for a merge mining transaction,
+// writeMergeTxLookupEntry stores a positional metadata for a cross mining transaction,
 // enabling hash based transaction and receipt lookups.
 func writeMergeTxLookupEntry(db ethdb.KeyValueWriter, hash string, numberBytes []byte) {
 	if err := db.Put(mergeTxLookupKey(hash), numberBytes); err != nil {
-		log.Crit("Failed to store merge mining transaction lookup entry", "err", err)
+		log.Crit("Failed to store cross mining transaction lookup entry", "err", err)
 	}
 }
 
@@ -109,8 +109,8 @@ func WriteTxLookupEntriesByBlock(db ethdb.KeyValueWriter, block *types.Block) {
 	numberBytes := block.Number().Bytes()
 	for _, tx := range block.Transactions() {
 		writeTxLookupEntry(db, tx.Hash(), numberBytes)
-		// index merge mining block hash
-		if tx.Type() == types.MergeMiningTxType {
+		// index cross mining block hash
+		if tx.Type() == types.CrossMiningTxType {
 			writeMergeTxLookupEntry(db, tx.AuxPoW().BlockHash(), numberBytes)
 		}
 	}
@@ -123,7 +123,7 @@ func DeleteTxLookupEntry(db ethdb.KeyValueWriter, hash common.Hash) {
 	}
 }
 
-// DeleteMergeTxLookupEntry removes all merge mining transaction data associated with a hash.
+// DeleteMergeTxLookupEntry removes all cross mining transaction data associated with a hash.
 func DeleteMergeTxLookupEntry(db ethdb.KeyValueWriter, hash string) {
 	if err := db.Delete(mergeTxLookupKey(hash)); err != nil {
 		log.Crit("Failed to delete transaction lookup entry", "err", err)
@@ -137,7 +137,7 @@ func DeleteTxLookupEntries(db ethdb.KeyValueWriter, hashes []common.Hash) {
 	}
 }
 
-// DeleteMergeTxLookupEntries removes all merge mining transaction lookups for a given block.
+// DeleteMergeTxLookupEntries removes all cross mining transaction lookups for a given block.
 func DeleteMergeTxLookupEntries(db ethdb.KeyValueWriter, hashes []string) {
 	for _, hash := range hashes {
 		DeleteMergeTxLookupEntry(db, hash)
@@ -186,7 +186,7 @@ func ReadTransactionByAuxHash(db ethdb.Reader, hash string) (*types.Transaction,
 		return nil, common.Hash{}, 0, 0
 	}
 	for txIndex, tx := range body.Transactions {
-		if tx.Type() == types.MergeMiningTxType && tx.AuxPoW().BlockHash() == hash {
+		if tx.Type() == types.CrossMiningTxType && tx.AuxPoW().BlockHash() == hash {
 			return tx, blockHash, *blockNumber, uint64(txIndex)
 		}
 	}

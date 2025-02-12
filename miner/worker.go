@@ -928,9 +928,9 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 				// skip old mining transaction have different mining reward, not match this period
 				subsidy := misc.TransactionMiningSubsidy(w.chainConfig, env.header.Number)
 				reward = new(big.Int).Mul(subsidy, tx.Difficulty())
-			} else if tx.Type() == types.MergeMiningTxType {
-				forkTime := misc.MergeMiningForkTime(w.chainConfig, tx.AuxPoW().Chain())
-				reward = misc.MergeMiningReward(tx.AuxPoW(), forkTime, env.header.Time)
+			} else if tx.Type() == types.CrossMiningTxType {
+				forkTime := misc.CrossMiningForkTime(w.chainConfig, tx.AuxPoW().Chain())
+				reward = misc.CrossMiningReward(tx.AuxPoW(), forkTime, env.header.Time)
 			}
 
 			if tx.Value().Cmp(reward) != 0 {

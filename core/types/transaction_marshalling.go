@@ -53,8 +53,8 @@ type txJSON struct {
 	MixDigest  *common.Hash    `json:"mixDigest,omitempty"`
 	PowNonce   *hexutil.Uint64 `json:"powNonce,omitempty"`
 
-	// Merge Mining transaction
-	AuxPoW *MergeBlock `json:"auxPoW,omitempty"`
+	// Cross Mining transaction
+	AuxPoW *CrossChainBlock `json:"auxPoW,omitempty"`
 
 	// Only used for encoding:
 	Hash common.Hash `json:"hash"`
@@ -126,7 +126,7 @@ func (tx *Transaction) MarshalJSON() ([]byte, error) {
 		enc.V = (*hexutil.Big)(itx.V)
 		enc.R = (*hexutil.Big)(itx.R)
 		enc.S = (*hexutil.Big)(itx.S)
-	case *MergeMiningTx:
+	case *CrossMiningTx:
 		enc.ChainID = (*hexutil.Big)(itx.ChainID)
 		enc.Nonce = (*hexutil.Uint64)(&itx.Nonce)
 		enc.Gas = (*hexutil.Uint64)(&itx.Gas)
@@ -386,8 +386,8 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 			}
 		}
 
-	case MergeMiningTxType:
-		var itx MergeMiningTx
+	case CrossMiningTxType:
+		var itx CrossMiningTx
 		inner = &itx
 		// Access list is optional for now.
 		if dec.ChainID == nil {

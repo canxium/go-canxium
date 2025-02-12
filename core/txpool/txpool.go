@@ -464,17 +464,17 @@ func (pool *TxPool) removeOldMiningTxs(currentHeader *types.Header, txs types.Tr
 		if !tx.IsMiningTx() {
 			continue
 		}
-		// Clear old merge mining transactions
-		if tx.Type() == types.MergeMiningTxType {
+		// Clear old cross mining transactions
+		if tx.Type() == types.CrossMiningTxType {
 			proof := tx.AuxPoW()
 			miner, err := proof.GetMinerAddress()
 			if err != nil {
 				pool.removeTx(tx.Hash(), true)
 				continue
 			}
-			stTimestamp := pool.currentState.GetMergeMiningTimestamp(pool.chainconfig.MiningContract, miner, proof.Chain())
+			stTimestamp := pool.currentState.GetCrossMiningTimestamp(pool.chainconfig.MiningContract, miner, proof.Chain())
 			if proof.Timestamp() <= stTimestamp {
-				log.Trace("Removing old merge mining transaction because of invalid block's timestamp", "tx timestamp", proof.Timestamp(), "database timestamp", stTimestamp)
+				log.Trace("Removing old cross mining transaction because of invalid block's timestamp", "tx timestamp", proof.Timestamp(), "database timestamp", stTimestamp)
 				pool.removeTx(tx.Hash(), true)
 				continue
 			}
@@ -675,8 +675,8 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 	if !pool.hydro.Load() && tx.Type() == types.MiningTxType {
 		return core.ErrTxTypeNotSupported
 	}
-	// fork for the merge mining tx
-	if !pool.helium.Load() && tx.Type() == types.MergeMiningTxType {
+	// fork for the cross mining tx
+	if !pool.helium.Load() && tx.Type() == types.CrossMiningTxType {
 		return core.ErrTxTypeNotSupported
 	}
 
@@ -741,10 +741,10 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if pool.currentState.GetNonce(from) > tx.Nonce() {
 		return core.ErrNonceTooLow
 	}
-	// Ensure the merge mining transaction adheres to block timestamp ordering
-	if tx.Type() == types.MergeMiningTxType {
+	// Ensure the cross mining transaction adheres to block timestamp ordering
+	if tx.Type() == types.CrossMiningTxType {
 		if tx.AuxPoW() == nil {
-			return misc.ErrInvalidMergeBlock
+			return misc.ErrInvalidCrossChainBlock
 		}
 		proof := tx.AuxPoW()
 		miner, err := proof.GetMinerAddress()
@@ -752,10 +752,10 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			return err
 		}
 
-		stTimestamp := pool.currentState.GetMergeMiningTimestamp(pool.chainconfig.MiningContract, miner, proof.Chain())
-		log.Trace("[TxPool] Getting merge mining timestamp: ", "tx nonce", tx.Nonce(), "miner", miner, "tx timestamp", proof.Timestamp(), "state timestamp", stTimestamp)
+		stTimestamp := pool.currentState.GetCrossMiningTimestamp(pool.chainconfig.MiningContract, miner, proof.Chain())
+		log.Trace("[TxPool] Getting cross mining timestamp: ", "tx nonce", tx.Nonce(), "miner", miner, "tx timestamp", proof.Timestamp(), "state timestamp", stTimestamp)
 		if proof.Timestamp() <= stTimestamp {
-			return core.ErrMergeMiningTimestampTooLow
+			return core.ErrCrossMiningTimestampTooLow
 		}
 	}
 	// Transactor should have enough funds to cover the costs
@@ -801,8 +801,8 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		knownTxMeter.Mark(1)
 		return false, ErrAlreadyKnown
 	}
-	if tx.Type() == types.MergeMiningTxType && pool.all.GetMerge(tx.AuxPoW().BlockHash()) != nil {
-		log.Trace("Discarding already known merge mining transaction", "hash", hash)
+	if tx.Type() == types.CrossMiningTxType && pool.all.GetMerge(tx.AuxPoW().BlockHash()) != nil {
+		log.Trace("Discarding already known cross mining transaction", "hash", hash)
 		knownTxMeter.Mark(1)
 		return false, ErrMergeTxAlreadyKnown
 	}
@@ -1092,7 +1092,7 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 			knownTxMeter.Mark(1)
 			continue
 		}
-		if tx.Type() == types.MergeMiningTxType && pool.all.GetMerge(tx.AuxPoW().BlockHash()) != nil {
+		if tx.Type() == types.CrossMiningTxType && pool.all.GetMerge(tx.AuxPoW().BlockHash()) != nil {
 			errs[i] = ErrMergeTxAlreadyKnown
 			knownTxMeter.Mark(1)
 			continue
@@ -1779,9 +1779,9 @@ func (pool *TxPool) isValidMiningSubsidy(headNumber *big.Int, headTime uint64, t
 		return tx.Value().Cmp(value) == 0
 	}
 
-	if tx.Type() == types.MergeMiningTxType {
-		forkTime := misc.MergeMiningForkTime(pool.chainconfig, tx.AuxPoW().Chain())
-		value := misc.MergeMiningReward(tx.AuxPoW(), forkTime, headTime)
+	if tx.Type() == types.CrossMiningTxType {
+		forkTime := misc.CrossMiningForkTime(pool.chainconfig, tx.AuxPoW().Chain())
+		value := misc.CrossMiningReward(tx.AuxPoW(), forkTime, headTime)
 		return tx.Value().Cmp(value) == 0
 	}
 
@@ -2005,7 +2005,7 @@ func (t *lookup) Add(tx *types.Transaction, local bool) {
 		t.remotes[tx.Hash()] = tx
 	}
 
-	if tx.Type() == types.MergeMiningTxType {
+	if tx.Type() == types.CrossMiningTxType {
 		txHash := tx.Hash()
 		t.merges[tx.AuxPoW().BlockHash()] = &txHash
 	}
@@ -2029,7 +2029,7 @@ func (t *lookup) Remove(hash common.Hash) {
 
 	delete(t.locals, hash)
 	delete(t.remotes, hash)
-	if tx.Type() == types.MergeMiningTxType {
+	if tx.Type() == types.CrossMiningTxType {
 		delete(t.merges, tx.AuxPoW().BlockHash())
 	}
 }

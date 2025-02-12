@@ -47,7 +47,7 @@ const (
 	DynamicFeeTxType
 	MiningTxType
 
-	MergeMiningTxType = 126
+	CrossMiningTxType = 126
 )
 
 type PoWAlgorithm uint8
@@ -116,8 +116,8 @@ type TxData interface {
 	powNonce() uint64
 	mixDigest() common.Hash
 
-	// merge mining functions
-	auxPoW() MergeBlock
+	// cross mining functions
+	auxPoW() CrossChainBlock
 }
 
 // EncodeRLP implements rlp.Encoder
@@ -222,8 +222,8 @@ func (tx *Transaction) decodeTyped(b []byte) (TxData, error) {
 		var inner MiningTx
 		err := rlp.DecodeBytes(b[1:], &inner)
 		return &inner, err
-	case MergeMiningTxType:
-		var inner MergeMiningTx
+	case CrossMiningTxType:
+		var inner CrossMiningTx
 		err := rlp.DecodeBytes(b[1:], &inner)
 		return &inner, err
 	default:
@@ -333,12 +333,12 @@ func (tx *Transaction) PowNonce() uint64 { return tx.inner.powNonce() }
 // Seed returns the mining seed of transaction which solve the pow
 func (tx *Transaction) MixDigest() common.Hash { return tx.inner.mixDigest() }
 
-// Return the merge mining proof of work data
-func (tx *Transaction) AuxPoW() MergeBlock { return tx.inner.auxPoW() }
+// Return the cross mining proof of work data
+func (tx *Transaction) AuxPoW() CrossChainBlock { return tx.inner.auxPoW() }
 
 // Is this a mining transaction, use for gas free check only
 func (tx *Transaction) IsMiningTx() bool {
-	return tx.Type() == MiningTxType || tx.Type() == MergeMiningTxType
+	return tx.Type() == MiningTxType || tx.Type() == CrossMiningTxType
 }
 
 // To returns the sender address of the transaction.

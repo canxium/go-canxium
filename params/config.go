@@ -80,7 +80,7 @@ var (
 		TerminalTotalDifficultyPassed: true,
 		ShanghaiTime:                  newUint64(1681338455),
 		Ethash:                        new(EthashConfig),
-		MergeMining:                   new(MergeMiningConfig),
+		CrossMining:                   new(CrossMiningConfig),
 	}
 
 	// MainnetTrustedCheckpoint contains the light client trusted checkpoint for the main network.
@@ -125,7 +125,7 @@ var (
 		MergeNetsplitBlock:            big.NewInt(1735371),
 		ShanghaiTime:                  newUint64(1677557088),
 		Ethash:                        new(EthashConfig),
-		MergeMining:                   new(MergeMiningConfig),
+		CrossMining:                   new(CrossMiningConfig),
 	}
 
 	// SepoliaTrustedCheckpoint contains the light client trusted checkpoint for the Sepolia test network.
@@ -252,7 +252,7 @@ var (
 		TerminalTotalDifficulty:       nil,
 		TerminalTotalDifficultyPassed: false,
 		Ethash:                        new(EthashConfig),
-		MergeMining:                   new(MergeMiningConfig),
+		CrossMining:                   new(CrossMiningConfig),
 		Clique:                        nil,
 	}
 
@@ -311,7 +311,7 @@ var (
 		TerminalTotalDifficulty:       nil,
 		TerminalTotalDifficultyPassed: false,
 		Ethash:                        new(EthashConfig),
-		MergeMining:                   new(MergeMiningConfig),
+		CrossMining:                   new(CrossMiningConfig),
 		Clique:                        nil,
 	}
 
@@ -341,7 +341,7 @@ var (
 		TerminalTotalDifficulty:       nil,
 		TerminalTotalDifficultyPassed: false,
 		Ethash:                        new(EthashConfig),
-		MergeMining:                   new(MergeMiningConfig),
+		CrossMining:                   new(CrossMiningConfig),
 		Clique:                        nil,
 	}
 	TestRules = TestChainConfig.Rules(new(big.Int), false, 0)
@@ -442,7 +442,7 @@ type ChainConfig struct {
 	PragueTime   *uint64 `json:"pragueTime,omitempty"`   // Prague switch time (nil = no fork, 0 = already on prague)
 
 	// Fork for canxium chain, after PoS
-	HeliumTime *uint64 `json:"heliumTime,omitempty"` // Second hardfork, to support merge mining
+	HeliumTime *uint64 `json:"heliumTime,omitempty"` // Second hardfork, to support cross mining
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -462,17 +462,17 @@ type ChainConfig struct {
 	MiningContract common.Address `json:"miningContract,omitempty"`
 
 	// Merge Mining
-	MergeMining *MergeMiningConfig `json:"mergeMining,omitempty"`
+	CrossMining *CrossMiningConfig `json:"crossMining,omitempty"`
 }
 
-// MergeMiningConfig is the consensus engine configs for merge mining
-type MergeMiningConfig struct {
+// CrossMiningConfig is the consensus engine configs for cross-chain mining
+type CrossMiningConfig struct {
 	MinimumKaspaDifficulty *big.Int `json:"minimumKaspaDifficulty,omitempty"`
 }
 
 // String implements the stringer interface, returning the consensus engine details.
-func (c *MergeMiningConfig) String() string {
-	return "mergeMining"
+func (c *CrossMiningConfig) String() string {
+	return "crossMining"
 }
 
 // EthashConfig is the consensus engine configs for proof-of-work based sealing.
@@ -606,11 +606,11 @@ func (c *ChainConfig) Description() string {
 	banner += "\n"
 	// Create a list of forks post-merge
 	banner += "Merge Mining configured:\n"
-	if c.MergeMining != nil {
-		if c.MergeMining.MinimumKaspaDifficulty.Cmp(KaspaMinAcceptableDifficulty) < 0 {
-			banner += fmt.Sprintf(" - Warn: Minimum Kaspa block difficulty is too small @%v\n", *c.MergeMining.MinimumKaspaDifficulty)
+	if c.CrossMining != nil {
+		if c.CrossMining.MinimumKaspaDifficulty.Cmp(KaspaMinAcceptableDifficulty) < 0 {
+			banner += fmt.Sprintf(" - Warn: Minimum Kaspa block difficulty is too small @%v\n", *c.CrossMining.MinimumKaspaDifficulty)
 		} else {
-			banner += fmt.Sprintf(" - Kaspa:                      @%v\n", *c.MergeMining.MinimumKaspaDifficulty)
+			banner += fmt.Sprintf(" - Kaspa:                      @%v\n", *c.CrossMining.MinimumKaspaDifficulty)
 		}
 	}
 
