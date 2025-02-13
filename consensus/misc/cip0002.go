@@ -25,6 +25,9 @@ var (
 
 	mainPowMax = new(big.Int).Sub(new(big.Int).Lsh(bigOne, 255), bigOne)
 
+	// Max milliseconds from current time allowed for blocks, before they're considered future blocks
+	allowedFutureBlockTimeMilliSeconds = uint64(12000)
+
 	// Kaspa cross mining reward constants for mainnet
 	KaspaPhaseTwoDayNum  = uint64(3)
 	KaspaPhaseThreeMonth = uint64(141)
@@ -50,11 +53,14 @@ var (
 	ErrInvalidMiningInput        = errors.New("invalid cross mining transaction: invalid input data")
 	ErrInvalidMiningAlgorithm    = errors.New("invalid cross mining transaction: invalid algorithm")
 	ErrInvalidMiningInputAddress = errors.New("invalid cross mining transaction: invalid receiver address and block's miner")
+	ErrInvalidFutureBlock        = errors.New("invalid cross mining transaction: block in the future")
 
 	ErrInvalidNilBlock        = errors.New("invalid cross mining transaction: block is nil")
 	ErrInvalidCrossChainBlock = errors.New("invalid cross mining transaction: invalid block")
 	ErrInvalidMergePoW        = errors.New("invalid cross mining transaction: invalid proof of work")
 	ErrInvalidMergeCoinbase   = errors.New("invalid cross mining transaction: invalid coinbase")
+
+	ErrUnauthorizedCrossMiningTx = errors.New("interact with crossChainMining method of mining contract from normal transaction is not allowed")
 )
 
 // verifyCrossMiningTxSeal checks whether a cross mining satisfies the PoW difficulty requirements,
@@ -87,6 +93,10 @@ func VerifyCrossMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 	if timestamp < chainForkTimeMilli {
 		return ErrInvalidMiningBlockTime
 	}
+	blockTimeMilli := block.Time * 1000
+	if timestamp > blockTimeMilli+allowedFutureBlockTimeMilliSeconds {
+		return ErrInvalidFutureBlock
+	}
 	// Ensure value is valid: reward * difficulty
 	chainForkTime := CrossMiningForkTime(config, mergeBlock.Chain())
 	reward := CrossMiningReward(mergeBlock, chainForkTime, block.Time)
@@ -112,6 +122,22 @@ func VerifyCrossMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 	}
 
 	return nil
+}
+
+// IsUnauthorizedCrossMiningTx check if a normal transaction is interacting with the crossChainMininig method of the mining contract
+// this is not allowed action, because the crossChainMining method is a special method, it stored the block timestamp on the contract
+// bad man can call it and set the timestamp to infinity.
+func IsUnauthorizedCrossMiningTx(config *params.ChainConfig, tx *types.Transaction) bool {
+	// check if the transaction is interacting with mining contract, crossChainMining method, then only allow transaction types.CrossMiningTxType
+	if tx.To() != nil && *tx.To() == config.MiningContract {
+		if len(tx.Data()) >= 4 && bytes.Equal(CanxiumCrossMiningTxDataMethod, tx.Data()[:4]) {
+			if tx.Type() != types.CrossMiningTxType {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // CrossMiningForkTimeMilli Return fork time, in millisecond to compare the merge block time

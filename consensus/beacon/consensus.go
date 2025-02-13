@@ -260,7 +260,11 @@ func (beacon *Beacon) VerifyMiningTxsSeal(config *params.ChainConfig, txs types.
 		go func() {
 			for index := range inputs {
 				if !txs[index].IsMiningTx() {
-					errors[index] = nil
+					if misc.IsUnauthorizedCrossMiningTx(config, txs[index]) {
+						errors[index] = misc.ErrUnauthorizedCrossMiningTx
+					} else {
+						errors[index] = nil
+					}
 					done <- index
 					continue
 				}

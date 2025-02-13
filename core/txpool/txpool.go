@@ -727,6 +727,8 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 		if err := pool.engine.VerifyMiningTxSeal(pool.chainconfig, tx, pool.chain.CurrentBlock(), false); err != nil {
 			return err
 		}
+	} else if misc.IsUnauthorizedCrossMiningTx(pool.chainconfig, tx) {
+		return misc.ErrUnauthorizedCrossMiningTx
 	}
 
 	return nil
