@@ -82,14 +82,14 @@ func VerifyCrossMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 	if tx.Difficulty().Sign() <= 0 {
 		return ErrInvalidDifficulty
 	}
-	mergeBlock := tx.AuxPoW()
-	minDiff := CrossMiningMinDifficulty(config, mergeBlock.Chain())
+	crossBlock := tx.AuxPoW()
+	minDiff := CrossMiningMinDifficulty(config, crossBlock.Chain())
 	if tx.Difficulty().Cmp(minDiff) < 0 {
 		return ErrDifficultyUnderValue
 	}
 	// Check block's timestamp
-	chainForkTimeMilli := CrossMiningForkTimeMilli(config, mergeBlock.Chain())
-	timestamp := mergeBlock.Timestamp()
+	chainForkTimeMilli := CrossMiningForkTimeMilli(config, crossBlock.Chain())
+	timestamp := crossBlock.Timestamp()
 	if timestamp < chainForkTimeMilli {
 		return ErrInvalidMiningBlockTime
 	}
@@ -98,25 +98,25 @@ func VerifyCrossMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 		return ErrInvalidFutureBlock
 	}
 	// Ensure value is valid: reward * difficulty
-	chainForkTime := CrossMiningForkTime(config, mergeBlock.Chain())
-	reward := CrossMiningReward(mergeBlock, chainForkTime, block.Time)
+	chainForkTime := CrossMiningForkTime(config, crossBlock.Chain())
+	reward := CrossMiningReward(crossBlock, chainForkTime, block.Time)
 	if tx.Value().Cmp(reward) != 0 {
 		return ErrInvalidMiningTxValue
 	}
 
-	if err := mergeBlock.VerifyPoW(); err != nil {
+	if err := crossBlock.VerifyPoW(); err != nil {
 		return ErrInvalidMergePoW
 	}
-	if !mergeBlock.VerifyCoinbase() {
+	if !crossBlock.VerifyCoinbase() {
 		return ErrInvalidMergeCoinbase
 	}
-	miner, err := mergeBlock.GetMinerAddress()
+	miner, err := crossBlock.GetMinerAddress()
 	if err != nil {
 		return err
 	}
 
 	// Make sure they call the correct method of contract, with the correct args
-	inputData := buildCrossMiningTxInput(mergeBlock.Chain(), miner, timestamp)
+	inputData := buildCrossMiningTxInput(crossBlock.Chain(), miner, timestamp)
 	if !bytes.Equal(inputData, tx.Data()) {
 		return ErrInvalidMiningInput
 	}
@@ -161,14 +161,14 @@ func CrossMiningForkTime(config *params.ChainConfig, parentChain types.CrossChai
 }
 
 // Calculate cross mining reward
-func CrossMiningReward(mergeBlock types.CrossChainBlock, forkTime uint64, time uint64) *big.Int {
+func CrossMiningReward(crossBlock types.CrossChainBlock, forkTime uint64, time uint64) *big.Int {
 	if time < forkTime {
 		return big0
 	}
 
-	switch mergeBlock.Chain() {
+	switch crossBlock.Chain() {
 	case types.KaspaChain:
-		reward := kaspaCrossMiningReward(mergeBlock.Difficulty(), forkTime, time)
+		reward := kaspaCrossMiningReward(crossBlock.Difficulty(), forkTime, time)
 		return reward
 	}
 

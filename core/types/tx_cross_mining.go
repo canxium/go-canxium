@@ -232,7 +232,7 @@ func DecodeCrossChainBlock(data []byte) (CrossChainBlock, error) {
 
 func (tx *CrossMiningTx) EncodeRLP(w io.Writer) error {
 	// Encode all fields, including CrossChainBlock
-	mergeBlockBytes, err := EncodeCrossChainBlock(tx.AuxPoW)
+	crossBlockBytes, err := EncodeCrossChainBlock(tx.AuxPoW)
 	if err != nil {
 		return err
 	}
@@ -247,7 +247,7 @@ func (tx *CrossMiningTx) EncodeRLP(w io.Writer) error {
 		tx.To,
 		tx.Value,
 		tx.Data,
-		mergeBlockBytes, // Serialized CrossChainBlock as bytes
+		crossBlockBytes, // Serialized CrossChainBlock as bytes
 		// Signature values
 		tx.V,
 		tx.R,
@@ -275,12 +275,12 @@ func (tx *CrossMiningTx) DecodeRLP(s *rlp.Stream) error {
 	tx.S = decoded.S
 
 	if len(decoded.AuxPoW) > 0 {
-		mergeBlock, err := DecodeCrossChainBlock(decoded.AuxPoW)
+		crossBlock, err := DecodeCrossChainBlock(decoded.AuxPoW)
 		if err != nil {
 			return err
 		}
 
-		tx.AuxPoW = mergeBlock
+		tx.AuxPoW = crossBlock
 	}
 
 	return nil
