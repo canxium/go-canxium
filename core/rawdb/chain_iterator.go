@@ -152,7 +152,7 @@ func iterateTransactions(db ethdb.Database, from uint64, to uint64, reverse bool
 			var mergeAuxHashes []string
 			for _, tx := range body.Transactions {
 				hashes = append(hashes, tx.Hash())
-				if tx.Type() == types.MergeMiningTxType {
+				if tx.Type() == types.CrossMiningTxType {
 					mergeAuxHashes = append(mergeAuxHashes, tx.AuxPoW().BlockHash())
 				}
 			}

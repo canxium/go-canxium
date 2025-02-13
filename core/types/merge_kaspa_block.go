@@ -37,7 +37,7 @@ var (
 )
 
 var (
-	ErrInvalidMergeBlockHeader = errors.New("invalid merge mining block header")
+	ErrInvalidCrossChainBlockHeader = errors.New("invalid cross mining block header")
 )
 
 // BlockHeader defines information about a block and is used in the bitcoin
@@ -456,7 +456,7 @@ type RlpKaspaBlock struct {
 	Coinbase    *externalapi.DomainTransaction
 }
 
-func (b *KaspaBlock) Chain() MergeChain {
+func (b *KaspaBlock) Chain() CrossChain {
 	return KaspaChain
 }
 
@@ -481,7 +481,7 @@ func (b *KaspaBlock) IsValidBlock() bool {
 	return true
 }
 
-func (b *KaspaBlock) Copy() MergeBlock {
+func (b *KaspaBlock) Copy() CrossChainBlock {
 	header := b.Header.clone()
 	coinbase := b.Coinbase.Clone()
 	clonedProof := make([]*externalapi.DomainHash, len(b.MerkleProof))

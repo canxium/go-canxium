@@ -113,8 +113,8 @@ func (tx *AccessListTx) difficulty() *big.Int    { return big.NewInt(0) }
 func (tx *AccessListTx) powNonce() uint64        { return 0 }
 func (tx *AccessListTx) mixDigest() common.Hash  { return common.Hash{} }
 
-// merge mining
-func (tx *AccessListTx) auxPoW() MergeBlock { return nil }
+// cross mining
+func (tx *AccessListTx) auxPoW() CrossChainBlock { return nil }
 
 func (tx *AccessListTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	return dst.Set(tx.GasPrice)

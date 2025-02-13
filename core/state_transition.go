@@ -133,7 +133,7 @@ type MergeMiningMessage struct {
 	ToContract common.Address
 	FromMiner  common.Address
 	BlockTime  uint64
-	FromChain  types.MergeChain
+	FromChain  types.CrossChain
 }
 
 // A Message contains the data derived from a single transaction that is relevant to state
@@ -155,10 +155,10 @@ type Message struct {
 	// This field will be set to true for operations like RPC eth_call.
 	SkipAccountChecks bool
 
-	// is mining tx or merge mining tx
+	// is mining tx or cross mining tx
 	IsMiningTx bool
-	// to present dupplicate merge mining block, compare the block's timestamp
-	MergeMining *MergeMiningMessage
+	// to present dupplicate cross mining block, compare the block's timestamp
+	CrossMining *MergeMiningMessage
 }
 
 // TransactionToMessage converts a transaction into a Message.
@@ -180,13 +180,13 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 	if baseFee != nil {
 		msg.GasPrice = cmath.BigMin(msg.GasPrice.Add(msg.GasTipCap, baseFee), msg.GasFeeCap)
 	}
-	if tx.Type() == types.MergeMiningTxType {
+	if tx.Type() == types.CrossMiningTxType {
 		proof := tx.AuxPoW()
 		miner, err := proof.GetMinerAddress()
 		if err != nil {
 			return nil, err
 		}
-		msg.MergeMining = &MergeMiningMessage{
+		msg.CrossMining = &MergeMiningMessage{
 			ToContract: *tx.To(),
 			FromMiner:  miner,
 			FromChain:  proof.Chain(),
@@ -329,13 +329,13 @@ func (st *StateTransition) preCheck(contractCreation bool) error {
 				msg.From.Hex(), codeHash)
 		}
 
-		// Make sure merge mining tx block timestamp is in order
-		if msg.IsMiningTx && msg.MergeMining != nil {
-			stTimeStamp := st.state.GetMergeMiningTimestamp(msg.MergeMining.ToContract, msg.MergeMining.FromMiner, msg.MergeMining.FromChain)
-			log.Trace("[State] Getting merge mining timestamp: ", "tx nonce", msg.Nonce, "miner", msg.MergeMining.FromMiner, "tx timestamp", msg.MergeMining.BlockTime, "state timestamp", stTimeStamp)
-			if msg.MergeMining.BlockTime <= stTimeStamp {
-				return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrMergeMiningTimestampTooLow,
-					msg.MergeMining.FromMiner.Hex(), msg.MergeMining.BlockTime, stTimeStamp)
+		// Make sure cross mining tx block timestamp is in order
+		if msg.IsMiningTx && msg.CrossMining != nil {
+			stTimeStamp := st.state.GetCrossMiningTimestamp(msg.CrossMining.ToContract, msg.CrossMining.FromMiner, msg.CrossMining.FromChain)
+			log.Trace("[State] Getting cross mining timestamp: ", "tx nonce", msg.Nonce, "miner", msg.CrossMining.FromMiner, "tx timestamp", msg.CrossMining.BlockTime, "state timestamp", stTimeStamp)
+			if msg.CrossMining.BlockTime <= stTimeStamp {
+				return fmt.Errorf("%w: address %v, tx: %d state: %d", ErrCrossMiningTimestampTooLow,
+					msg.CrossMining.FromMiner.Hex(), msg.CrossMining.BlockTime, stTimeStamp)
 			}
 		}
 	}

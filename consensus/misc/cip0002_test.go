@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// function to calculate kaspa merge mining base reward
-func kaspaMergeMiningRewardAlgorithm() {
+// function to calculate kaspa cross mining base reward
+func kaspaCrossMiningRewardAlgorithm() {
 	// Constants
 	initialReward := 0.5                              // Start with 0.5 CAU
 	dailyDecayFactor0 := math.Pow(0.1, 1.0/(0.5*30))  // Daily decay factor for the first phase
@@ -58,57 +58,57 @@ func kaspaMergeMiningRewardAlgorithm() {
 	}
 }
 
-func TestKaspaMergeMiningReward(t *testing.T) {
+func TestKaspaCrossMiningReward(t *testing.T) {
 	// Test parameters
 	difficulty := big.NewInt(1000000000000000000) // Example difficulty value
 
 	// Calculate reward
-	rewardDay0 := kaspaMergeMiningReward(difficulty, 1704067200, 1704067300)
-	if rewardDay0.Cmp(big.NewInt(500000000000000000)) != 0 {
-		t.Errorf("Day 0: Reward %s should equal %d", rewardDay0.String(), 500000000000000000)
+	rewardDay0 := kaspaCrossMiningReward(difficulty, 1704067200, 1704067300)
+	if rewardDay0.Cmp(big.NewInt(600000000000000000)) != 0 {
+		t.Errorf("Day 0: Reward %s should equal %d", rewardDay0.String(), 600000000000000000)
 	}
 
-	rewardDay1 := kaspaMergeMiningReward(difficulty, 1704067200, 1704157200)
+	rewardDay1 := kaspaCrossMiningReward(difficulty, 1704067200, 1704157200)
 	if rewardDay1.Cmp(big.NewInt(400000000000000000)) != 0 {
 		t.Errorf("Day 1: Reward %s should equal %d", rewardDay1.String(), 400000000000000000)
 	}
 
-	rewardDay2 := kaspaMergeMiningReward(difficulty, 1704067200, 1704240000)
-	if rewardDay2.Cmp(big.NewInt(300000000000000000)) != 0 {
-		t.Errorf("Day 2: Reward %s should equal %d", rewardDay2.String(), 300000000000000000)
+	rewardDay2 := kaspaCrossMiningReward(difficulty, 1704067200, 1704240000)
+	if rewardDay2.Cmp(big.NewInt(200000000000000000)) != 0 {
+		t.Errorf("Day 2: Reward %s should equal %d", rewardDay2.String(), 200000000000000000)
 	}
 
-	rewardDay3 := kaspaMergeMiningReward(difficulty, 1704067200, 1704326400)
+	rewardDay3 := kaspaCrossMiningReward(difficulty, 1704067200, 1704326400)
 	if rewardDay3.Cmp(big.NewInt(183829000000000000)) != 0 {
 		t.Errorf("Day 3: Reward %s should equal %d", rewardDay3.String(), 183829000000000000)
 	}
 
-	rewardDay4 := kaspaMergeMiningReward(difficulty, 1704067200, 1704421800)
+	rewardDay4 := kaspaCrossMiningReward(difficulty, 1704067200, 1704421800)
 	if rewardDay4.Cmp(big.NewInt(183829000000000000)) != 0 {
 		t.Errorf("Day 3: Reward %s should equal %d", rewardDay4.String(), 183829000000000000)
 	}
 
-	rewardDay33 := kaspaMergeMiningReward(difficulty, 1704067200, 1706920742)
+	rewardDay33 := kaspaCrossMiningReward(difficulty, 1704067200, 1706920742)
 	if rewardDay33.Cmp(big.NewInt(91915000000000000)) != 0 {
 		t.Errorf("Day 33: Reward %s should equal %d", rewardDay33.String(), 91915000000000000)
 	}
 
-	rewardDay34 := kaspaMergeMiningReward(difficulty, 1704067200, 1707009800)
+	rewardDay34 := kaspaCrossMiningReward(difficulty, 1704067200, 1707009800)
 	if rewardDay34.Cmp(big.NewInt(91915000000000000)) != 0 {
 		t.Errorf("Day 34: Reward %s should equal %d", rewardDay34.String(), 91915000000000000)
 	}
 
-	rewardDay110 := kaspaMergeMiningReward(difficulty, 1704067200, 1713574900)
+	rewardDay110 := kaspaCrossMiningReward(difficulty, 1704067200, 1713574900)
 	if rewardDay110.Cmp(big.NewInt(25868000000000000)) != 0 {
 		t.Errorf("Day 110: Reward %s should equal %d", rewardDay110.String(), 25868000000000000)
 	}
 
-	rewardDay1735 := kaspaMergeMiningReward(difficulty, 1704067200, 1853974200)
+	rewardDay1735 := kaspaCrossMiningReward(difficulty, 1704067200, 1853974200)
 	if rewardDay1735.Cmp(big.NewInt(4875000000000000)) != 0 {
 		t.Errorf("Day 1735: Reward %s should equal %d", rewardDay1735.String(), 4875000000000000)
 	}
 
-	rewardDay1736 := kaspaMergeMiningReward(difficulty, 1704067200, 1854060600)
+	rewardDay1736 := kaspaCrossMiningReward(difficulty, 1704067200, 1854060600)
 	if rewardDay1736.Cmp(big.NewInt(4875000000000000)) != 0 {
 		t.Errorf("Day 1735: Reward %s should equal %d", rewardDay1736.String(), 4875000000000000)
 	}
@@ -116,7 +116,7 @@ func TestKaspaMergeMiningReward(t *testing.T) {
 	start := uint64(1704067200)
 	step := uint64(86399) // 16 hours
 	for i := uint64(0); i < 5405; i++ {
-		reward := kaspaMergeMiningReward(difficulty, start, start+step*i)
+		reward := kaspaCrossMiningReward(difficulty, start, start+step*i)
 		dayNum, month := timePassedSinceFork(start, start+step*i)
 		fmt.Printf("%d,%d,%s\n", dayNum, month, reward.String())
 	}

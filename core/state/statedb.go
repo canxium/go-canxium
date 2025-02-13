@@ -38,7 +38,7 @@ import (
 )
 
 var (
-	// slot of the mining contract for mapping(address => mapping(uint16 => uint256)) public mergeMiningTimestamp;
+	// slot of the mining contract for mapping(address => mapping(uint16 => uint256)) public crossMiningTimestamp;
 	MiningContractSlotBytes = common.LeftPadBytes(big.NewInt(317).Bytes(), 32)
 )
 
@@ -395,10 +395,10 @@ func (s *StateDB) HasSuicided(addr common.Address) bool {
 	return false
 }
 
-// GetMergeMiningTimestamp return merge mining timestamp of an address of a chain id
+// GetCrossMiningTimestamp return cross mining timestamp of an address of a chain id
 // This data is set by miningContract.
-func (s *StateDB) GetMergeMiningTimestamp(contract common.Address, address common.Address, chain types.MergeChain) uint64 {
-	key := mergeMiningStorageKey(address, uint16(chain))
+func (s *StateDB) GetCrossMiningTimestamp(contract common.Address, address common.Address, chain types.CrossChain) uint64 {
+	key := crossMiningStorageKey(address, uint16(chain))
 	data := s.GetState(contract, key)
 	return data.Big().Uint64()
 }
@@ -1186,8 +1186,8 @@ func (s *StateDB) convertAccountSet(set map[common.Address]struct{}) map[common.
 	return ret
 }
 
-// mergeMiningStorageKey return storage key of the miningContract where store the merge mining timestamp
-func mergeMiningStorageKey(address common.Address, chainID uint16) common.Hash {
+// crossMiningStorageKey return storage key of the miningContract where store the cross mining timestamp
+func crossMiningStorageKey(address common.Address, chainID uint16) common.Hash {
 	// Encode outer key (address) + slot
 	addressBytes := common.LeftPadBytes(address.Bytes(), 32)
 

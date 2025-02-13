@@ -34,9 +34,6 @@ const (
 
 	// Cache size granted for caching clean code.
 	codeCacheSize = 64 * 1024 * 1024
-
-	// Number of miner->timestamp to keep
-	mergeMiningCacheSize = 1000
 )
 
 // Database wraps access to tries and contract code.

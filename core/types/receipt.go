@@ -193,7 +193,7 @@ func (r *Receipt) decodeTyped(b []byte) error {
 		return errShortTypedReceipt
 	}
 	switch b[0] {
-	case DynamicFeeTxType, AccessListTxType, MiningTxType, MergeMiningTxType:
+	case DynamicFeeTxType, AccessListTxType, MiningTxType, CrossMiningTxType:
 		var data receiptRLP
 		err := rlp.DecodeBytes(b[1:], &data)
 		if err != nil {
@@ -307,8 +307,8 @@ func (rs Receipts) EncodeIndex(i int, w *bytes.Buffer) {
 	case MiningTxType:
 		w.WriteByte(MiningTxType)
 		rlp.Encode(w, data)
-	case MergeMiningTxType:
-		w.WriteByte(MergeMiningTxType)
+	case CrossMiningTxType:
+		w.WriteByte(CrossMiningTxType)
 		rlp.Encode(w, data)
 	default:
 		// For unsupported types, write nothing. Since this is for

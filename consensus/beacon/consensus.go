@@ -218,11 +218,11 @@ func (beacon *Beacon) VerifyUncles(chain consensus.ChainReader, block *types.Blo
 	return nil
 }
 
-// VerifyMiningTxSeal checks whether a offline mining or merge mining transaction satisfies the PoW difficulty requirements,
+// VerifyMiningTxSeal checks whether a offline mining or cross mining transaction satisfies the PoW difficulty requirements,
 func (beacon *Beacon) VerifyMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error {
-	// merge mining
-	if tx.Type() == types.MergeMiningTxType {
-		return misc.VerifyMergeMiningTxSeal(config, tx, block)
+	// cross mining
+	if tx.Type() == types.CrossMiningTxType {
+		return misc.VerifyCrossMiningTxSeal(config, tx, block)
 	}
 	// offline mining
 	if tx.Type() == types.MiningTxType && misc.IsEthashAlgorithm(config, block.Time, tx.Algorithm()) {
@@ -260,7 +260,11 @@ func (beacon *Beacon) VerifyMiningTxsSeal(config *params.ChainConfig, txs types.
 		go func() {
 			for index := range inputs {
 				if !txs[index].IsMiningTx() {
-					errors[index] = nil
+					if misc.IsUnauthorizedCrossMiningTx(config, txs[index]) {
+						errors[index] = misc.ErrUnauthorizedCrossMiningTx
+					} else {
+						errors[index] = nil
+					}
 					done <- index
 					continue
 				}
