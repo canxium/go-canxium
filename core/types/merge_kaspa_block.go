@@ -445,15 +445,17 @@ func NewImmutableKaspaBlockHeader(
 }
 
 type KaspaBlock struct {
-	Header      *KaspaBlockHeader              `json:"header"`
-	MerkleProof []*externalapi.DomainHash      `json:"merkleProof"` // merge proof path to verify the coinbase tx
-	Coinbase    *externalapi.DomainTransaction `json:"coinbase"`
+	Header               *KaspaBlockHeader              `json:"header"`
+	MerkleProof          []*externalapi.DomainHash      `json:"merkleProof"` // merge proof path to verify the coinbase tx
+	Coinbase             *externalapi.DomainTransaction `json:"coinbase"`
+	StorageMassActivated bool                           `json:"storageMassActivated"`
 }
 
 type RlpKaspaBlock struct {
-	Header      *KaspaBlockHeader
-	MerkleProof []byte
-	Coinbase    *externalapi.DomainTransaction
+	Header               *KaspaBlockHeader
+	MerkleProof          []byte
+	Coinbase             *externalapi.DomainTransaction
+	StorageMassActivated bool
 }
 
 func (b *KaspaBlock) Chain() CrossChain {
@@ -560,7 +562,7 @@ func (b *KaspaBlock) VerifyCoinbase() bool {
 		return false
 	}
 	// verify merke root
-	return b.verifyMerkleProofForCoinbaseTx()
+	return b.verifyMerkleProofForCoinbaseTx(b.StorageMassActivated)
 }
 
 // GetMinerAddress return canxium miner of a kaspa block
@@ -584,8 +586,8 @@ func (b *KaspaBlock) GetMinerAddress() (common.Address, error) {
 	return common.HexToAddress(address), nil
 }
 
-func (b *KaspaBlock) verifyMerkleProofForCoinbaseTx() bool {
-	computedHash := consensushashing.TransactionHash(b.Coinbase)
+func (b *KaspaBlock) verifyMerkleProofForCoinbaseTx(massActivated bool) bool {
+	computedHash := consensushashing.TransactionHashWithMass(b.Coinbase, massActivated)
 	if len(b.MerkleProof) == 0 {
 		return computedHash.Equal(b.Header.HashMerkleRoot())
 	}
@@ -627,6 +629,7 @@ func (block *KaspaBlock) EncodeRLP(w io.Writer) error {
 		block.Header,
 		mergeProof,
 		block.Coinbase,
+		block.StorageMassActivated,
 	})
 }
 
@@ -662,6 +665,7 @@ func (block *KaspaBlock) DecodeRLP(s *rlp.Stream) error {
 		return fmt.Errorf("failed to decode kaspa block merkle proof: %w", err)
 	}
 	block.MerkleProof = merkleProof
+	block.StorageMassActivated = decoded.StorageMassActivated
 
 	return nil
 }
