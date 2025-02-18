@@ -39,7 +39,7 @@ import (
 
 var (
 	// slot of the mining contract for mapping(address => mapping(uint16 => uint256)) public crossMiningTimestamp;
-	MiningContractSlotBytes = common.LeftPadBytes(big.NewInt(317).Bytes(), 32)
+	MiningContractSlotBytes = common.LeftPadBytes(big.NewInt(316).Bytes(), 32)
 )
 
 type revision struct {
