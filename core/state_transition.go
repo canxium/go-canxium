@@ -279,7 +279,9 @@ func (st *StateTransition) buyGas(contractCreation bool) error {
 	}
 	// this is the correct way to check the balance
 	if contractCreation {
-		if st.evm.ChainConfig().IsShanghai(st.evm.Context.Time) {
+		if st.evm.ChainConfig().IsHelium(st.evm.Context.Time) {
+			balanceCheck.Add(balanceCheck, params.CanxiumContractCreationPostHeliumFee)
+		} else if st.evm.ChainConfig().IsShanghai(st.evm.Context.Time) {
 			balanceCheck.Add(balanceCheck, params.CanxiumContractCreationFee)
 		} else {
 			// for backward compatible, pre-hydro fork check the contract creation independently
@@ -301,8 +303,12 @@ func (st *StateTransition) buyGas(contractCreation bool) error {
 }
 
 func (st *StateTransition) payContractCreationFee() error {
-	st.state.SubBalance(st.msg.From, params.CanxiumContractCreationFee)
-	st.state.AddBalance(st.evm.ChainConfig().Foundation, params.CanxiumContractCreationFee)
+	contractCreationFee := params.CanxiumContractCreationFee
+	if st.evm.ChainConfig().IsHelium(st.evm.Context.Time) {
+		contractCreationFee = params.CanxiumContractCreationPostHeliumFee
+	}
+	st.state.SubBalance(st.msg.From, contractCreationFee)
+	st.state.AddBalance(st.evm.ChainConfig().Foundation, contractCreationFee)
 	return nil
 }
 

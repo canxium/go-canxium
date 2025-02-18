@@ -448,7 +448,7 @@ type KaspaBlock struct {
 	Header               *KaspaBlockHeader              `json:"header"`
 	MerkleProof          []*externalapi.DomainHash      `json:"merkleProof"` // merge proof path to verify the coinbase tx
 	Coinbase             *externalapi.DomainTransaction `json:"coinbase"`
-	StorageMassActivated bool                           `json:"storageMassActivated"`
+	StorageMassActivated bool                           `json:"storageMassActivated"` // kaspa mainnet: false, testnet10: false, testnet11: true
 }
 
 type RlpKaspaBlock struct {

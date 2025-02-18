@@ -136,4 +136,4 @@ require (
 	rsc.io/tmplfunc v0.0.3 // indirect
 )
 
-replace github.com/kaspanet/kaspad => github.com/canxium/kaspad v0.0.0-20250218011759-adf9d861d406
+replace github.com/kaspanet/kaspad => github.com/canxium/kaspad v0.12.19

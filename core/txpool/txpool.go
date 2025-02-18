@@ -765,7 +765,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	balance := pool.currentState.GetBalance(from)
 	cost := tx.Cost()
 	if tx.To() == nil { // contract creation
-		cost = new(big.Int).Add(cost, params.CanxiumContractCreationFee)
+		cost = new(big.Int).Add(cost, params.CanxiumContractCreationPostHeliumFee)
 	}
 
 	if balance.Cmp(cost) < 0 {
