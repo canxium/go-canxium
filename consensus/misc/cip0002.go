@@ -26,7 +26,7 @@ var (
 	mainPowMax = new(big.Int).Sub(new(big.Int).Lsh(bigOne, 255), bigOne)
 
 	// Max milliseconds from current time allowed for blocks, before they're considered future blocks
-	allowedFutureBlockTimeMilliSeconds = uint64(900000)
+	allowedFutureBlockTimeMilliSeconds = uint64(12000)
 
 	// Kaspa cross mining reward constants for mainnet
 	KaspaPhaseTwoDayNum  = uint64(3)

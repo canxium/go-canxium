@@ -233,6 +233,23 @@ func (ec *Client) TransactionByHash(ctx context.Context, hash common.Hash) (tx *
 	return json.tx, json.BlockNumber == nil, nil
 }
 
+// TransactionByAuxPoWHash returns the transaction with the given cross-chain block hash.
+func (ec *Client) TransactionByAuxPoWHash(ctx context.Context, hash string) (tx *types.Transaction, isPending bool, err error) {
+	var json *rpcTransaction
+	err = ec.c.CallContext(ctx, &json, "eth_getTransactionByAuxPoWHash", hash)
+	if err != nil {
+		return nil, false, err
+	} else if json == nil {
+		return nil, false, ethereum.NotFound
+	} else if _, r, _ := json.tx.RawSignatureValues(); r == nil {
+		return nil, false, fmt.Errorf("server returned transaction without signature")
+	}
+	if json.From != nil && json.BlockHash != nil {
+		setSenderFromServer(json.tx, *json.From, *json.BlockHash)
+	}
+	return json.tx, json.BlockNumber == nil, nil
+}
+
 // TransactionSender returns the sender address of the given transaction. The transaction
 // must be known to the remote node and included in the blockchain at the given block and
 // index. The sender is the one derived by the protocol at the time of inclusion.
@@ -290,6 +307,19 @@ func (ec *Client) TransactionInBlock(ctx context.Context, blockHash common.Hash,
 func (ec *Client) TransactionReceipt(ctx context.Context, txHash common.Hash) (*types.Receipt, error) {
 	var r *types.Receipt
 	err := ec.c.CallContext(ctx, &r, "eth_getTransactionReceipt", txHash)
+	if err == nil {
+		if r == nil {
+			return nil, ethereum.NotFound
+		}
+	}
+	return r, err
+}
+
+// TransactionReceiptByAuxPoWHash returns the receipt of a transaction by cross-chain block hash.
+// Note that the receipt is not available for pending transactions.
+func (ec *Client) TransactionReceiptByAuxPoWHash(ctx context.Context, hash string) (*types.Receipt, error) {
+	var r *types.Receipt
+	err := ec.c.CallContext(ctx, &r, "eth_getTransactionReceiptByAuxPoWHash", hash)
 	if err == nil {
 		if r == nil {
 			return nil, ethereum.NotFound
