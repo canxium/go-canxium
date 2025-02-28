@@ -61,10 +61,6 @@ var (
 	// within the pool.
 	ErrAlreadyKnown = errors.New("already known")
 
-	// ErrMergeTxAlreadyKnown is returned if the merge transaction block's hash is already contained
-	// within the pool.
-	ErrMergeTxAlreadyKnown = errors.New("merge tx already known")
-
 	// ErrInvalidSender is returned if the transaction contains an invalid signature.
 	ErrInvalidSender = errors.New("invalid sender")
 
@@ -803,11 +799,6 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		knownTxMeter.Mark(1)
 		return false, ErrAlreadyKnown
 	}
-	if tx.Type() == types.CrossMiningTxType && pool.all.GetMerge(tx.AuxPoW().BlockHash()) != nil {
-		log.Trace("Discarding already known cross mining transaction", "hash", hash)
-		knownTxMeter.Mark(1)
-		return false, ErrMergeTxAlreadyKnown
-	}
 	// Make the local flag. If it's from local source or it's from the network but
 	// the sender is marked as local previously, treat it as the local transaction.
 	isLocal := local || pool.locals.containsTx(tx)
@@ -1091,11 +1082,6 @@ func (pool *TxPool) addTxs(txs []*types.Transaction, local, sync bool) []error {
 		// If the transaction is known, pre-set the error slot
 		if pool.all.Get(tx.Hash()) != nil {
 			errs[i] = ErrAlreadyKnown
-			knownTxMeter.Mark(1)
-			continue
-		}
-		if tx.Type() == types.CrossMiningTxType && pool.all.GetMerge(tx.AuxPoW().BlockHash()) != nil {
-			errs[i] = ErrMergeTxAlreadyKnown
 			knownTxMeter.Mark(1)
 			continue
 		}
