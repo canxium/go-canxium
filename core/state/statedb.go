@@ -28,6 +28,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state/snapshot"
 	"github.com/ethereum/go-ethereum/core/types"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -397,7 +398,7 @@ func (s *StateDB) HasSuicided(addr common.Address) bool {
 
 // GetCrossMiningTimestamp return cross mining timestamp of an address of a chain id
 // This data is set by miningContract.
-func (s *StateDB) GetCrossMiningTimestamp(contract common.Address, address common.Address, chain types.CrossChain) uint64 {
+func (s *StateDB) GetCrossMiningTimestamp(contract common.Address, address common.Address, chain crosschain.CrossChain) uint64 {
 	key := crossMiningStorageKey(address, uint16(chain))
 	data := s.GetState(contract, key)
 	return data.Big().Uint64()

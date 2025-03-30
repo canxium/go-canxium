@@ -27,6 +27,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rlp"
 )
@@ -48,17 +49,6 @@ const (
 	MiningTxType
 
 	CrossMiningTxType = 126
-)
-
-type PoWAlgorithm uint8
-
-// Transaction mining algorithm.
-const (
-	NoneAlgorithm PoWAlgorithm = iota
-	EthashAlgorithm
-	Sha256Algorithm
-	ScryptAlgorithm
-	KHeavyHashAlgorithm
 )
 
 // Transaction is an Ethereum transaction.
@@ -111,13 +101,13 @@ type TxData interface {
 	effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int
 
 	// mining functions
-	algorithm() PoWAlgorithm
+	algorithm() crosschain.PoWAlgorithm
 	difficulty() *big.Int
 	powNonce() uint64
 	mixDigest() common.Hash
 
 	// cross mining functions
-	auxPoW() CrossChainBlock
+	auxPoW() crosschain.CrossChainBlock
 }
 
 // EncodeRLP implements rlp.Encoder
@@ -322,7 +312,7 @@ func (tx *Transaction) Value() *big.Int { return new(big.Int).Set(tx.inner.value
 func (tx *Transaction) Nonce() uint64 { return tx.inner.nonce() }
 
 // Algorithm returns the mining algorithm of transaction which miner choosed
-func (tx *Transaction) Algorithm() PoWAlgorithm { return tx.inner.algorithm() }
+func (tx *Transaction) Algorithm() crosschain.PoWAlgorithm { return tx.inner.algorithm() }
 
 // Difficulty returns the mining diffculty of transaction
 func (tx *Transaction) Difficulty() *big.Int { return tx.inner.difficulty() }
@@ -334,7 +324,7 @@ func (tx *Transaction) PowNonce() uint64 { return tx.inner.powNonce() }
 func (tx *Transaction) MixDigest() common.Hash { return tx.inner.mixDigest() }
 
 // Return the cross mining proof of work data
-func (tx *Transaction) AuxPoW() CrossChainBlock { return tx.inner.auxPoW() }
+func (tx *Transaction) AuxPoW() crosschain.CrossChainBlock { return tx.inner.auxPoW() }
 
 // Is this a mining transaction, use for gas free check only
 func (tx *Transaction) IsMiningTx() bool {

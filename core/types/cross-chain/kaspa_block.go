@@ -2,7 +2,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package types
+package crosschain
 
 import (
 	"errors"
@@ -21,23 +21,6 @@ import (
 	"github.com/kaspanet/kaspad/domain/consensus/utils/pow"
 	"github.com/kaspanet/kaspad/domain/consensus/utils/transactionhelper"
 	"github.com/kaspanet/kaspad/util/difficulty"
-)
-
-const (
-	// prefix of kaspa miner in the coinbase transaction payload. To extract the canxium address
-	minerTagPrefix = "canxiuminer:"
-)
-
-var (
-	bigOne = big.NewInt(1)
-	// mainPowMax is the highest proof of work value a Kaspa block can
-	// have for the main network. It is the value 2^255 - 1.
-	mainPowMax  = new(big.Int).Sub(new(big.Int).Lsh(bigOne, 255), bigOne)
-	zeroAddress = common.Address{}
-)
-
-var (
-	ErrInvalidCrossChainBlockHeader = errors.New("invalid cross mining block header")
 )
 
 // BlockHeader defines information about a block and is used in the bitcoin

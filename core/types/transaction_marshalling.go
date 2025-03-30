@@ -23,6 +23,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 )
 
 // txJSON is the JSON representation of transactions.
@@ -54,7 +55,7 @@ type txJSON struct {
 	PowNonce   *hexutil.Uint64 `json:"powNonce,omitempty"`
 
 	// Cross Mining transaction
-	AuxPoW *CrossChainBlock `json:"auxPoW,omitempty"`
+	AuxPoW *crosschain.CrossChainBlock `json:"auxPoW,omitempty"`
 
 	// Only used for encoding:
 	Hash common.Hash `json:"hash"`
@@ -366,7 +367,7 @@ func (tx *Transaction) UnmarshalJSON(input []byte) error {
 		if dec.Algorithm == nil {
 			return errors.New("missing required field 'algorithm' in transaction")
 		}
-		itx.Algorithm = PoWAlgorithm(*dec.Algorithm)
+		itx.Algorithm = crosschain.PoWAlgorithm(*dec.Algorithm)
 		if dec.Difficulty == nil {
 			return errors.New("missing required field 'difficulty' in transaction")
 		}

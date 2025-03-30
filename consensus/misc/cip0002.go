@@ -10,6 +10,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -141,7 +142,7 @@ func IsUnauthorizedCrossMiningTx(config *params.ChainConfig, tx *types.Transacti
 }
 
 // CrossMiningForkTimeMilli Return fork time, in millisecond to compare the merge block time
-func CrossMiningForkTimeMilli(config *params.ChainConfig, parentChain types.CrossChain) uint64 {
+func CrossMiningForkTimeMilli(config *params.ChainConfig, parentChain crosschain.CrossChain) uint64 {
 	forkTime := CrossMiningForkTime(config, parentChain)
 	if forkTime != math.MaxUint64 {
 		return forkTime * 1000
@@ -151,9 +152,9 @@ func CrossMiningForkTimeMilli(config *params.ChainConfig, parentChain types.Cros
 }
 
 // CrossMiningForkTime Return fork time, in second to calculate mining reward
-func CrossMiningForkTime(config *params.ChainConfig, parentChain types.CrossChain) uint64 {
+func CrossMiningForkTime(config *params.ChainConfig, parentChain crosschain.CrossChain) uint64 {
 	switch parentChain {
-	case types.KaspaChain:
+	case crosschain.KaspaChain:
 		return *config.HeliumTime
 	}
 
@@ -161,13 +162,13 @@ func CrossMiningForkTime(config *params.ChainConfig, parentChain types.CrossChai
 }
 
 // Calculate cross mining reward
-func CrossMiningReward(crossBlock types.CrossChainBlock, forkTime uint64, time uint64) *big.Int {
+func CrossMiningReward(crossBlock crosschain.CrossChainBlock, forkTime uint64, time uint64) *big.Int {
 	if time < forkTime {
 		return big0
 	}
 
 	switch crossBlock.Chain() {
-	case types.KaspaChain:
+	case crosschain.KaspaChain:
 		reward := kaspaCrossMiningReward(crossBlock.Difficulty(), forkTime, time)
 		return reward
 	}
@@ -176,9 +177,9 @@ func CrossMiningReward(crossBlock types.CrossChainBlock, forkTime uint64, time u
 }
 
 // CrossMiningMinDifficulty return the minimum difficulty for each chain
-func CrossMiningMinDifficulty(config *params.ChainConfig, parentChain types.CrossChain) *big.Int {
+func CrossMiningMinDifficulty(config *params.ChainConfig, parentChain crosschain.CrossChain) *big.Int {
 	switch parentChain {
-	case types.KaspaChain:
+	case crosschain.KaspaChain:
 		return config.CrossMining.MinimumKaspaDifficulty
 	}
 
@@ -187,7 +188,7 @@ func CrossMiningMinDifficulty(config *params.ChainConfig, parentChain types.Cros
 
 // isSupportedCrossMining check if this timeline support for this parent chain
 func isSupportedCrossMining(config *params.ChainConfig, tx *types.Transaction, blockTime uint64) bool {
-	if tx.AuxPoW().Chain() == types.KaspaChain {
+	if tx.AuxPoW().Chain() == crosschain.KaspaChain {
 		return config.IsHelium(blockTime)
 	}
 
@@ -224,7 +225,7 @@ func timePassedSinceFork(forkTime, time uint64) (dayNum uint64, month uint64) {
 	return
 }
 
-func buildCrossMiningTxInput(chain types.CrossChain, address common.Address, timestamp uint64) []byte {
+func buildCrossMiningTxInput(chain crosschain.CrossChain, address common.Address, timestamp uint64) []byte {
 	// Check input data, match: method_receiver_chain_timestamp
 	paddedAddress := common.LeftPadBytes(address.Bytes(), 32)
 	// Timestamp (uint256) is padded to 32 bytes
