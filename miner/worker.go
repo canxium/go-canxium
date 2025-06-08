@@ -930,7 +930,8 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 				reward = new(big.Int).Mul(subsidy, tx.Difficulty())
 			} else if tx.Type() == types.CrossMiningTxType {
 				forkTime := misc.CrossMiningForkTime(w.chainConfig, tx.AuxPoW().Chain())
-				reward = misc.CrossMiningReward(tx.AuxPoW(), forkTime, env.header.Time)
+				isLithiumFork := w.chainConfig.IsLithium(env.header.Time)
+				reward = misc.CrossMiningReward(isLithiumFork, tx.AuxPoW(), forkTime, env.header.Time)
 			}
 
 			if tx.Value().Cmp(reward) != 0 {
@@ -1092,15 +1093,30 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 			localTxs[account] = txs
 		}
 	}
+	log.Info("Filling transactions into block", "local", len(localTxs), "remote", len(remoteTxs))
+	for _, txs := range localTxs {
+		log.Info("Filling transactions into block", "account", txs[0].From(), "count", len(txs))
+		for _, tx := range txs {
+			log.Trace("Filling local transaction into block", "hash", tx.Hash(), "from", tx.From())
+		}
+	}
+	for _, txs := range remoteTxs {
+		log.Info("Filling remote transactions into block", "account", txs[0].From(), "count", len(txs))
+		for _, tx := range txs {
+			log.Trace("Filling remote transaction into block", "hash", tx.Hash(), "from", tx.From())
+		}
+	}
 	if len(localTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
 		if err := w.commitTransactions(env, txs, interrupt); err != nil {
+			log.Error("Failed to commit local transactions", "err", err)
 			return err
 		}
 	}
 	if len(remoteTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, remoteTxs, env.header.BaseFee)
 		if err := w.commitTransactions(env, txs, interrupt); err != nil {
+			log.Error("Failed to commit local transactions", "err", err)
 			return err
 		}
 	}

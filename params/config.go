@@ -443,6 +443,8 @@ type ChainConfig struct {
 
 	// Fork for canxium chain, after PoS
 	HeliumTime *uint64 `json:"heliumTime,omitempty"` // Second hardfork, to support cross mining
+	// T filter out kaspa block to reduce the impact of kaspa mining
+	LithiumTime *uint64 `json:"lithiumTime,omitempty"`
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -602,6 +604,9 @@ func (c *ChainConfig) Description() string {
 	if c.HeliumTime != nil {
 		banner += fmt.Sprintf(" - Helium:                	   @%-10v \n", *c.HeliumTime)
 	}
+	if c.LithiumTime != nil {
+		banner += fmt.Sprintf(" - Lithium:                	   @%-10v \n", *c.LithiumTime)
+	}
 
 	banner += "\n"
 	// Create a list of forks post-merge
@@ -725,6 +730,11 @@ func (c *ChainConfig) IsHydro(num *big.Int) bool {
 // IsHelium returns whether num is either equal to the helium fork time or greater.
 func (c *ChainConfig) IsHelium(time uint64) bool {
 	return isTimestampForked(c.HeliumTime, time)
+}
+
+// IsLithium returns whether num is either equal to the Lithium fork time or greater.
+func (c *ChainConfig) IsLithium(time uint64) bool {
+	return isTimestampForked(c.LithiumTime, time)
 }
 
 // CheckCompatible checks whether scheduled fork transitions have been imported

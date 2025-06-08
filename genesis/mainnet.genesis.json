@@ -23,6 +23,7 @@
     "terminalTotalDifficulty": 86680000000000000000,
     "shanghaiTime": 1723122376,
     "heliumTime": 1740787200,
+    "lithiumTime": 1749686400,
     "miningContract": "0x6c6331CA2BC039996E833479b7c13Cc62Ab5c6BA"
   },
   "difficulty": "400000",

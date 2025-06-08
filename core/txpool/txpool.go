@@ -1769,7 +1769,8 @@ func (pool *TxPool) isValidMiningSubsidy(headNumber *big.Int, headTime uint64, t
 
 	if tx.Type() == types.CrossMiningTxType {
 		forkTime := misc.CrossMiningForkTime(pool.chainconfig, tx.AuxPoW().Chain())
-		value := misc.CrossMiningReward(tx.AuxPoW(), forkTime, headTime)
+		isLithiumFork := pool.chainconfig.IsLithium(headTime)
+		value := misc.CrossMiningReward(isLithiumFork, tx.AuxPoW(), forkTime, headTime)
 		return tx.Value().Cmp(value) == 0
 	}
 
