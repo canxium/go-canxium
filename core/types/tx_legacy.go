@@ -20,6 +20,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 )
 
 // LegacyTx is the transaction data of regular Ethereum transactions.
@@ -105,13 +106,13 @@ func (tx *LegacyTx) to() *common.Address    { return tx.To }
 func (tx *LegacyTx) from() common.Address   { return common.Address{} }
 
 // mining
-func (tx *LegacyTx) algorithm() PoWAlgorithm { return NoneAlgorithm }
-func (tx *LegacyTx) difficulty() *big.Int    { return big.NewInt(0) }
-func (tx *LegacyTx) powNonce() uint64        { return 0 }
-func (tx *LegacyTx) mixDigest() common.Hash  { return common.Hash{} }
+func (tx *LegacyTx) algorithm() crosschain.PoWAlgorithm { return crosschain.NoneAlgorithm }
+func (tx *LegacyTx) difficulty() *big.Int               { return big.NewInt(0) }
+func (tx *LegacyTx) powNonce() uint64                   { return 0 }
+func (tx *LegacyTx) mixDigest() common.Hash             { return common.Hash{} }
 
 // cross mining
-func (tx *LegacyTx) auxPoW() CrossChainBlock { return nil }
+func (tx *LegacyTx) auxPoW() crosschain.CrossChainBlock { return nil }
 
 func (tx *LegacyTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	return dst.Set(tx.GasPrice)

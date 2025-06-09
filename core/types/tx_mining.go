@@ -22,6 +22,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 )
 
 // A BlockNonce is a 64-bit hash which proves (combined with the
@@ -63,7 +64,7 @@ type MiningTx struct {
 	Data      []byte
 
 	// mining fields
-	Algorithm  PoWAlgorithm
+	Algorithm  crosschain.PoWAlgorithm
 	Difficulty *big.Int
 	MixDigest  common.Hash
 	PowNonce   PowNonce // mining nonce
@@ -140,13 +141,13 @@ func (tx *MiningTx) to() *common.Address    { return &tx.To }
 func (tx *MiningTx) from() common.Address   { return tx.From }
 
 // mining fields
-func (tx *MiningTx) algorithm() PoWAlgorithm { return tx.Algorithm }
-func (tx *MiningTx) difficulty() *big.Int    { return tx.Difficulty }
-func (tx *MiningTx) powNonce() uint64        { return tx.PowNonce.Uint64() }
-func (tx *MiningTx) mixDigest() common.Hash  { return tx.MixDigest }
+func (tx *MiningTx) algorithm() crosschain.PoWAlgorithm { return tx.Algorithm }
+func (tx *MiningTx) difficulty() *big.Int               { return tx.Difficulty }
+func (tx *MiningTx) powNonce() uint64                   { return tx.PowNonce.Uint64() }
+func (tx *MiningTx) mixDigest() common.Hash             { return tx.MixDigest }
 
 // cross mining
-func (tx *MiningTx) auxPoW() CrossChainBlock { return nil }
+func (tx *MiningTx) auxPoW() crosschain.CrossChainBlock { return nil }
 
 func (tx *MiningTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	if baseFee == nil {

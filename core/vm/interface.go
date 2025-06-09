@@ -21,6 +21,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -51,7 +52,7 @@ type StateDB interface {
 	GetTransientState(addr common.Address, key common.Hash) common.Hash
 	SetTransientState(addr common.Address, key, value common.Hash)
 
-	GetCrossMiningTimestamp(common.Address, common.Address, types.CrossChain) uint64
+	GetCrossMiningTimestamp(common.Address, common.Address, crosschain.CrossChain) uint64
 
 	Suicide(common.Address) bool
 	HasSuicided(common.Address) bool

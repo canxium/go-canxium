@@ -20,6 +20,7 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 )
 
 //go:generate go run github.com/fjl/gencodec -type AccessTuple -out gen_access_tuple.go
@@ -108,13 +109,13 @@ func (tx *AccessListTx) to() *common.Address    { return tx.To }
 func (tx *AccessListTx) from() common.Address   { return common.Address{} }
 
 // mining
-func (tx *AccessListTx) algorithm() PoWAlgorithm { return NoneAlgorithm }
-func (tx *AccessListTx) difficulty() *big.Int    { return big.NewInt(0) }
-func (tx *AccessListTx) powNonce() uint64        { return 0 }
-func (tx *AccessListTx) mixDigest() common.Hash  { return common.Hash{} }
+func (tx *AccessListTx) algorithm() crosschain.PoWAlgorithm { return crosschain.NoneAlgorithm }
+func (tx *AccessListTx) difficulty() *big.Int               { return big.NewInt(0) }
+func (tx *AccessListTx) powNonce() uint64                   { return 0 }
+func (tx *AccessListTx) mixDigest() common.Hash             { return common.Hash{} }
 
 // cross mining
-func (tx *AccessListTx) auxPoW() CrossChainBlock { return nil }
+func (tx *AccessListTx) auxPoW() crosschain.CrossChainBlock { return nil }
 
 func (tx *AccessListTx) effectiveGasPrice(dst *big.Int, baseFee *big.Int) *big.Int {
 	return dst.Set(tx.GasPrice)

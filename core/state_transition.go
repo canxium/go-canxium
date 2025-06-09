@@ -24,6 +24,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	cmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/core/types"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/core/vm"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
@@ -133,7 +134,7 @@ type MergeMiningMessage struct {
 	ToContract common.Address
 	FromMiner  common.Address
 	BlockTime  uint64
-	FromChain  types.CrossChain
+	FromChain  crosschain.CrossChain
 }
 
 // A Message contains the data derived from a single transaction that is relevant to state

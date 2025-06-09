@@ -23,43 +23,13 @@ import (
 	"math/big"
 
 	"github.com/ethereum/go-ethereum/common"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/rlp"
-)
-
-type CrossChain uint16
-
-const (
-	UnknownChain CrossChain = iota
-	KaspaChain
 )
 
 var (
 	ErrMergeTxChainNotSupported = errors.New("merge transaction chain not supported")
 )
-
-type CrossChainBlock interface {
-	Chain() CrossChain
-	// Basic check if this is a valid cross mining block
-	IsValidBlock() bool
-	// Verify block PoW
-	VerifyPoW() error
-	// Verify coinbase transaction if follow consensus rules
-	VerifyCoinbase() bool
-	// Canxium miner address
-	GetMinerAddress() (common.Address, error)
-	// Block hash, in string
-	BlockHash() string
-	// Block difficulty
-	Difficulty() *big.Int
-	// Nonce number of the block
-	PowNonce() uint64
-	// block timestamp in millisecond
-	Timestamp() uint64
-	// PoW Algorithm
-	PoWAlgorithm() PoWAlgorithm
-	// Deep copy
-	Copy() CrossChainBlock
-}
 
 type CrossMiningTx struct {
 	ChainID   *big.Int
@@ -73,7 +43,7 @@ type CrossMiningTx struct {
 	Data      []byte
 
 	// Merge mining fields
-	AuxPoW CrossChainBlock
+	AuxPoW crosschain.CrossChainBlock
 
 	// Signature values
 	V *big.Int `json:"v" gencodec:"required"`
@@ -162,10 +132,10 @@ func (tx *CrossMiningTx) nonce() uint64          { return tx.Nonce }
 func (tx *CrossMiningTx) to() *common.Address    { return &tx.To }
 func (tx *CrossMiningTx) from() common.Address   { return tx.From }
 
-func (tx *CrossMiningTx) auxPoW() CrossChainBlock { return tx.AuxPoW }
-func (tx *CrossMiningTx) algorithm() PoWAlgorithm {
+func (tx *CrossMiningTx) auxPoW() crosschain.CrossChainBlock { return tx.AuxPoW }
+func (tx *CrossMiningTx) algorithm() crosschain.PoWAlgorithm {
 	if tx.AuxPoW == nil {
-		return NoneAlgorithm
+		return crosschain.NoneAlgorithm
 	}
 	return tx.AuxPoW.PoWAlgorithm()
 }
@@ -199,10 +169,10 @@ func (tx *CrossMiningTx) setSignatureValues(chainID, v, r, s *big.Int) {
 
 type WrapData struct {
 	TypeID byte
-	Data   CrossChainBlock
+	Data   crosschain.CrossChainBlock
 }
 
-func EncodeCrossChainBlock(mb CrossChainBlock) ([]byte, error) {
+func EncodeCrossChainBlock(mb crosschain.CrossChainBlock) ([]byte, error) {
 	if mb == nil {
 		return nil, nil
 	}
@@ -215,14 +185,14 @@ func EncodeCrossChainBlock(mb CrossChainBlock) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func DecodeCrossChainBlock(data []byte) (CrossChainBlock, error) {
+func DecodeCrossChainBlock(data []byte) (crosschain.CrossChainBlock, error) {
 	if len(data) == 0 {
 		return nil, errShortTypedTx // No merge block present
 	}
 
-	switch CrossChain(data[0]) {
-	case KaspaChain:
-		var proof KaspaBlock
+	switch crosschain.CrossChain(data[0]) {
+	case crosschain.KaspaChain:
+		var proof crosschain.KaspaBlock
 		err := rlp.DecodeBytes(data[1:], &proof)
 		return &proof, err
 	default:
