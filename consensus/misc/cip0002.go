@@ -33,7 +33,8 @@ var (
 	maxPoWInLithiumFork    = targetPoWInLithiumFork.Div(targetPoWInLithiumFork, big.NewInt(512))
 
 	// Max milliseconds from current time allowed for blocks, before they're considered future blocks
-	allowedFutureBlockTimeMilliSeconds = uint64(12000)
+	allowedFutureBlockTimeMilliSeconds             = uint64(12000)
+	allowedFutureBlockTimeMilliSecondsPostLithitum = uint64(300000) // 5 minutes
 
 	// Kaspa cross mining reward constants for mainnet
 	KaspaPhaseTwoDayNum  = uint64(3)
@@ -93,7 +94,7 @@ func VerifyCrossMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 	if !isSupportedCrossMining(config, tx, block.Time) {
 		return ErrInvalidMiningTimeLine
 	}
-	// Ensure Daa Shift for kaspa chain
+	// Ensure block hash is valid for kaspa chain after the fork to reduce block rate
 	if config.IsLithium(block.Time) && tx.AuxPoW().Chain() == crosschain.KaspaChain {
 		valid, err := isValidKaspaBlockHash(tx.AuxPoW().BlockHash())
 		if err != nil {
@@ -123,7 +124,11 @@ func VerifyCrossMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 		return ErrInvalidMiningBlockTime
 	}
 	blockTimeMilli := block.Time * 1000
-	if timestamp > blockTimeMilli+allowedFutureBlockTimeMilliSeconds {
+	futureBlockTime := allowedFutureBlockTimeMilliSeconds
+	if config.IsLithium(block.Time) {
+		futureBlockTime = allowedFutureBlockTimeMilliSecondsPostLithitum
+	}
+	if timestamp > blockTimeMilli+futureBlockTime {
 		return ErrInvalidFutureBlock
 	}
 	// Ensure value is valid: reward * difficulty
