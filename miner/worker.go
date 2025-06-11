@@ -1093,19 +1093,6 @@ func (w *worker) fillTransactions(interrupt *atomic.Int32, env *environment) err
 			localTxs[account] = txs
 		}
 	}
-	log.Info("Filling transactions into block", "local", len(localTxs), "remote", len(remoteTxs))
-	for _, txs := range localTxs {
-		log.Info("Filling transactions into block", "account", txs[0].From(), "count", len(txs))
-		for _, tx := range txs {
-			log.Trace("Filling local transaction into block", "hash", tx.Hash(), "from", tx.From())
-		}
-	}
-	for _, txs := range remoteTxs {
-		log.Info("Filling remote transactions into block", "account", txs[0].From(), "count", len(txs))
-		for _, tx := range txs {
-			log.Trace("Filling remote transaction into block", "hash", tx.Hash(), "from", tx.From())
-		}
-	}
 	if len(localTxs) > 0 {
 		txs := types.NewTransactionsByPriceAndNonce(env.signer, localTxs, env.header.BaseFee)
 		if err := w.commitTransactions(env, txs, interrupt); err != nil {
