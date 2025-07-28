@@ -23,9 +23,11 @@ build/_vendor/pkg
 .settings
 
 # used by the Makefile
+/crypto/kawpow/src/build
 /build/_workspace/
 /build/cache/
 /build/bin/
+/build/lib/
 /geth*.zip
 
 # travis

@@ -1,0 +1,720 @@
+// Copyright (c) 2013-2016 The btcsuite developers
+// Use of this source code is governed by an ISC
+// license that can be found in the LICENSE file.
+
+package crosschain
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"math/big"
+	"strings"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/rlp"
+)
+
+// RavenBlockHeader defines information about a Raven coin block
+type RavenBlockHeader struct {
+	// Version of the block
+	Version uint32 `json:"version"`
+
+	// PrevBlock is the hash of the previous block in the chain
+	PrevBlock common.Hash `json:"prevBlock"`
+
+	// MerkleRoot is the merkle tree reference to hash of all transactions for the block
+	MerkleRoot common.Hash `json:"merkleRoot"`
+
+	// Time the block was created (Unix timestamp)
+	Timestamp uint32 `json:"timestamp"`
+
+	// Bits represents the difficulty target for the block
+	Bits uint32 `json:"bits"`
+
+	// Height of the block in the chain
+	Height uint32 `json:"height"`
+
+	// Nonce is the full 64-bit nonce used in KawPoW
+	Nonce uint64 `json:"nonce,omitempty"`
+
+	MixHash common.Hash `json:"mixHash,omitempty"` // Mix hash for KawPoW
+}
+
+type RlpRavenBlockHeader struct {
+	Version    uint32
+	PrevBlock  []byte
+	MerkleRoot []byte
+	Timestamp  uint32
+	Bits       uint32
+	Nonce      uint64
+	Height     uint32
+}
+
+func (header *RavenBlockHeader) clone() *RavenBlockHeader {
+	return &RavenBlockHeader{
+		Version:    header.Version,
+		PrevBlock:  header.PrevBlock,
+		MerkleRoot: header.MerkleRoot,
+		Timestamp:  header.Timestamp,
+		Bits:       header.Bits,
+		Nonce:      header.Nonce,
+		Height:     header.Height,
+	}
+}
+
+// HeaderHash computes the header hash for KawPoW validation
+// This implements the exact CKAWPOWInput serialization from Ravencoin's C++ code
+func (header *RavenBlockHeader) HeaderHash() common.Hash {
+	// Create a buffer for CKAWPOWInput serialization
+	buf := bytes.NewBuffer(nil)
+
+	// READWRITE(nVersion);
+	binary.Write(buf, binary.LittleEndian, header.Version)
+
+	// READWRITE(hashPrevBlock);
+	// In Bitcoin/Ravencoin, hashes are stored in reverse byte order (little-endian)
+	// when serialized compared to their hex representation
+	prevBlockReversed := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		prevBlockReversed[i] = header.PrevBlock[31-i]
+	}
+	buf.Write(prevBlockReversed)
+
+	// READWRITE(hashMerkleRoot);
+	// Same reverse byte order for merkle root
+	merkleRootReversed := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		merkleRootReversed[i] = header.MerkleRoot[31-i]
+	}
+	buf.Write(merkleRootReversed)
+
+	// READWRITE(nTime);
+	binary.Write(buf, binary.LittleEndian, header.Timestamp)
+
+	// READWRITE(nBits);
+	binary.Write(buf, binary.LittleEndian, header.Bits)
+
+	// READWRITE(nHeight);
+	binary.Write(buf, binary.LittleEndian, header.Height)
+
+	// Note: CKAWPOWInput does NOT include nNonce64 or mix_hash in serialization
+	// Those are used by the KawPoW algorithm but not part of the header hash
+
+	// Return the double SHA256 hash (same as SerializeHash in C++)
+	first := sha256.Sum256(buf.Bytes())
+	second := sha256.Sum256(first[:])
+
+	// The resulting hash should also be reversed for display consistency with Ravencoin
+	result := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		result[i] = second[31-i]
+	}
+	return common.BytesToHash(result)
+}
+
+// VerifyKawPoW verifies the KawPoW proof of work for this header
+// This implements the exact same logic as Ravencoin's KAWPOWHash() function
+func (header *RavenBlockHeader) VerifyKawPoW() bool {
+	// Generate the KawPoW hash and mix hash
+	finalHash, calculatedMixHash, err := header.GenerateKawPoW()
+	if err != nil {
+		return false
+	}
+
+	// Verify the mix hash matches what's stored in the header
+	if calculatedMixHash != header.MixHash {
+		return false
+	}
+
+	// Check if the final hash meets the difficulty target
+	target := bitsToTarget(header.Bits)
+	finalHashBig := finalHash.Big()
+
+	// In PoW, the hash must be <= target to be valid
+	return finalHashBig.Cmp(target) <= 0
+}
+
+// GenerateKawPoW generates a KawPoW hash and mix hash for this header
+// This implements the same logic as Ravencoin's KAWPOWHash() function
+func (header *RavenBlockHeader) GenerateKawPoW() (common.Hash, common.Hash, error) {
+	// Get the header hash (same as blockHeader.GetKAWPOWHeaderHash() in C++)
+	headerHash := header.HeaderHash()
+
+	// Convert to the format expected by kawpow-cgo
+	// Remove the "0x" prefix from the hex string
+	headerHashStr := headerHash.Hex()[2:]
+	nonceStr := fmt.Sprintf("%016x", header.Nonce)
+	height := int64(header.Height)
+
+	// Call kawpow hash function (equivalent to progpow::hash() in C++)
+	// This matches Ravencoin's KAWPOWHash() implementation
+	hash, mixHash := crypto.KawpowHash(headerHashStr, nonceStr, height)
+
+	// Convert the returned byte arrays to common.Hash
+	finalHash := common.BytesToHash(hash)
+	calculatedMixHash := common.BytesToHash(mixHash)
+
+	return finalHash, calculatedMixHash, nil
+}
+
+// VerifyKawPoWWithTarget verifies KawPoW against a specific difficulty target
+func (header *RavenBlockHeader) VerifyKawPoWWithTarget(target *big.Int) bool {
+	// Generate the KawPoW hash and mix hash
+	finalHash, calculatedMixHash, err := header.GenerateKawPoW()
+	if err != nil {
+		return false
+	}
+
+	// Verify the mix hash matches what's stored in the header
+	if calculatedMixHash != header.MixHash {
+		return false
+	}
+
+	// Check if the final hash meets the provided difficulty target
+	finalHashBig := finalHash.Big()
+
+	// In PoW, the hash must be <= target to be valid
+	return finalHashBig.Cmp(target) <= 0
+}
+
+// GetDifficulty calculates the difficulty from bits field
+func (header *RavenBlockHeader) GetDifficulty() *big.Int {
+	target := bitsToTarget(header.Bits)
+	// Difficulty = max_target / current_target
+	difficulty := new(big.Rat).SetFrac(mainPowMax, target)
+	diff, _ := difficulty.Float64()
+	return big.NewInt(int64(diff))
+}
+
+func (header *RavenBlockHeader) EncodeRLP(w io.Writer) error {
+	return rlp.Encode(w, []interface{}{
+		header.Version,
+		header.PrevBlock[:],
+		header.MerkleRoot[:],
+		header.Timestamp,
+		header.Bits,
+		header.Nonce,
+		header.Height,
+	})
+}
+
+func (header *RavenBlockHeader) DecodeRLP(s *rlp.Stream) error {
+	var decoded RlpRavenBlockHeader
+	if err := s.Decode(&decoded); err != nil {
+		return fmt.Errorf("failed to decode raven block header: %w", err)
+	}
+
+	header.Version = decoded.Version
+	header.PrevBlock = common.BytesToHash(decoded.PrevBlock)
+	header.MerkleRoot = common.BytesToHash(decoded.MerkleRoot)
+	header.Timestamp = decoded.Timestamp
+	header.Bits = decoded.Bits
+	header.Nonce = decoded.Nonce
+	header.Height = decoded.Height
+
+	return nil
+}
+
+// NewRavenBlockHeader creates a new Raven block header
+func NewRavenBlockHeader(
+	version uint32,
+	prevBlock common.Hash,
+	merkleRoot common.Hash,
+	timestamp uint32,
+	bits uint32,
+	nonce uint64,
+	height uint32,
+) *RavenBlockHeader {
+	return &RavenBlockHeader{
+		Version:    version,
+		PrevBlock:  prevBlock,
+		MerkleRoot: merkleRoot,
+		Timestamp:  timestamp,
+		Bits:       bits,
+		Nonce:      nonce,
+		Height:     height,
+	}
+}
+
+type RavenBlock struct {
+	Header      *RavenBlockHeader `json:"header"`
+	MerkleProof []common.Hash     `json:"merkleProof"` // merkle proof path to verify the coinbase tx
+	Coinbase    *RavenTransaction `json:"coinbase"`
+}
+
+type RlpRavenBlock struct {
+	Header      *RavenBlockHeader
+	MerkleProof []byte
+	Coinbase    *RavenTransaction
+}
+
+// RavenTransaction represents a Ravencoin transaction following their exact format
+type RavenTransaction struct {
+	Version  int32           `json:"version"` // Changed to int32 to match Ravencoin
+	Inputs   []RavenTxInput  `json:"inputs"`
+	Outputs  []RavenTxOutput `json:"outputs"`
+	LockTime uint32          `json:"lockTime"`
+}
+
+type RavenTxInput struct {
+	PrevTxHash    common.Hash `json:"prevTxHash"`
+	PrevIndex     uint32      `json:"prevIndex"`
+	ScriptSig     []byte      `json:"scriptSig"`
+	Sequence      uint32      `json:"sequence"`
+	ScriptWitness [][]byte    `json:"scriptWitness,omitempty"` // Witness data
+}
+
+type RavenTxOutput struct {
+	Value        int64  `json:"value"` // Changed to int64 to match Ravencoin CAmount
+	ScriptPubKey []byte `json:"scriptPubKey"`
+}
+
+// RLP encoding/decoding structures for RavenTransaction
+type RlpRavenTransaction struct {
+	Version  int32
+	Inputs   []RlpRavenTxInput
+	Outputs  []RlpRavenTxOutput
+	LockTime uint32
+}
+
+type RlpRavenTxInput struct {
+	PrevTxHash    []byte
+	PrevIndex     uint32
+	ScriptSig     []byte
+	Sequence      uint32
+	ScriptWitness [][]byte
+}
+
+type RlpRavenTxOutput struct {
+	Value        int64
+	ScriptPubKey []byte
+}
+
+func (tx *RavenTransaction) EncodeRLP(w io.Writer) error {
+	rlpInputs := make([]RlpRavenTxInput, len(tx.Inputs))
+	for i, input := range tx.Inputs {
+		rlpInputs[i] = RlpRavenTxInput{
+			PrevTxHash:    input.PrevTxHash[:],
+			PrevIndex:     input.PrevIndex,
+			ScriptSig:     input.ScriptSig,
+			Sequence:      input.Sequence,
+			ScriptWitness: input.ScriptWitness,
+		}
+	}
+
+	rlpOutputs := make([]RlpRavenTxOutput, len(tx.Outputs))
+	for i, output := range tx.Outputs {
+		rlpOutputs[i] = RlpRavenTxOutput{
+			Value:        output.Value,
+			ScriptPubKey: output.ScriptPubKey,
+		}
+	}
+
+	return rlp.Encode(w, RlpRavenTransaction{
+		Version:  tx.Version,
+		Inputs:   rlpInputs,
+		Outputs:  rlpOutputs,
+		LockTime: tx.LockTime,
+	})
+}
+
+func (tx *RavenTransaction) DecodeRLP(s *rlp.Stream) error {
+	var decoded RlpRavenTransaction
+	if err := s.Decode(&decoded); err != nil {
+		return fmt.Errorf("failed to decode raven transaction: %w", err)
+	}
+
+	tx.Version = decoded.Version
+	tx.LockTime = decoded.LockTime
+
+	tx.Inputs = make([]RavenTxInput, len(decoded.Inputs))
+	for i, input := range decoded.Inputs {
+		tx.Inputs[i] = RavenTxInput{
+			PrevTxHash:    common.BytesToHash(input.PrevTxHash),
+			PrevIndex:     input.PrevIndex,
+			ScriptSig:     input.ScriptSig,
+			Sequence:      input.Sequence,
+			ScriptWitness: input.ScriptWitness,
+		}
+	}
+
+	tx.Outputs = make([]RavenTxOutput, len(decoded.Outputs))
+	for i, output := range decoded.Outputs {
+		tx.Outputs[i] = RavenTxOutput{
+			Value:        output.Value,
+			ScriptPubKey: output.ScriptPubKey,
+		}
+	}
+
+	return nil
+}
+
+func (b *RavenBlock) Chain() CrossChain {
+	return RavenChain
+}
+
+func (b *RavenBlock) PoWAlgorithm() PoWAlgorithm {
+	return KawPoWAlgorithm
+}
+
+// IsValidBlock check to see if this is a valid raven block, header and coinbase are valid
+func (b *RavenBlock) IsValidBlock() bool {
+	if b.Header == nil {
+		return false
+	}
+	if b.Coinbase == nil {
+		return false
+	}
+	if b.Header.Nonce == 0 || b.Header.Timestamp == 0 || b.Header.Bits == 0 {
+		return false
+	}
+	if len(b.Coinbase.Outputs) == 0 {
+		return false
+	}
+	return true
+}
+
+func (b *RavenBlock) Copy() CrossChainBlock {
+	header := b.Header.clone()
+
+	// Deep copy coinbase transaction
+	coinbase := &RavenTransaction{
+		Version:  b.Coinbase.Version,
+		LockTime: b.Coinbase.LockTime,
+	}
+
+	// Copy inputs
+	coinbase.Inputs = make([]RavenTxInput, len(b.Coinbase.Inputs))
+	for i, input := range b.Coinbase.Inputs {
+		// Copy witness data
+		var witnessData [][]byte
+		if len(input.ScriptWitness) > 0 {
+			witnessData = make([][]byte, len(input.ScriptWitness))
+			for j, witness := range input.ScriptWitness {
+				witnessData[j] = append([]byte(nil), witness...)
+			}
+		}
+
+		coinbase.Inputs[i] = RavenTxInput{
+			PrevTxHash:    input.PrevTxHash,
+			PrevIndex:     input.PrevIndex,
+			ScriptSig:     append([]byte(nil), input.ScriptSig...),
+			Sequence:      input.Sequence,
+			ScriptWitness: witnessData,
+		}
+	}
+
+	// Copy outputs
+	coinbase.Outputs = make([]RavenTxOutput, len(b.Coinbase.Outputs))
+	for i, output := range b.Coinbase.Outputs {
+		coinbase.Outputs[i] = RavenTxOutput{
+			Value:        output.Value,
+			ScriptPubKey: append([]byte(nil), output.ScriptPubKey...),
+		}
+	}
+
+	// Copy merkle proof
+	merkleProof := make([]common.Hash, len(b.MerkleProof))
+	copy(merkleProof, b.MerkleProof)
+
+	block := &RavenBlock{
+		Header:      header,
+		MerkleProof: merkleProof,
+		Coinbase:    coinbase,
+	}
+
+	return block
+}
+
+func (b *RavenBlock) BlockHash() string {
+	return "'"
+}
+
+func (b *RavenBlock) Timestamp() uint64 {
+	return uint64(b.Header.Timestamp) * 1000 // Convert to milliseconds
+}
+
+// Verify block's PoW
+func (b *RavenBlock) VerifyPoW() error {
+	return nil
+}
+
+func (b *RavenBlock) Difficulty() *big.Int {
+	// Calculate difficulty from bits
+	target := bitsToTarget(b.Header.Bits)
+
+	// Difficulty = max_target / current_target
+	difficulty := new(big.Rat).SetFrac(mainPowMax, target)
+	diff, _ := difficulty.Float64()
+
+	roundingPrecision := float64(100)
+	diff = math.Round(diff*roundingPrecision) / roundingPrecision
+
+	return big.NewInt(int64(diff))
+}
+
+func (b *RavenBlock) PowNonce() uint64 {
+	return uint64(b.Header.Nonce)
+}
+
+// VerifyCoinbase verify raven block coinbase transaction
+func (b *RavenBlock) VerifyCoinbase() bool {
+	if b.Coinbase == nil {
+		return false
+	}
+
+	// Check if it's a coinbase transaction (first input has null hash and index 0xFFFFFFFF)
+	if len(b.Coinbase.Inputs) == 0 {
+		return false
+	}
+
+	firstInput := b.Coinbase.Inputs[0]
+	nullHash := common.Hash{}
+	if firstInput.PrevTxHash != nullHash || firstInput.PrevIndex != 0xFFFFFFFF {
+		return false
+	}
+
+	// Verify merkle proof
+	return b.verifyMerkleProofForCoinbaseTx()
+}
+
+// GetMinerAddress returns canxium miner address from raven block coinbase
+func (b *RavenBlock) GetMinerAddress() (common.Address, error) {
+	if !b.VerifyCoinbase() {
+		return zeroAddress, errors.New("invalid raven coinbase transaction")
+	}
+
+	// Look for canxium miner tag in coinbase scriptSig
+	scriptSig := b.Coinbase.Inputs[0].ScriptSig
+	scriptStr := string(scriptSig)
+
+	tagLength := len(minerTagPrefix) + 40 // 40 characters for the address
+	if len(scriptStr) < tagLength {
+		return zeroAddress, errors.New("invalid raven coinbase transaction scriptSig length, can't get canxium miner address")
+	}
+
+	// Search for the miner tag in the script
+	tagIndex := strings.Index(scriptStr, minerTagPrefix)
+	if tagIndex == -1 {
+		return zeroAddress, errors.New("invalid raven coinbase transaction scriptSig, can't get canxium miner address tag")
+	}
+
+	// Extract address after the tag
+	if tagIndex+tagLength > len(scriptStr) {
+		return zeroAddress, errors.New("invalid raven coinbase transaction scriptSig, incomplete miner address")
+	}
+
+	addressStr := scriptStr[tagIndex+len(minerTagPrefix) : tagIndex+tagLength]
+	address := "0x" + addressStr
+
+	return common.HexToAddress(address), nil
+}
+
+// HasWitness returns true if the transaction has witness data
+func (tx *RavenTransaction) HasWitness() bool {
+	for _, input := range tx.Inputs {
+		if len(input.ScriptWitness) > 0 {
+			for _, witness := range input.ScriptWitness {
+				if len(witness) > 0 {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// IsCoinBase returns true if this is a coinbase transaction
+func (tx *RavenTransaction) IsCoinBase() bool {
+	return len(tx.Inputs) == 1 && tx.Inputs[0].PrevTxHash == (common.Hash{}) && tx.Inputs[0].PrevIndex == 0xFFFFFFFF
+}
+
+func (b *RavenBlock) verifyMerkleProofForCoinbaseTx() bool {
+	// Calculate the hash of the coinbase transaction
+	coinbaseHash := b.calculateCoinbaseHash()
+
+	if len(b.MerkleProof) == 0 {
+		// If no merkle proof, the coinbase hash should equal the merkle root
+		return coinbaseHash == b.Header.MerkleRoot
+	}
+
+	// Iterate through the proof and compute the root
+	computedHash := coinbaseHash
+	for _, siblingHash := range b.MerkleProof {
+		computedHash = hashRavenMerkleBranches(computedHash, siblingHash)
+	}
+
+	// Check if the computed hash matches the Merkle root
+	return computedHash == b.Header.MerkleRoot
+}
+
+func (b *RavenBlock) calculateCoinbaseHash() common.Hash {
+	// Implement Ravencoin's exact transaction serialization format
+	// Based on SerializeTransaction in Ravencoin/src/primitives/transaction.h
+	buf := new(bytes.Buffer)
+
+	// Write nVersion (int32_t) - little endian
+	binary.Write(buf, binary.LittleEndian, int32(b.Coinbase.Version))
+
+	// Write vin count as compact size (varint)
+	writeCompactSize(buf, uint64(len(b.Coinbase.Inputs)))
+
+	// Write all inputs
+	for _, input := range b.Coinbase.Inputs {
+		// Write prevout hash (32 bytes)
+		buf.Write(input.PrevTxHash[:])
+		// Write prevout index (uint32_t) - little endian
+		binary.Write(buf, binary.LittleEndian, input.PrevIndex)
+		// Write scriptSig with compact size prefix
+		writeCompactSize(buf, uint64(len(input.ScriptSig)))
+		buf.Write(input.ScriptSig)
+		// Write sequence (uint32_t) - little endian
+		binary.Write(buf, binary.LittleEndian, input.Sequence)
+	}
+
+	// Write vout count as compact size (varint)
+	writeCompactSize(buf, uint64(len(b.Coinbase.Outputs)))
+
+	// Write all outputs
+	for _, output := range b.Coinbase.Outputs {
+		// Write value (int64_t) - little endian
+		binary.Write(buf, binary.LittleEndian, int64(output.Value))
+		// Write scriptPubKey with compact size prefix
+		writeCompactSize(buf, uint64(len(output.ScriptPubKey)))
+		buf.Write(output.ScriptPubKey)
+	}
+
+	// Write nLockTime (uint32_t) - little endian
+	binary.Write(buf, binary.LittleEndian, b.Coinbase.LockTime)
+
+	// Double SHA256 hash (same as CHash256 in Ravencoin)
+	first := sha256.Sum256(buf.Bytes())
+	second := sha256.Sum256(first[:])
+
+	// In Bitcoin/Ravencoin, transaction IDs are displayed in reverse byte order
+	// So we need to reverse the hash bytes to match the expected txid format
+	reversedHash := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		reversedHash[i] = second[31-i]
+	}
+
+	return common.BytesToHash(reversedHash)
+}
+
+// writeCompactSize writes a variable-length integer as used in Bitcoin/Ravencoin protocol
+func writeCompactSize(buf *bytes.Buffer, size uint64) {
+	if size < 0xFD {
+		buf.WriteByte(byte(size))
+	} else if size <= 0xFFFF {
+		buf.WriteByte(0xFD)
+		binary.Write(buf, binary.LittleEndian, uint16(size))
+	} else if size <= 0xFFFFFFFF {
+		buf.WriteByte(0xFE)
+		binary.Write(buf, binary.LittleEndian, uint32(size))
+	} else {
+		buf.WriteByte(0xFF)
+		binary.Write(buf, binary.LittleEndian, size)
+	}
+}
+
+func encodeMerkleProofRaven(proof []common.Hash) ([]byte, error) {
+	var encodedProof [][]byte
+	for _, hash := range proof {
+		encodedProof = append(encodedProof, hash[:])
+	}
+
+	// Use RLP to encode the entire structure
+	encodedBytes, err := rlp.EncodeToBytes(encodedProof)
+	if err != nil {
+		return nil, err
+	}
+	return encodedBytes, nil
+}
+
+func decodeMerkleProofRaven(data []byte) ([]common.Hash, error) {
+	// Decode the raw RLP data into a slice of byte slices
+	var decoded [][]byte
+	if err := rlp.DecodeBytes(data, &decoded); err != nil {
+		return nil, err
+	}
+
+	// Transform back into the desired structure
+	var result []common.Hash
+	for _, data := range decoded {
+		if len(data) != 32 {
+			return nil, fmt.Errorf("invalid hash size: expected 32 bytes, got %d", len(data))
+		}
+		result = append(result, common.BytesToHash(data))
+	}
+	return result, nil
+}
+
+// hashRavenMerkleBranches takes two hashes, treated as the left and right tree
+// nodes, and returns the hash of their concatenation. This is a helper
+// function used to aid in the generation of a merkle tree.
+func hashRavenMerkleBranches(left, right common.Hash) common.Hash {
+	// Concatenate the left and right nodes.
+	combined := append(left[:], right[:]...)
+
+	// Double SHA256 hash (Bitcoin-style)
+	first := sha256.Sum256(combined)
+	second := sha256.Sum256(first[:])
+
+	return common.BytesToHash(second[:])
+}
+
+func (block *RavenBlock) EncodeRLP(w io.Writer) error {
+	merkleProof, err := encodeMerkleProofRaven(block.MerkleProof)
+	if err != nil {
+		return fmt.Errorf("failed to encode merkle proof: %w", err)
+	}
+
+	return rlp.Encode(w, []interface{}{
+		block.Header,
+		merkleProof,
+		block.Coinbase,
+	})
+}
+
+func (block *RavenBlock) DecodeRLP(s *rlp.Stream) error {
+	var decoded RlpRavenBlock
+	if err := s.Decode(&decoded); err != nil {
+		return fmt.Errorf("failed to decode raven block: %w", err)
+	}
+
+	block.Header = decoded.Header
+	block.Coinbase = decoded.Coinbase
+
+	merkleProof, err := decodeMerkleProofRaven(decoded.MerkleProof)
+	if err != nil {
+		return fmt.Errorf("failed to decode raven block merkle proof: %w", err)
+	}
+	block.MerkleProof = merkleProof
+
+	return nil
+}
+
+// bitsToTarget converts the compact "bits" representation to a big.Int target
+func bitsToTarget(bits uint32) *big.Int {
+	// Extract the exponent and mantissa
+	exponent := bits >> 24
+	mantissa := bits & 0x00ffffff
+
+	// Create the target
+	target := big.NewInt(int64(mantissa))
+
+	// Shift left by (exponent - 3) * 8 bits
+	if exponent > 3 {
+		target.Lsh(target, uint((exponent-3)*8))
+	} else if exponent < 3 {
+		target.Rsh(target, uint((3-exponent)*8))
+	}
+
+	return target
+}

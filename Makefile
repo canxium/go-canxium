@@ -8,10 +8,15 @@ GOBIN = ./build/bin
 GO ?= latest
 GORUN = env GO111MODULE=on go run
 
-canxium:
-	$(GORUN) build/ci.go install ./cmd/canxium
+canxium: libkawpow
+	env CGO_LDFLAGS="" $(GORUN) build/ci.go install ./cmd/canxium
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/canxium\" to launch canxium."
+
+# Build the kawpow native library only when the source files change
+libkawpow:
+	@mkdir -p build/lib
+	$(MAKE) -C ./crypto/kawpow OUTPUT_DIR=$(PWD)/build/lib
 
 all:
 	$(GORUN) build/ci.go install
@@ -24,7 +29,8 @@ lint: ## Run linters.
 
 clean:
 	env GO111MODULE=on go clean -cache
-	rm -fr build/_workspace/pkg/ $(GOBIN)/*
+	rm -fr build/_workspace/pkg/ $(GOBIN)/* build/lib/
+	$(MAKE) -C ./crypto/kawpow clean
 
 # The devtools target installs tools required for 'go generate'.
 # You need to put $GOBIN (or $GOPATH/bin) in your PATH to use 'go generate'.

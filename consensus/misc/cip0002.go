@@ -189,6 +189,8 @@ func CrossMiningForkTime(config *params.ChainConfig, parentChain crosschain.Cros
 	switch parentChain {
 	case crosschain.KaspaChain:
 		return *config.HeliumTime
+	case crosschain.RavenChain:
+		return *config.BerylliumTime // Same fork time as Kaspa for now
 	}
 
 	return math.MaxUint64
@@ -204,6 +206,9 @@ func CrossMiningReward(isLithiumFork bool, crossBlock crosschain.CrossChainBlock
 	case crosschain.KaspaChain:
 		reward := kaspaCrossMiningReward(isLithiumFork, crossBlock.Difficulty(), forkTime, time)
 		return reward
+	case crosschain.RavenChain:
+		reward := ravenCrossMiningReward(crossBlock.Difficulty(), forkTime, time)
+		return reward
 	}
 
 	return big0
@@ -214,6 +219,8 @@ func CrossMiningMinDifficulty(config *params.ChainConfig, parentChain crosschain
 	switch parentChain {
 	case crosschain.KaspaChain:
 		return config.CrossMining.MinimumKaspaDifficulty
+	case crosschain.RavenChain:
+		return config.CrossMining.MinimumRavenDifficulty
 	}
 
 	return mainPowMax
@@ -223,6 +230,9 @@ func CrossMiningMinDifficulty(config *params.ChainConfig, parentChain crosschain
 func isSupportedCrossMining(config *params.ChainConfig, tx *types.Transaction, blockTime uint64) bool {
 	if tx.AuxPoW().Chain() == crosschain.KaspaChain {
 		return config.IsHelium(blockTime)
+	}
+	if tx.AuxPoW().Chain() == crosschain.RavenChain {
+		return config.IsBerylliumTime(blockTime)
 	}
 
 	return false
@@ -278,4 +288,31 @@ func buildCrossMiningTxInput(chain crosschain.CrossChain, address common.Address
 	data = append(data, chainPadded...)
 	data = append(data, timestampPadded...)
 	return data
+}
+
+// ravenCrossMiningReward calculate reward for the difficulty of a raven block
+func ravenCrossMiningReward(difficulty *big.Int, forkTime uint64, time uint64) *big.Int {
+	day, month := timePassedSinceFork(forkTime, time)
+	baseReward := new(big.Int)
+
+	// Use similar reward schedule as Kaspa but with different base values for Raven, for testing only!
+	ravenBaseRewards := []int64{300, 250, 200, 150, 100, 80, 60, 40, 20, 10, 5, 2, 1}
+
+	baseRewards := ravenBaseRewards
+
+	// Phase 1: Incentive period (first 3 days)
+	ravenIncentiveBaseRewards := []int64{500, 400, 300}
+	if day < 3 {
+		baseReward.SetInt64(ravenIncentiveBaseRewards[day])
+	} else if month < uint64(len(baseRewards)) {
+		baseReward.SetInt64(baseRewards[month])
+	} else {
+		baseReward.SetInt64(baseRewards[len(baseRewards)-1])
+	}
+
+	// Multiply difficulty * baseReward (per 1000000 hash) / 1000000
+	reward := new(big.Int).Mul(difficulty, baseReward)
+	reward.Div(reward, big.NewInt(1000000))
+
+	return reward
 }

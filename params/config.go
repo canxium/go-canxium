@@ -445,6 +445,8 @@ type ChainConfig struct {
 	HeliumTime *uint64 `json:"heliumTime,omitempty"` // Second hardfork, to support cross mining
 	// T filter out kaspa block to reduce the impact of kaspa mining
 	LithiumTime *uint64 `json:"lithiumTime,omitempty"`
+	// BerylliumTime is the time when the beryllium hardfork will be activated to support raven cross mining
+	BerylliumTime *uint64 `json:"berylliumTime,omitempty"`
 
 	// TerminalTotalDifficulty is the amount of total difficulty reached by
 	// the network that triggers the consensus upgrade.
@@ -470,6 +472,7 @@ type ChainConfig struct {
 // CrossMiningConfig is the consensus engine configs for cross-chain mining
 type CrossMiningConfig struct {
 	MinimumKaspaDifficulty *big.Int `json:"minimumKaspaDifficulty,omitempty"`
+	MinimumRavenDifficulty *big.Int `json:"minimumRavenDifficulty,omitempty"`
 }
 
 // String implements the stringer interface, returning the consensus engine details.
@@ -607,6 +610,9 @@ func (c *ChainConfig) Description() string {
 	if c.LithiumTime != nil {
 		banner += fmt.Sprintf(" - Lithium:                	   @%-10v \n", *c.LithiumTime)
 	}
+	if c.BerylliumTime != nil {
+		banner += fmt.Sprintf(" - Beryllium:               	   @%-10v \n", *c.BerylliumTime)
+	}
 
 	banner += "\n"
 	// Create a list of forks post-merge
@@ -735,6 +741,11 @@ func (c *ChainConfig) IsHelium(time uint64) bool {
 // IsLithium returns whether num is either equal to the Lithium fork time or greater.
 func (c *ChainConfig) IsLithium(time uint64) bool {
 	return isTimestampForked(c.LithiumTime, time)
+}
+
+// IsBerylliumTime returns whether num is either equal to the Beryllium fork time or greater.
+func (c *ChainConfig) IsBerylliumTime(time uint64) bool {
+	return isTimestampForked(c.BerylliumTime, time)
 }
 
 // CheckCompatible checks whether scheduled fork transitions have been imported
