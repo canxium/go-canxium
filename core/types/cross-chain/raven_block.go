@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"math/big"
 	"strings"
 
@@ -184,12 +183,26 @@ func (header *RavenBlockHeader) VerifyKawPoWWithTarget(target *big.Int) bool {
 }
 
 // GetDifficulty calculates the difficulty from bits field
+// This implements the exact same logic as Ravencoin's GetDifficulty() function
 func (header *RavenBlockHeader) GetDifficulty() *big.Int {
-	target := bitsToTarget(header.Bits)
-	// Difficulty = max_target / current_target
-	difficulty := new(big.Rat).SetFrac(mainPowMax, target)
-	diff, _ := difficulty.Float64()
-	return big.NewInt(int64(diff))
+	// Extract the shift value (exponent) from bits
+	nShift := int((header.Bits >> 24) & 0xff)
+
+	// Calculate base difficulty: 0x0000ffff / (bits & 0x00ffffff)
+	mantissa := float64(header.Bits & 0x00ffffff)
+	dDiff := float64(0x0000ffff) / mantissa
+
+	// Adjust difficulty based on shift value to normalize to shift 29
+	for nShift < 29 {
+		dDiff *= 256.0
+		nShift++
+	}
+	for nShift > 29 {
+		dDiff /= 256.0
+		nShift--
+	}
+
+	return big.NewInt(int64(dDiff))
 }
 
 func (header *RavenBlockHeader) EncodeRLP(w io.Writer) error {
@@ -294,6 +307,59 @@ type RlpRavenTxInput struct {
 type RlpRavenTxOutput struct {
 	Value        int64
 	ScriptPubKey []byte
+}
+
+func (tx *RavenTransaction) Hash() common.Hash {
+	// Implement Ravencoin's exact transaction serialization format
+	// Based on SerializeTransaction in Ravencoin/src/primitives/transaction.h
+	buf := new(bytes.Buffer)
+
+	// Write nVersion (int32_t) - little endian
+	binary.Write(buf, binary.LittleEndian, int32(tx.Version))
+
+	// Write vin count as compact size (varint)
+	writeCompactSize(buf, uint64(len(tx.Inputs)))
+
+	// Write all inputs
+	for _, input := range tx.Inputs {
+		// Write prevout hash (32 bytes)
+		buf.Write(input.PrevTxHash[:])
+		// Write prevout index (uint32_t) - little endian
+		binary.Write(buf, binary.LittleEndian, input.PrevIndex)
+		// Write scriptSig with compact size prefix
+		writeCompactSize(buf, uint64(len(input.ScriptSig)))
+		buf.Write(input.ScriptSig)
+		// Write sequence (uint32_t) - little endian
+		binary.Write(buf, binary.LittleEndian, input.Sequence)
+	}
+
+	// Write vout count as compact size (varint)
+	writeCompactSize(buf, uint64(len(tx.Outputs)))
+
+	// Write all outputs
+	for _, output := range tx.Outputs {
+		// Write value (int64_t) - little endian
+		binary.Write(buf, binary.LittleEndian, int64(output.Value))
+		// Write scriptPubKey with compact size prefix
+		writeCompactSize(buf, uint64(len(output.ScriptPubKey)))
+		buf.Write(output.ScriptPubKey)
+	}
+
+	// Write nLockTime (uint32_t) - little endian
+	binary.Write(buf, binary.LittleEndian, tx.LockTime)
+
+	// Double SHA256 hash (same as CHash256 in Ravencoin)
+	first := sha256.Sum256(buf.Bytes())
+	second := sha256.Sum256(first[:])
+
+	// In Bitcoin/Ravencoin, transaction IDs are displayed in reverse byte order
+	// So we need to reverse the hash bytes to match the expected txid format
+	reversedHash := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		reversedHash[i] = second[31-i]
+	}
+
+	return common.BytesToHash(reversedHash)
 }
 
 func (tx *RavenTransaction) EncodeRLP(w io.Writer) error {
@@ -446,17 +512,8 @@ func (b *RavenBlock) VerifyPoW() error {
 }
 
 func (b *RavenBlock) Difficulty() *big.Int {
-	// Calculate difficulty from bits
-	target := bitsToTarget(b.Header.Bits)
-
-	// Difficulty = max_target / current_target
-	difficulty := new(big.Rat).SetFrac(mainPowMax, target)
-	diff, _ := difficulty.Float64()
-
-	roundingPrecision := float64(100)
-	diff = math.Round(diff*roundingPrecision) / roundingPrecision
-
-	return big.NewInt(int64(diff))
+	// Use the header's GetDifficulty method which implements Ravencoin's logic
+	return b.Header.GetDifficulty()
 }
 
 func (b *RavenBlock) PowNonce() uint64 {
@@ -537,7 +594,7 @@ func (tx *RavenTransaction) IsCoinBase() bool {
 
 func (b *RavenBlock) verifyMerkleProofForCoinbaseTx() bool {
 	// Calculate the hash of the coinbase transaction
-	coinbaseHash := b.calculateCoinbaseHash()
+	coinbaseHash := b.Coinbase.Hash()
 
 	if len(b.MerkleProof) == 0 {
 		// If no merkle proof, the coinbase hash should equal the merkle root
@@ -552,59 +609,6 @@ func (b *RavenBlock) verifyMerkleProofForCoinbaseTx() bool {
 
 	// Check if the computed hash matches the Merkle root
 	return computedHash == b.Header.MerkleRoot
-}
-
-func (b *RavenBlock) calculateCoinbaseHash() common.Hash {
-	// Implement Ravencoin's exact transaction serialization format
-	// Based on SerializeTransaction in Ravencoin/src/primitives/transaction.h
-	buf := new(bytes.Buffer)
-
-	// Write nVersion (int32_t) - little endian
-	binary.Write(buf, binary.LittleEndian, int32(b.Coinbase.Version))
-
-	// Write vin count as compact size (varint)
-	writeCompactSize(buf, uint64(len(b.Coinbase.Inputs)))
-
-	// Write all inputs
-	for _, input := range b.Coinbase.Inputs {
-		// Write prevout hash (32 bytes)
-		buf.Write(input.PrevTxHash[:])
-		// Write prevout index (uint32_t) - little endian
-		binary.Write(buf, binary.LittleEndian, input.PrevIndex)
-		// Write scriptSig with compact size prefix
-		writeCompactSize(buf, uint64(len(input.ScriptSig)))
-		buf.Write(input.ScriptSig)
-		// Write sequence (uint32_t) - little endian
-		binary.Write(buf, binary.LittleEndian, input.Sequence)
-	}
-
-	// Write vout count as compact size (varint)
-	writeCompactSize(buf, uint64(len(b.Coinbase.Outputs)))
-
-	// Write all outputs
-	for _, output := range b.Coinbase.Outputs {
-		// Write value (int64_t) - little endian
-		binary.Write(buf, binary.LittleEndian, int64(output.Value))
-		// Write scriptPubKey with compact size prefix
-		writeCompactSize(buf, uint64(len(output.ScriptPubKey)))
-		buf.Write(output.ScriptPubKey)
-	}
-
-	// Write nLockTime (uint32_t) - little endian
-	binary.Write(buf, binary.LittleEndian, b.Coinbase.LockTime)
-
-	// Double SHA256 hash (same as CHash256 in Ravencoin)
-	first := sha256.Sum256(buf.Bytes())
-	second := sha256.Sum256(first[:])
-
-	// In Bitcoin/Ravencoin, transaction IDs are displayed in reverse byte order
-	// So we need to reverse the hash bytes to match the expected txid format
-	reversedHash := make([]byte, 32)
-	for i := 0; i < 32; i++ {
-		reversedHash[i] = second[31-i]
-	}
-
-	return common.BytesToHash(reversedHash)
 }
 
 // writeCompactSize writes a variable-length integer as used in Bitcoin/Ravencoin protocol
@@ -659,14 +663,75 @@ func decodeMerkleProofRaven(data []byte) ([]common.Hash, error) {
 // nodes, and returns the hash of their concatenation. This is a helper
 // function used to aid in the generation of a merkle tree.
 func hashRavenMerkleBranches(left, right common.Hash) common.Hash {
-	// Concatenate the left and right nodes.
-	combined := append(left[:], right[:]...)
+	// In Bitcoin/Ravencoin, the merkle tree hashing uses the raw hash bytes
+	// but since our transaction hashes are already reversed for display,
+	// we need to unreverse them for the merkle tree calculation
+
+	// Convert display hashes back to internal byte order
+	leftInternal := make([]byte, 32)
+	rightInternal := make([]byte, 32)
+
+	for i := 0; i < 32; i++ {
+		leftInternal[i] = left[31-i]
+		rightInternal[i] = right[31-i]
+	}
+
+	// Concatenate the left and right nodes in internal byte order
+	combined := append(leftInternal[:], rightInternal[:]...)
 
 	// Double SHA256 hash (Bitcoin-style)
 	first := sha256.Sum256(combined)
 	second := sha256.Sum256(first[:])
 
-	return common.BytesToHash(second[:])
+	// The result needs to be reversed back to display format
+	reversedResult := make([]byte, 32)
+	for i := 0; i < 32; i++ {
+		reversedResult[i] = second[31-i]
+	}
+
+	return common.BytesToHash(reversedResult)
+}
+
+// buildMerkleTree builds a merkle tree from transaction hashes
+// This follows Bitcoin/Ravencoin's merkle tree construction algorithm
+func buildMerkleTree(txHashes []common.Hash) common.Hash {
+	if len(txHashes) == 0 {
+		return common.Hash{}
+	}
+
+	if len(txHashes) == 1 {
+		return txHashes[0]
+	}
+
+	// Create a copy to avoid modifying the original slice
+	hashes := make([]common.Hash, len(txHashes))
+	copy(hashes, txHashes)
+
+	// Keep building levels until we have one hash
+	for len(hashes) > 1 {
+		var nextLevel []common.Hash
+
+		// Process pairs of hashes
+		for i := 0; i < len(hashes); i += 2 {
+			var left, right common.Hash
+			left = hashes[i]
+
+			// If odd number of hashes, duplicate the last one (Bitcoin/Ravencoin behavior)
+			if i+1 < len(hashes) {
+				right = hashes[i+1]
+			} else {
+				right = hashes[i] // Duplicate the last hash
+			}
+
+			// Hash the pair and add to next level
+			combinedHash := hashRavenMerkleBranches(left, right)
+			nextLevel = append(nextLevel, combinedHash)
+		}
+
+		hashes = nextLevel
+	}
+
+	return hashes[0]
 }
 
 func (block *RavenBlock) EncodeRLP(w io.Writer) error {
@@ -701,19 +766,37 @@ func (block *RavenBlock) DecodeRLP(s *rlp.Stream) error {
 }
 
 // bitsToTarget converts the compact "bits" representation to a big.Int target
+// This implements the exact same logic as Ravencoin's arith_uint256::SetCompact() method
 func bitsToTarget(bits uint32) *big.Int {
-	// Extract the exponent and mantissa
-	exponent := bits >> 24
-	mantissa := bits & 0x00ffffff
+	// Extract the size (exponent) and word (mantissa) following Ravencoin's SetCompact
+	nSize := int(bits >> 24)
+	nWord := bits & 0x007fffff // Note: 0x007fffff not 0x00ffffff (excludes sign bit)
 
-	// Create the target
-	target := big.NewInt(int64(mantissa))
+	var target *big.Int
 
-	// Shift left by (exponent - 3) * 8 bits
-	if exponent > 3 {
-		target.Lsh(target, uint((exponent-3)*8))
-	} else if exponent < 3 {
-		target.Rsh(target, uint((3-exponent)*8))
+	if nSize <= 3 {
+		// For size <= 3, shift the word right
+		nWord >>= uint(8 * (3 - nSize))
+		target = big.NewInt(int64(nWord))
+	} else {
+		// For size > 3, shift the word left
+		target = big.NewInt(int64(nWord))
+		target.Lsh(target, uint(8*(nSize-3)))
+	}
+
+	// Handle negative values and overflow cases like Ravencoin
+	// If the sign bit is set (0x00800000) and nWord != 0, it's negative
+	if nWord != 0 && (bits&0x00800000) != 0 {
+		// In Ravencoin, negative targets are invalid, return 0
+		return big.NewInt(0)
+	}
+
+	// Check for overflow like Ravencoin does
+	if nWord != 0 && ((nSize > 34) ||
+		(nWord > 0xff && nSize > 33) ||
+		(nWord > 0xffff && nSize > 32)) {
+		// Overflow case, return 0 (invalid)
+		return big.NewInt(0)
 	}
 
 	return target
