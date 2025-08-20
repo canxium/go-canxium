@@ -55,6 +55,7 @@ func newUint64(val uint64) *uint64 { return &val }
 var (
 	// the smallest minimum difficulty of a kaspa block that calcium can accept, if smaller it will cause a mathematical error compared to using float numbers
 	KaspaMinAcceptableDifficulty = big.NewInt(1000000)
+	RavenMinAcceptableDifficulty = big.NewInt(1)
 
 	MainnetTerminalTotalDifficulty, _ = new(big.Int).SetString("58_750_000_000_000_000_000_000", 0)
 
@@ -472,7 +473,6 @@ type ChainConfig struct {
 // CrossMiningConfig is the consensus engine configs for cross-chain mining
 type CrossMiningConfig struct {
 	MinimumKaspaDifficulty *big.Int `json:"minimumKaspaDifficulty,omitempty"`
-	MinimumRavenDifficulty *big.Int `json:"minimumRavenDifficulty,omitempty"`
 }
 
 // String implements the stringer interface, returning the consensus engine details.

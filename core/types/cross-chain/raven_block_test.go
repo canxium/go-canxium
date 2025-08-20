@@ -94,12 +94,12 @@ func TestKawPoWIntegration(t *testing.T) {
 		header.MixHash = mixHash
 		t.Logf("⏱️  Starting KawPoW verification...")
 		start3 := time.Now()
-		verified := header.VerifyKawPoW()
+		verifyErr := header.VerifyKawPoW()
 		duration3 := time.Since(start3)
 		t.Logf("⏱️  KawPoW verification completed in: %v", duration3)
 
-		if !verified {
-			t.Error("KawPoW verification failed with calculated mix hash")
+		if verifyErr != nil {
+			t.Errorf("KawPoW verification failed with calculated mix hash: %v", verifyErr)
 		}
 
 		t.Logf("⏱️  Performance Summary:")
@@ -761,8 +761,8 @@ func TestVerifyKawPoW(t *testing.T) {
 	t.Logf("Expected difficulty: %.8f", 60441.34817545983)
 	t.Logf("Calculated target: %064x", target) // Show with leading zeros
 
-	if !header.VerifyKawPoW() {
-		t.Error("KawPoW verification failed for valid block")
+	if err := header.VerifyKawPoW(); err != nil {
+		t.Errorf("KawPoW verification failed for valid block: %v", err)
 	} else {
 		t.Logf("✅ KawPoW verification successful")
 	}
@@ -1273,4 +1273,376 @@ func calculateMerkleProof(txHashes []common.Hash, position int) []common.Hash {
 	}
 
 	return proof
+}
+
+// TestGetMinerAddress tests the GetMinerAddress function with various scenarios
+func TestGetMinerAddress(t *testing.T) {
+	// Test address for validation
+	testAddress := "1234567890abcdef1234567890abcdef12345678"
+	expectedAddress := common.HexToAddress("0x" + testAddress)
+
+	t.Run("Valid Address in ScriptSig", func(t *testing.T) {
+		// Create a coinbase transaction with CAU: prefix in scriptSig
+		coinbase := &RavenTransaction{
+			Version: 1,
+			Inputs: []RavenTxInput{
+				{
+					PrevTxHash: common.Hash{}, // Null hash for coinbase
+					PrevIndex:  0xFFFFFFFF,    // Max uint32 for coinbase
+					ScriptSig:  []byte("03f4533c" + utxoMinerTagPrefix + testAddress + "extra_data"),
+					Sequence:   4294967295,
+				},
+			},
+			Outputs: []RavenTxOutput{
+				{
+					Value:        250000000000,
+					ScriptPubKey: []byte{0x76, 0xa9, 0x14}, // Standard P2PKH prefix
+				},
+			},
+			LockTime: 0,
+		}
+
+		block := &RavenBlock{
+			Header: &RavenBlockHeader{
+				Version:    1,
+				MerkleRoot: coinbase.Hash(), // Single transaction = merkle root
+				Timestamp:  1234567890,
+				Bits:       0x1b011490,
+				Nonce:      12345,
+				Height:     100,
+			},
+			MerkleProof: []common.Hash{}, // Empty for single transaction
+			Coinbase:    coinbase,
+		}
+
+		addr, err := block.GetMinerAddress()
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if addr != expectedAddress {
+			t.Errorf("Address mismatch. Expected: %s, Got: %s", expectedAddress.Hex(), addr.Hex())
+		}
+		t.Logf("✅ Successfully extracted address from scriptSig: %s", addr.Hex())
+	})
+
+	t.Run("Valid Address in OP_RETURN Output", func(t *testing.T) {
+		// Create OP_RETURN script: 0x6a (OP_RETURN) + length + data
+		opReturnData := utxoMinerTagPrefix + testAddress
+		opReturnScript := []byte{0x6a, byte(len(opReturnData))}
+		opReturnScript = append(opReturnScript, []byte(opReturnData)...)
+
+		coinbase := &RavenTransaction{
+			Version: 1,
+			Inputs: []RavenTxInput{
+				{
+					PrevTxHash: common.Hash{},
+					PrevIndex:  0xFFFFFFFF,
+					ScriptSig:  []byte("03f4533c"), // No CAU: in scriptSig
+					Sequence:   4294967295,
+				},
+			},
+			Outputs: []RavenTxOutput{
+				{
+					Value:        250000000000,
+					ScriptPubKey: []byte{0x76, 0xa9, 0x14}, // Standard output
+				},
+				{
+					Value:        0, // Zero value OP_RETURN
+					ScriptPubKey: opReturnScript,
+				},
+			},
+			LockTime: 0,
+		}
+
+		block := &RavenBlock{
+			Header: &RavenBlockHeader{
+				Version:    1,
+				MerkleRoot: coinbase.Hash(),
+				Timestamp:  1234567890,
+				Bits:       0x1b011490,
+				Nonce:      12345,
+				Height:     100,
+			},
+			MerkleProof: []common.Hash{},
+			Coinbase:    coinbase,
+		}
+
+		addr, err := block.GetMinerAddress()
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		if addr != expectedAddress {
+			t.Errorf("Address mismatch. Expected: %s, Got: %s", expectedAddress.Hex(), addr.Hex())
+		}
+		t.Logf("✅ Successfully extracted address from OP_RETURN: %s", addr.Hex())
+	})
+
+	t.Run("Address in Both ScriptSig and OP_RETURN - ScriptSig Priority", func(t *testing.T) {
+		scriptSigAddress := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		opReturnAddress := "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+		// OP_RETURN script
+		opReturnData := utxoMinerTagPrefix + opReturnAddress
+		opReturnScript := []byte{0x6a, byte(len(opReturnData))}
+		opReturnScript = append(opReturnScript, []byte(opReturnData)...)
+
+		coinbase := &RavenTransaction{
+			Version: 1,
+			Inputs: []RavenTxInput{
+				{
+					PrevTxHash: common.Hash{},
+					PrevIndex:  0xFFFFFFFF,
+					ScriptSig:  []byte("03f4533c" + utxoMinerTagPrefix + scriptSigAddress),
+					Sequence:   4294967295,
+				},
+			},
+			Outputs: []RavenTxOutput{
+				{
+					Value:        250000000000,
+					ScriptPubKey: []byte{0x76, 0xa9, 0x14},
+				},
+				{
+					Value:        0,
+					ScriptPubKey: opReturnScript,
+				},
+			},
+			LockTime: 0,
+		}
+
+		block := &RavenBlock{
+			Header: &RavenBlockHeader{
+				Version:    1,
+				MerkleRoot: coinbase.Hash(),
+				Timestamp:  1234567890,
+				Bits:       0x1b011490,
+				Nonce:      12345,
+				Height:     100,
+			},
+			MerkleProof: []common.Hash{},
+			Coinbase:    coinbase,
+		}
+
+		addr, err := block.GetMinerAddress()
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		expectedScriptSigAddr := common.HexToAddress("0x" + scriptSigAddress)
+		if addr != expectedScriptSigAddr {
+			t.Errorf("Expected scriptSig address priority. Expected: %s, Got: %s", expectedScriptSigAddr.Hex(), addr.Hex())
+		}
+		t.Logf("✅ ScriptSig address has priority over OP_RETURN: %s", addr.Hex())
+	})
+
+	t.Run("Invalid Coinbase Transaction", func(t *testing.T) {
+		// Not a coinbase transaction (PrevIndex != 0xFFFFFFFF)
+		coinbase := &RavenTransaction{
+			Version: 1,
+			Inputs: []RavenTxInput{
+				{
+					PrevTxHash: common.Hash{},
+					PrevIndex:  0, // Invalid for coinbase
+					ScriptSig:  []byte("03f4533c" + utxoMinerTagPrefix + testAddress),
+					Sequence:   4294967295,
+				},
+			},
+			Outputs:  []RavenTxOutput{{}},
+			LockTime: 0,
+		}
+
+		block := &RavenBlock{
+			Header: &RavenBlockHeader{
+				Version:    1,
+				MerkleRoot: coinbase.Hash(),
+				Timestamp:  1234567890,
+				Bits:       0x1b011490,
+				Nonce:      12345,
+				Height:     100,
+			},
+			MerkleProof: []common.Hash{},
+			Coinbase:    coinbase,
+		}
+
+		_, err := block.GetMinerAddress()
+		if err == nil {
+			t.Fatalf("Expected error for invalid coinbase transaction")
+		}
+		t.Logf("✅ Correctly rejected invalid coinbase transaction: %v", err)
+	})
+
+	t.Run("No CAU Address Found", func(t *testing.T) {
+		coinbase := &RavenTransaction{
+			Version: 1,
+			Inputs: []RavenTxInput{
+				{
+					PrevTxHash: common.Hash{},
+					PrevIndex:  0xFFFFFFFF,
+					ScriptSig:  []byte("03f4533c"), // No CAU: prefix
+					Sequence:   4294967295,
+				},
+			},
+			Outputs: []RavenTxOutput{
+				{
+					Value:        250000000000,
+					ScriptPubKey: []byte{0x76, 0xa9, 0x14}, // Standard output, no OP_RETURN
+				},
+			},
+			LockTime: 0,
+		}
+
+		block := &RavenBlock{
+			Header: &RavenBlockHeader{
+				Version:    1,
+				MerkleRoot: coinbase.Hash(),
+				Timestamp:  1234567890,
+				Bits:       0x1b011490,
+				Nonce:      12345,
+				Height:     100,
+			},
+			MerkleProof: []common.Hash{},
+			Coinbase:    coinbase,
+		}
+
+		_, err := block.GetMinerAddress()
+		if err == nil {
+			t.Fatalf("Expected error when no CAU address is found")
+		}
+		if err.Error() != "canxium address not found in coinbase scriptSig or OP_RETURN output" {
+			t.Errorf("Unexpected error message: %v", err)
+		}
+		t.Logf("✅ Correctly handled missing CAU address: %v", err)
+	})
+
+	t.Run("Invalid Hex Characters in Address", func(t *testing.T) {
+		invalidAddress := "123456789gabcdef1234567890abcdef12345ghi" // Contains 'g' and 'i'
+
+		coinbase := &RavenTransaction{
+			Version: 1,
+			Inputs: []RavenTxInput{
+				{
+					PrevTxHash: common.Hash{},
+					PrevIndex:  0xFFFFFFFF,
+					ScriptSig:  []byte("03f4533c" + utxoMinerTagPrefix + invalidAddress),
+					Sequence:   4294967295,
+				},
+			},
+			Outputs: []RavenTxOutput{
+				{
+					Value:        250000000000,
+					ScriptPubKey: []byte{0x76, 0xa9, 0x14},
+				},
+			},
+			LockTime: 0,
+		}
+
+		block := &RavenBlock{
+			Header: &RavenBlockHeader{
+				Version:    1,
+				MerkleRoot: coinbase.Hash(),
+				Timestamp:  1234567890,
+				Bits:       0x1b011490,
+				Nonce:      12345,
+				Height:     100,
+			},
+			MerkleProof: []common.Hash{},
+			Coinbase:    coinbase,
+		}
+
+		_, err := block.GetMinerAddress()
+		if err == nil {
+			t.Fatalf("Expected error for invalid hex characters")
+		}
+		t.Logf("✅ Correctly rejected invalid hex characters: %v", err)
+	})
+
+	t.Run("Address Too Short", func(t *testing.T) {
+		shortAddress := "123456789abcdef" // Only 15 characters instead of 40
+
+		coinbase := &RavenTransaction{
+			Version: 1,
+			Inputs: []RavenTxInput{
+				{
+					PrevTxHash: common.Hash{},
+					PrevIndex:  0xFFFFFFFF,
+					ScriptSig:  []byte("03f4533c" + utxoMinerTagPrefix + shortAddress),
+					Sequence:   4294967295,
+				},
+			},
+			Outputs: []RavenTxOutput{
+				{
+					Value:        250000000000,
+					ScriptPubKey: []byte{0x76, 0xa9, 0x14},
+				},
+			},
+			LockTime: 0,
+		}
+
+		block := &RavenBlock{
+			Header: &RavenBlockHeader{
+				Version:    1,
+				MerkleRoot: coinbase.Hash(),
+				Timestamp:  1234567890,
+				Bits:       0x1b011490,
+				Nonce:      12345,
+				Height:     100,
+			},
+			MerkleProof: []common.Hash{},
+			Coinbase:    coinbase,
+		}
+
+		_, err := block.GetMinerAddress()
+		if err == nil {
+			t.Fatalf("Expected error for address too short")
+		}
+		t.Logf("✅ Correctly rejected short address: %v", err)
+	})
+
+	t.Run("Case Insensitive Hex Validation", func(t *testing.T) {
+		mixedCaseAddress := "1234567890ABCdef1234567890abcDEF12345678" // Mixed case
+
+		coinbase := &RavenTransaction{
+			Version: 1,
+			Inputs: []RavenTxInput{
+				{
+					PrevTxHash: common.Hash{},
+					PrevIndex:  0xFFFFFFFF,
+					ScriptSig:  []byte("03f4533c" + utxoMinerTagPrefix + mixedCaseAddress),
+					Sequence:   4294967295,
+				},
+			},
+			Outputs: []RavenTxOutput{
+				{
+					Value:        250000000000,
+					ScriptPubKey: []byte{0x76, 0xa9, 0x14},
+				},
+			},
+			LockTime: 0,
+		}
+
+		block := &RavenBlock{
+			Header: &RavenBlockHeader{
+				Version:    1,
+				MerkleRoot: coinbase.Hash(),
+				Timestamp:  1234567890,
+				Bits:       0x1b011490,
+				Nonce:      12345,
+				Height:     100,
+			},
+			MerkleProof: []common.Hash{},
+			Coinbase:    coinbase,
+		}
+
+		addr, err := block.GetMinerAddress()
+		if err != nil {
+			t.Fatalf("Expected no error for mixed case hex, got: %v", err)
+		}
+
+		expectedMixedAddr := common.HexToAddress("0x" + mixedCaseAddress)
+		if addr != expectedMixedAddr {
+			t.Errorf("Address mismatch. Expected: %s, Got: %s", expectedMixedAddr.Hex(), addr.Hex())
+		}
+		t.Logf("✅ Successfully handled mixed case hex: %s", addr.Hex())
+	})
 }

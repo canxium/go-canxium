@@ -9,7 +9,7 @@ GO ?= latest
 GORUN = env GO111MODULE=on go run
 
 canxium: libkawpow
-	env CGO_LDFLAGS="" $(GORUN) build/ci.go install ./cmd/canxium
+	env CGO_LDFLAGS="-w -s" $(GORUN) build/ci.go install ./cmd/canxium
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/canxium\" to launch canxium."
 

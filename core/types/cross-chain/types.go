@@ -35,7 +35,8 @@ const (
 
 const (
 	// prefix of kaspa miner in the coinbase transaction payload. To extract the canxium address
-	minerTagPrefix = "canxiuminer:"
+	minerTagPrefix     = "canxiuminer:"
+	utxoMinerTagPrefix = "CAU:" // smaller prefix for UTXO miner tag
 )
 
 var (

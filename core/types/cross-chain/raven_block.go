@@ -43,6 +43,9 @@ type RavenBlockHeader struct {
 	Nonce uint64 `json:"nonce,omitempty"`
 
 	MixHash common.Hash `json:"mixHash,omitempty"` // Mix hash for KawPoW
+
+	// cache header hash
+	hash common.Hash `json:"-"` // Cached header hash for performance
 }
 
 type RlpRavenBlockHeader struct {
@@ -70,6 +73,10 @@ func (header *RavenBlockHeader) clone() *RavenBlockHeader {
 // HeaderHash computes the header hash for KawPoW validation
 // This implements the exact CKAWPOWInput serialization from Ravencoin's C++ code
 func (header *RavenBlockHeader) HeaderHash() common.Hash {
+	if header.hash != (common.Hash{}) {
+		return header.hash
+	}
+
 	// Create a buffer for CKAWPOWInput serialization
 	buf := bytes.NewBuffer(nil)
 
@@ -114,21 +121,23 @@ func (header *RavenBlockHeader) HeaderHash() common.Hash {
 	for i := 0; i < 32; i++ {
 		result[i] = second[31-i]
 	}
-	return common.BytesToHash(result)
+
+	header.hash = common.BytesToHash(result)
+	return header.hash
 }
 
 // VerifyKawPoW verifies the KawPoW proof of work for this header
 // This implements the exact same logic as Ravencoin's KAWPOWHash() function
-func (header *RavenBlockHeader) VerifyKawPoW() bool {
+func (header *RavenBlockHeader) VerifyKawPoW() error {
 	// Generate the KawPoW hash and mix hash
 	finalHash, calculatedMixHash, err := header.GenerateKawPoW()
 	if err != nil {
-		return false
+		return err
 	}
 
 	// Verify the mix hash matches what's stored in the header
 	if calculatedMixHash != header.MixHash {
-		return false
+		return fmt.Errorf("mix hash mismatch: expected %s, got %s", header.MixHash.Hex(), calculatedMixHash.Hex())
 	}
 
 	// Check if the final hash meets the difficulty target
@@ -136,7 +145,11 @@ func (header *RavenBlockHeader) VerifyKawPoW() bool {
 	finalHashBig := finalHash.Big()
 
 	// In PoW, the hash must be <= target to be valid
-	return finalHashBig.Cmp(target) <= 0
+	if finalHashBig.Cmp(target) <= 0 {
+		return nil // Valid KawPoW proof of work
+	}
+
+	return fmt.Errorf("final hash %s exceeds target %s", finalHash.Hex(), target.Text(16))
 }
 
 // GenerateKawPoW generates a KawPoW hash and mix hash for this header
@@ -160,26 +173,6 @@ func (header *RavenBlockHeader) GenerateKawPoW() (common.Hash, common.Hash, erro
 	calculatedMixHash := common.BytesToHash(mixHash)
 
 	return finalHash, calculatedMixHash, nil
-}
-
-// VerifyKawPoWWithTarget verifies KawPoW against a specific difficulty target
-func (header *RavenBlockHeader) VerifyKawPoWWithTarget(target *big.Int) bool {
-	// Generate the KawPoW hash and mix hash
-	finalHash, calculatedMixHash, err := header.GenerateKawPoW()
-	if err != nil {
-		return false
-	}
-
-	// Verify the mix hash matches what's stored in the header
-	if calculatedMixHash != header.MixHash {
-		return false
-	}
-
-	// Check if the final hash meets the provided difficulty target
-	finalHashBig := finalHash.Big()
-
-	// In PoW, the hash must be <= target to be valid
-	return finalHashBig.Cmp(target) <= 0
 }
 
 // GetDifficulty calculates the difficulty from bits field
@@ -259,12 +252,14 @@ type RavenBlock struct {
 	Header      *RavenBlockHeader `json:"header"`
 	MerkleProof []common.Hash     `json:"merkleProof"` // merkle proof path to verify the coinbase tx
 	Coinbase    *RavenTransaction `json:"coinbase"`
+	Hash        common.Hash       `json:"hash"` // Block hash
 }
 
 type RlpRavenBlock struct {
 	Header      *RavenBlockHeader
 	MerkleProof []byte
 	Coinbase    *RavenTransaction
+	Hash        common.Hash
 }
 
 // RavenTransaction represents a Ravencoin transaction following their exact format
@@ -273,6 +268,8 @@ type RavenTransaction struct {
 	Inputs   []RavenTxInput  `json:"inputs"`
 	Outputs  []RavenTxOutput `json:"outputs"`
 	LockTime uint32          `json:"lockTime"`
+	// cache hash
+	hash common.Hash `json:"-"` // Cached hash for performance
 }
 
 type RavenTxInput struct {
@@ -310,6 +307,10 @@ type RlpRavenTxOutput struct {
 }
 
 func (tx *RavenTransaction) Hash() common.Hash {
+	if tx.hash != (common.Hash{}) {
+		return tx.hash
+	}
+
 	// Implement Ravencoin's exact transaction serialization format
 	// Based on SerializeTransaction in Ravencoin/src/primitives/transaction.h
 	buf := new(bytes.Buffer)
@@ -359,7 +360,8 @@ func (tx *RavenTransaction) Hash() common.Hash {
 		reversedHash[i] = second[31-i]
 	}
 
-	return common.BytesToHash(reversedHash)
+	tx.hash = common.BytesToHash(reversedHash)
+	return tx.hash
 }
 
 func (tx *RavenTransaction) EncodeRLP(w io.Writer) error {
@@ -443,6 +445,9 @@ func (b *RavenBlock) IsValidBlock() bool {
 	if len(b.Coinbase.Outputs) == 0 {
 		return false
 	}
+	if len(b.MerkleProof) == 0 {
+		return false
+	}
 	return true
 }
 
@@ -499,7 +504,7 @@ func (b *RavenBlock) Copy() CrossChainBlock {
 }
 
 func (b *RavenBlock) BlockHash() string {
-	return "'"
+	return b.Hash.Hex()
 }
 
 func (b *RavenBlock) Timestamp() uint64 {
@@ -508,7 +513,7 @@ func (b *RavenBlock) Timestamp() uint64 {
 
 // Verify block's PoW
 func (b *RavenBlock) VerifyPoW() error {
-	return nil
+	return b.Header.VerifyKawPoW()
 }
 
 func (b *RavenBlock) Difficulty() *big.Int {
@@ -543,34 +548,53 @@ func (b *RavenBlock) VerifyCoinbase() bool {
 
 // GetMinerAddress returns canxium miner address from raven block coinbase
 func (b *RavenBlock) GetMinerAddress() (common.Address, error) {
-	if !b.VerifyCoinbase() {
-		return zeroAddress, errors.New("invalid raven coinbase transaction")
-	}
-
-	// Look for canxium miner tag in coinbase scriptSig
+	// 1. Try to extract from scriptSig (coinbase input) - fastest method
 	scriptSig := b.Coinbase.Inputs[0].ScriptSig
-	scriptStr := string(scriptSig)
-
-	tagLength := len(minerTagPrefix) + 40 // 40 characters for the address
-	if len(scriptStr) < tagLength {
-		return zeroAddress, errors.New("invalid raven coinbase transaction scriptSig length, can't get canxium miner address")
+	if address := extractAddressFromData(scriptSig); address != "" {
+		return common.HexToAddress("0x" + address), nil
 	}
 
-	// Search for the miner tag in the script
-	tagIndex := strings.Index(scriptStr, minerTagPrefix)
-	if tagIndex == -1 {
-		return zeroAddress, errors.New("invalid raven coinbase transaction scriptSig, can't get canxium miner address tag")
+	// 2. Try to extract from OP_RETURN outputs - fallback method
+	for _, output := range b.Coinbase.Outputs {
+		// OP_RETURN scripts start with 0x6a and have zero value
+		if output.Value == 0 && len(output.ScriptPubKey) > 0 && output.ScriptPubKey[0] == 0x6a {
+			if address := extractAddressFromData(output.ScriptPubKey); address != "" {
+				return common.HexToAddress("0x" + address), nil
+			}
+		}
 	}
 
-	// Extract address after the tag
-	if tagIndex+tagLength > len(scriptStr) {
-		return zeroAddress, errors.New("invalid raven coinbase transaction scriptSig, incomplete miner address")
+	return zeroAddress, errors.New("canxium address not found in coinbase scriptSig or OP_RETURN output")
+}
+
+// extractAddressFromData safely extracts a 40-character hex address after "CAU:" prefix
+func extractAddressFromData(data []byte) string {
+	if len(data) < 44 { // minimum: "CAU:" (4) + address (40) = 44 bytes
+		return ""
 	}
 
-	addressStr := scriptStr[tagIndex+len(minerTagPrefix) : tagIndex+tagLength]
-	address := "0x" + addressStr
+	dataStr := string(data)
+	cauIndex := strings.Index(dataStr, utxoMinerTagPrefix) // "CAU:"
+	if cauIndex == -1 {
+		return ""
+	}
 
-	return common.HexToAddress(address), nil
+	// Extract exactly 40 characters after "CAU:"
+	startIndex := cauIndex + len(utxoMinerTagPrefix)
+	if startIndex+40 > len(dataStr) {
+		return "" // Not enough data for full address
+	}
+
+	address := dataStr[startIndex : startIndex+40]
+
+	// Validate address contains only hex characters
+	for _, c := range address {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return "" // Invalid hex character
+		}
+	}
+
+	return address
 }
 
 // HasWitness returns true if the transaction has witness data
@@ -744,6 +768,7 @@ func (block *RavenBlock) EncodeRLP(w io.Writer) error {
 		block.Header,
 		merkleProof,
 		block.Coinbase,
+		block.Hash,
 	})
 }
 
@@ -755,6 +780,7 @@ func (block *RavenBlock) DecodeRLP(s *rlp.Stream) error {
 
 	block.Header = decoded.Header
 	block.Coinbase = decoded.Coinbase
+	block.Hash = decoded.Hash
 
 	merkleProof, err := decodeMerkleProofRaven(decoded.MerkleProof)
 	if err != nil {
