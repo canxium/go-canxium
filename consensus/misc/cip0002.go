@@ -296,6 +296,11 @@ func buildCrossMiningTxInput(chain crosschain.CrossChain, address common.Address
 
 // ravenCrossMiningReward calculate reward for the difficulty of a raven block
 func ravenCrossMiningReward(difficulty *big.Int, forkTime uint64, time uint64) *big.Int {
+	// If time is before fork, no reward
+	if time < forkTime {
+		return big.NewInt(0)
+	}
+
 	_, month := timePassedSinceFork(forkTime, time)
 	baseReward := new(big.Int)
 
@@ -305,9 +310,6 @@ func ravenCrossMiningReward(difficulty *big.Int, forkTime uint64, time uint64) *
 		baseReward.SetInt64(RavenCrossMiningRewards[month])
 	}
 
-	// Multiply difficulty * baseReward (per 1000000 hash) / 1000000
 	reward := new(big.Int).Mul(difficulty, baseReward)
-	reward.Div(reward, big.NewInt(1000000))
-
 	return reward
 }
