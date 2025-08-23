@@ -579,8 +579,15 @@ func extractAddressFromData(data []byte) string {
 		return ""
 	}
 
-	// Extract exactly 40 characters after "CAU:"
+	// Start after "CAU:"
 	startIndex := cauIndex + len(utxoMinerTagPrefix)
+
+	// Check if there's a "0x" prefix and skip it
+	if startIndex+2 < len(dataStr) && dataStr[startIndex:startIndex+2] == "0x" {
+		startIndex += 2
+	}
+
+	// Extract exactly 40 characters for the address
 	if startIndex+40 > len(dataStr) {
 		return "" // Not enough data for full address
 	}
