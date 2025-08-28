@@ -1,5 +1,7 @@
 package kawpow
 
+//go:generate make -C ../../ libkawpow
+
 /*
 void kawpow_hash(char *, char *, const char*, const char*, const char*);
 #cgo LDFLAGS: ${SRCDIR}/../../build/lib/libkawpow.a -lstdc++
@@ -18,7 +20,7 @@ var mu sync.Mutex
 func Hash(headerHash, nonce string, height int64) ([]byte, []byte) {
 	mu.Lock()
 	defer mu.Unlock()
-	
+
 	heightStr := C.CString(fmt.Sprintf("%d", height))
 	defer C.free(unsafe.Pointer(heightStr))
 
