@@ -16,6 +16,7 @@ $(KAWPOW_LIB):
 	mkdir -p $(OUTPUT_DIR)
 	cd $(KAWPOW_BUILD_DIR) && cmake .. && make
 	cp $(KAWPOW_BUILD_DIR)/lib/libkawpow.a $(OUTPUT_DIR)/
+	rm -rf $(KAWPOW_BUILD_DIR)
 
 clean:
 	rm -rf $(KAWPOW_BUILD_DIR)

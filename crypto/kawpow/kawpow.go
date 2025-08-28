@@ -1,13 +1,19 @@
+//go:build kawpow
+// +build kawpow
+
 package kawpow
 
 //go:generate make -C ../../ libkawpow
 
 /*
-void kawpow_hash(char *, char *, const char*, const char*, const char*);
+#cgo CFLAGS: -I./src
 #cgo LDFLAGS: ${SRCDIR}/../../build/lib/libkawpow.a -lstdc++
+
+void kawpow_hash(char *, char *, const char*, const char*, const char*);
 #include <stdlib.h>
 */
 import "C"
+
 import (
 	"encoding/hex"
 	"fmt"

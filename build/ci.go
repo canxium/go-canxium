@@ -209,7 +209,7 @@ func doInstall(cmdline []string) {
 	}
 
 	// Disable CLI markdown doc generation in release builds.
-	buildTags := []string{"urfave_cli_no_docs"}
+	buildTags := []string{"urfave_cli_no_docs", "kawpow"}
 
 	// Configure the build.
 	env := build.Env()
