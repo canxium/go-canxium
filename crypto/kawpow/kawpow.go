@@ -3,8 +3,6 @@
 
 package kawpow
 
-//go:generate make -C ../../ libkawpow
-
 /*
 #cgo CFLAGS: -I./src
 #cgo LDFLAGS: ${SRCDIR}/../../build/lib/libkawpow.a -lstdc++
