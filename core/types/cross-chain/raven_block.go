@@ -49,13 +49,14 @@ type RavenBlockHeader struct {
 }
 
 type RlpRavenBlockHeader struct {
-	Version    uint32
+	Version    uint64
 	PrevBlock  []byte
 	MerkleRoot []byte
-	Timestamp  uint32
-	Bits       uint32
+	Timestamp  uint64
+	Bits       uint64
+	Height     uint64
 	Nonce      uint64
-	Height     uint32
+	MixHash    []byte
 }
 
 func (header *RavenBlockHeader) clone() *RavenBlockHeader {
@@ -65,8 +66,9 @@ func (header *RavenBlockHeader) clone() *RavenBlockHeader {
 		MerkleRoot: header.MerkleRoot,
 		Timestamp:  header.Timestamp,
 		Bits:       header.Bits,
-		Nonce:      header.Nonce,
 		Height:     header.Height,
+		Nonce:      header.Nonce,
+		MixHash:    header.MixHash,
 	}
 }
 
@@ -200,13 +202,14 @@ func (header *RavenBlockHeader) GetDifficulty() *big.Int {
 
 func (header *RavenBlockHeader) EncodeRLP(w io.Writer) error {
 	return rlp.Encode(w, []interface{}{
-		header.Version,
+		uint64(header.Version),
 		header.PrevBlock[:],
 		header.MerkleRoot[:],
-		header.Timestamp,
-		header.Bits,
+		uint64(header.Timestamp),
+		uint64(header.Bits),
+		uint64(header.Height),
 		header.Nonce,
-		header.Height,
+		header.MixHash[:],
 	})
 }
 
@@ -216,13 +219,14 @@ func (header *RavenBlockHeader) DecodeRLP(s *rlp.Stream) error {
 		return fmt.Errorf("failed to decode raven block header: %w", err)
 	}
 
-	header.Version = decoded.Version
+	header.Version = uint32(decoded.Version)
 	header.PrevBlock = common.BytesToHash(decoded.PrevBlock)
 	header.MerkleRoot = common.BytesToHash(decoded.MerkleRoot)
-	header.Timestamp = decoded.Timestamp
-	header.Bits = decoded.Bits
+	header.Timestamp = uint32(decoded.Timestamp)
+	header.Bits = uint32(decoded.Bits)
+	header.Height = uint32(decoded.Height)
 	header.Nonce = decoded.Nonce
-	header.Height = decoded.Height
+	header.MixHash = common.BytesToHash(decoded.MixHash)
 
 	return nil
 }
@@ -236,6 +240,7 @@ func NewRavenBlockHeader(
 	bits uint32,
 	nonce uint64,
 	height uint32,
+	mixHash common.Hash,
 ) *RavenBlockHeader {
 	return &RavenBlockHeader{
 		Version:    version,
@@ -243,8 +248,9 @@ func NewRavenBlockHeader(
 		MerkleRoot: merkleRoot,
 		Timestamp:  timestamp,
 		Bits:       bits,
-		Nonce:      nonce,
 		Height:     height,
+		Nonce:      nonce,
+		MixHash:    mixHash,
 	}
 }
 
@@ -287,22 +293,22 @@ type RavenTxOutput struct {
 
 // RLP encoding/decoding structures for RavenTransaction
 type RlpRavenTransaction struct {
-	Version  int32
+	Version  uint64
 	Inputs   []RlpRavenTxInput
 	Outputs  []RlpRavenTxOutput
-	LockTime uint32
+	LockTime uint64
 }
 
 type RlpRavenTxInput struct {
 	PrevTxHash    []byte
-	PrevIndex     uint32
+	PrevIndex     uint64
 	ScriptSig     []byte
-	Sequence      uint32
+	Sequence      uint64
 	ScriptWitness [][]byte
 }
 
 type RlpRavenTxOutput struct {
-	Value        int64
+	Value        uint64
 	ScriptPubKey []byte
 }
 
@@ -316,7 +322,7 @@ func (tx *RavenTransaction) Hash() common.Hash {
 	buf := new(bytes.Buffer)
 
 	// Write nVersion (int32_t) - little endian
-	binary.Write(buf, binary.LittleEndian, int32(tx.Version))
+	binary.Write(buf, binary.LittleEndian, tx.Version)
 
 	// Write vin count as compact size (varint)
 	writeCompactSize(buf, uint64(len(tx.Inputs)))
@@ -369,9 +375,9 @@ func (tx *RavenTransaction) EncodeRLP(w io.Writer) error {
 	for i, input := range tx.Inputs {
 		rlpInputs[i] = RlpRavenTxInput{
 			PrevTxHash:    input.PrevTxHash[:],
-			PrevIndex:     input.PrevIndex,
+			PrevIndex:     uint64(input.PrevIndex),
 			ScriptSig:     input.ScriptSig,
-			Sequence:      input.Sequence,
+			Sequence:      uint64(input.Sequence),
 			ScriptWitness: input.ScriptWitness,
 		}
 	}
@@ -379,16 +385,16 @@ func (tx *RavenTransaction) EncodeRLP(w io.Writer) error {
 	rlpOutputs := make([]RlpRavenTxOutput, len(tx.Outputs))
 	for i, output := range tx.Outputs {
 		rlpOutputs[i] = RlpRavenTxOutput{
-			Value:        output.Value,
+			Value:        uint64(output.Value),
 			ScriptPubKey: output.ScriptPubKey,
 		}
 	}
 
 	return rlp.Encode(w, RlpRavenTransaction{
-		Version:  tx.Version,
+		Version:  uint64(tx.Version),
 		Inputs:   rlpInputs,
 		Outputs:  rlpOutputs,
-		LockTime: tx.LockTime,
+		LockTime: uint64(tx.LockTime),
 	})
 }
 
@@ -398,16 +404,16 @@ func (tx *RavenTransaction) DecodeRLP(s *rlp.Stream) error {
 		return fmt.Errorf("failed to decode raven transaction: %w", err)
 	}
 
-	tx.Version = decoded.Version
-	tx.LockTime = decoded.LockTime
+	tx.Version = int32(decoded.Version)
+	tx.LockTime = uint32(decoded.LockTime)
 
 	tx.Inputs = make([]RavenTxInput, len(decoded.Inputs))
 	for i, input := range decoded.Inputs {
 		tx.Inputs[i] = RavenTxInput{
 			PrevTxHash:    common.BytesToHash(input.PrevTxHash),
-			PrevIndex:     input.PrevIndex,
+			PrevIndex:     uint32(input.PrevIndex),
 			ScriptSig:     input.ScriptSig,
-			Sequence:      input.Sequence,
+			Sequence:      uint32(input.Sequence),
 			ScriptWitness: input.ScriptWitness,
 		}
 	}
@@ -415,7 +421,7 @@ func (tx *RavenTransaction) DecodeRLP(s *rlp.Stream) error {
 	tx.Outputs = make([]RavenTxOutput, len(decoded.Outputs))
 	for i, output := range decoded.Outputs {
 		tx.Outputs[i] = RavenTxOutput{
-			Value:        output.Value,
+			Value:        int64(output.Value),
 			ScriptPubKey: output.ScriptPubKey,
 		}
 	}
@@ -522,7 +528,7 @@ func (b *RavenBlock) Difficulty() *big.Int {
 }
 
 func (b *RavenBlock) PowNonce() uint64 {
-	return uint64(b.Header.Nonce)
+	return b.Header.Nonce
 }
 
 // VerifyCoinbase verify raven block coinbase transaction

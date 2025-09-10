@@ -29,7 +29,6 @@ type CrossChain uint16
 const (
 	UnknownChain CrossChain = iota
 	KaspaChain
-	MoneroChain
 	RavenChain
 )
 

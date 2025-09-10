@@ -187,6 +187,38 @@ func TestKawPoWIntegration(t *testing.T) {
 	})
 }
 
+// TestKawPoWIntegration demonstrates how to use KawPoW with our header hash implementation
+func TestRealRavenBlock(t *testing.T) {
+	// Real Ravencoin block data for testing (Block 3948182) - exact copy from working HeaderHash test
+	header := &RavenBlockHeader{
+		Version:    805306368, // 0x30000000
+		PrevBlock:  common.HexToHash("000000000000396a5600f719aa9df72a087e1276107ebdb9f7f847ba72e0f811"),
+		MerkleRoot: common.HexToHash("f41bacfdf177fd4a6cd8c13a65b35f4a1fe49bcbb179b3aec9f5312260c0456a"),
+		Timestamp:  1757146328,
+		Bits:       0x1B010F27,
+		Nonce:      8988426152720574557,
+		Height:     4008310,
+		MixHash:    common.HexToHash("641bde5346038e475727d78882f1815b1cd118903a83619a6d6b4b8e1acec25a"),
+	}
+
+	t.Run("PoW Check", func(t *testing.T) {
+		t.Logf("⏱️  Starting KawPoW verification...")
+		start3 := time.Now()
+		verifyErr := header.VerifyKawPoW()
+		duration3 := time.Since(start3)
+		t.Logf("⏱️  KawPoW verification completed in: %v", duration3)
+
+		if verifyErr != nil {
+			t.Errorf("KawPoW verification failed with calculated mix hash: %v", verifyErr)
+		}
+
+		t.Logf("⏱️  Performance Summary:")
+		t.Logf("    Verification:      %v (includes generation)", duration3)
+
+		t.Logf("✅ KawPoW generation and verification successful!")
+	})
+}
+
 // TestRavenTransactionHash tests our transaction hashing implementation
 // against known Ravencoin transaction hashes
 func TestRavenTransactionHash(t *testing.T) {
@@ -273,7 +305,7 @@ func TestRavenTransactionHash(t *testing.T) {
 						PrevIndex:  0xFFFFFFFF,    // Max uint32 for coinbase
 						// ScriptSig contains block height + canxium miner tag
 						ScriptSig: append([]byte{0x03, 0x12, 0x34, 0x56}, // Height
-							[]byte(minerTagPrefix+"1234567890abcdef1234567890abcdef12345678")...), // Canxium address
+							[]byte(utxoMinerTagPrefix+"1234567890abcdef1234567890abcdef12345678")...), // Canxium address
 						Sequence: 0xFFFFFFFF,
 					},
 				},
@@ -468,7 +500,7 @@ func TestRavenBlockOperations(t *testing.T) {
 					PrevTxHash: common.Hash{}, // Null hash for coinbase
 					PrevIndex:  0xFFFFFFFF,    // Max uint32 for coinbase
 					ScriptSig: append([]byte{0x03, 0x64, 0x00, 0x00}, // Height 100
-						[]byte(minerTagPrefix+"1234567890abcdef1234567890abcdef12345678")...), // Canxium address
+						[]byte(utxoMinerTagPrefix+"1234567890abcdef1234567890abcdef12345678")...), // Canxium address
 					Sequence: 0xFFFFFFFF,
 				},
 			},
@@ -1720,7 +1752,7 @@ func TestRealCrossChainMiningBlock(t *testing.T) {
 		MerkleRoot: common.HexToHash("803f8543080a9ea7264d1fa3d887019a216e32f0abafa538c591c49b3588066a"),
 		Timestamp:  1755932634,
 		Bits:       0x207fffff,
-		Nonce:      0,
+		Nonce:      1, // Non-zero nonce for valid block
 		Height:     105,
 		MixHash:    common.Hash{}, // Zero mix hash
 	}
