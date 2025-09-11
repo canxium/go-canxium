@@ -504,6 +504,7 @@ func (b *RavenBlock) Copy() CrossChainBlock {
 		Header:      header,
 		MerkleProof: merkleProof,
 		Coinbase:    coinbase,
+		Hash:        b.Hash, // Copy the block hash
 	}
 
 	return block
