@@ -451,9 +451,6 @@ func (b *RavenBlock) IsValidBlock() bool {
 	if len(b.Coinbase.Outputs) == 0 {
 		return false
 	}
-	if len(b.MerkleProof) == 0 {
-		return false
-	}
 	return true
 }
 

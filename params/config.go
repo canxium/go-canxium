@@ -55,7 +55,7 @@ func newUint64(val uint64) *uint64 { return &val }
 var (
 	// the smallest minimum difficulty of a kaspa block that calcium can accept, if smaller it will cause a mathematical error compared to using float numbers
 	KaspaMinAcceptableDifficulty = big.NewInt(1000000)
-	RavenMinAcceptableDifficulty = big.NewInt(1)
+	RavenMinAcceptableDifficulty = big.NewInt(1000)
 
 	MainnetTerminalTotalDifficulty, _ = new(big.Int).SetString("58_750_000_000_000_000_000_000", 0)
 

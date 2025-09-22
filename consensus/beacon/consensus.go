@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math/big"
 	"runtime"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -269,7 +270,7 @@ func (beacon *Beacon) VerifyMiningTxsSeal(config *params.ChainConfig, txs types.
 					continue
 				}
 
-				numMiningTxs += 1
+				atomic.AddInt64(&numMiningTxs, 1)
 				errors[index] = beacon.VerifyMiningTxSeal(config, txs[index], block, fulldag)
 				done <- index
 			}
@@ -301,7 +302,7 @@ func (beacon *Beacon) VerifyMiningTxsSeal(config *params.ChainConfig, txs types.
 					}
 
 					if out == len(txs)-1 {
-						sealCh <- numMiningTxs
+						sealCh <- atomic.LoadInt64(&numMiningTxs)
 						return
 					}
 				}
