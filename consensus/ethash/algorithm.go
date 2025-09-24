@@ -39,18 +39,16 @@ const (
 	datasetGrowthBytes = 1 << 23 // Dataset growth per epoch
 	cacheInitBytes     = 1 << 24 // Bytes in cache at genesis
 	cacheGrowthBytes   = 1 << 17 // Cache growth per epoch
-	epochLength        = 30000   // Blocks per epoch
 	mixBytes           = 128     // Width of mix
 	hashBytes          = 64      // Hash length in bytes
 	hashWords          = 16      // Number of 32 bit ints in a hash
-	datasetParents     = 256     // Number of parents of each dataset element
 	cacheRounds        = 3       // Number of rounds in cache production
 	loopAccesses       = 64      // Number of accesses in hashimoto loop
 )
 
 // cacheSize returns the size of the ethash verification cache that belongs to a certain
 // block number.
-func cacheSize(block uint64) uint64 {
+func cacheSize(block uint64, epochLength uint64) uint64 {
 	epoch := int(block / epochLength)
 	if epoch < maxEpoch {
 		return cacheSizes[epoch]
@@ -71,7 +69,7 @@ func calcCacheSize(epoch int) uint64 {
 
 // datasetSize returns the size of the ethash mining dataset that belongs to a certain
 // block number.
-func datasetSize(block uint64) uint64 {
+func datasetSize(block uint64, epochLength uint64) uint64 {
 	epoch := int(block / epochLength)
 	if epoch < maxEpoch {
 		return datasetSizes[epoch]
@@ -118,7 +116,7 @@ func makeHasher(h hash.Hash) hasher {
 
 // seedHash is the seed to use for generating a verification cache and the mining
 // dataset.
-func seedHash(block uint64) []byte {
+func seedHash(block uint64, epochLength uint64) []byte {
 	seed := make([]byte, 32)
 	if block < epochLength {
 		return seed
@@ -209,6 +207,27 @@ func generateCache(dest []uint32, epoch uint64, seed []byte) {
 	}
 }
 
+// generateCDag generates the cDag used for progpow. If the 'cDag' is nil, this method is a no-op. Otherwise
+// it expects the cDag to be of size progpowCacheWords
+func generateCDag(cDag, cache []uint32, epoch uint64) {
+	if cDag == nil {
+		return
+	}
+	start := time.Now()
+	keccak512 := makeHasher(sha3.NewLegacyKeccak512())
+
+	for i := uint32(0); i < progpowCacheWords/16; i++ {
+		rawData := generateDatasetItem(cache, i, keccak512, kawpowDatasetParents)
+		// 64 bytes in rawData -> 16 uint32
+		for j := uint32(0); j < 16; j++ {
+			cDag[i*16+j] = binary.LittleEndian.Uint32(rawData[4*j:])
+		}
+	}
+
+	elapsed := time.Since(start)
+	log.Info("Generated progpow cDag", "elapsed", common.PrettyDuration(elapsed), "epoch", epoch)
+}
+
 // swap changes the byte order of the buffer assuming a uint32 representation.
 func swap(buffer []byte) {
 	for i := 0; i < len(buffer); i += 4 {
@@ -233,7 +252,7 @@ func fnvHash(mix []uint32, data []uint32) {
 
 // generateDatasetItem combines data from 256 pseudorandomly selected cache nodes,
 // and hashes that to compute a single dataset node.
-func generateDatasetItem(cache []uint32, index uint32, keccak512 hasher) []byte {
+func generateDatasetItem(cache []uint32, index uint32, keccak512 hasher, datasetParents uint32) []byte {
 	// Calculate the number of theoretical rows (we use one buffer nonetheless)
 	rows := uint32(len(cache) / hashWords)
 
@@ -266,7 +285,7 @@ func generateDatasetItem(cache []uint32, index uint32, keccak512 hasher) []byte 
 
 // generateDataset generates the entire ethash dataset for mining.
 // This method places the result into dest in machine byte order.
-func generateDataset(dest []uint32, epoch uint64, cache []uint32) {
+func generateDataset(dest []uint32, epoch uint64, cache []uint32, datasetParents uint32) {
 	// Print some debug logs to allow analysis on low end devices
 	logger := log.New("epoch", epoch)
 
@@ -317,7 +336,7 @@ func generateDataset(dest []uint32, epoch uint64, cache []uint32) {
 			// Calculate the dataset segment
 			percent := size / hashBytes / 100
 			for index := first; index < limit; index++ {
-				item := generateDatasetItem(cache, uint32(index), keccak512)
+				item := generateDatasetItem(cache, uint32(index), keccak512, datasetParents)
 				if swapped {
 					swap(item)
 				}
@@ -382,7 +401,7 @@ func hashimotoLight(size uint64, cache []uint32, hash []byte, nonce uint64) ([]b
 	keccak512 := makeHasher(sha3.NewLegacyKeccak512())
 
 	lookup := func(index uint32) []uint32 {
-		rawData := generateDatasetItem(cache, index, keccak512)
+		rawData := generateDatasetItem(cache, index, keccak512, ethashDatasetParents)
 
 		data := make([]uint32, len(rawData)/4)
 		for i := 0; i < len(data); i++ {

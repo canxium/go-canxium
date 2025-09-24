@@ -4,8 +4,12 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 )
 
 // function to calculate kaspa cross mining base reward
@@ -562,5 +566,34 @@ func TestRavenCrossMiningRewardEdgeCases(t *testing.T) {
 		} else {
 			t.Logf("✅ Correctly returns 0 for zero difficulty")
 		}
+	})
+}
+
+// TestUnmarshalTransactionHex tests unmarshaling a transaction hex and running IsValidBlock
+func TestUnmarshalTransactionHex(t *testing.T) {
+	// Transaction hex provided by user
+	txHex := "7ef9024682765f8205e38080830186a0943fd82f0968ed923aab67b32fa69b73272a65678d945fd4e99dc1efc12ebe5c5530d6c7b3860c819f9d878bd93b30550307b86497b8f2fc000000000000000000000000a2fec87f54a60a1d4b9d97b483cbbf659de7a0ea00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000017e38aa6088b9015c02f90158f87f8430000000a000000000000023f0cc2e30f0ac09574a2aac0f62db91013262ba4d4625b2521ea043b2fe0fe950ca3e3ed956add18dc66dbcd7733081fa42906bd3cc2304c12d2c8461d94225841b008148831ff8e68809e34100725860eea02dca4f5449cb87054e4e0234c0d757b5fa5c5bd5facb6aeec1736754da72f32ea2e1a0a5f411e970c10f57449c61a2b1381d2d5d1c5de08097d507118d6b461abc888af89101f841f83fa0000000000000000000000000000000000000000000000000000000000000000084ffffffff9203e6f81f002f666c79706f6f6c2e6f72672f84ffffffffc0f84ae085746a563ae09976a914cb6d3fedc3b50d5936a36601710c6008ff783fd188ace880a66a24aa21a9edd0033856c09d74613d4b97afa07d8864842fc4059d787ae37083805d00d27dc280a00000000000005f853888c817f3f4c021c42a56aab6a4285c0fdb09c109e2a45101a077a24516c7afef8017ffccc5bf95604badce5bfc9ab7308e1c35481efd571d91a053729e585b8af973360ba077ada7acb90b71fd842648bc440fb3c94e36b8802e"
+
+	// Remove 0x prefix if present
+	if strings.HasPrefix(txHex, "0x") {
+		txHex = txHex[2:]
+	}
+
+	var tx types.Transaction
+	if err := tx.UnmarshalBinary(common.FromHex(txHex)); err != nil {
+		t.Fatalf("Failed to unmarshal transaction: %v", err)
+	}
+
+	reward := CrossMiningReward(false, tx.AuxPoW(), 1515015971, uint64(time.Now().Unix()))
+	t.Logf("Calculated reward: %s", reward.String())
+	t.Logf("Transaction hash: %s", tx.Hash().Hex())
+	t.Run("Decode as Ethereum CrossMining Transaction", func(t *testing.T) {
+		crossTx := tx
+		t.Logf("✅ Successfully decoded CrossMining transaction:")
+		t.Logf("   ChainID: %d", crossTx.AuxPoW().Chain())
+		t.Logf("   From: %s", crossTx.From().String())
+		t.Logf("   To: %s", crossTx.To().String())
+		t.Logf("   Nonce: %d", crossTx.Nonce())
+		t.Logf("   Value: %s", crossTx.Value().String())
 	})
 }

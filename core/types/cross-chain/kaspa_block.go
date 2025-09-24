@@ -23,6 +23,8 @@ import (
 	"github.com/kaspanet/kaspad/util/difficulty"
 )
 
+var emptyHash = common.Hash{}.Hex()
+
 // BlockHeader defines information about a block and is used in the bitcoin
 // block (MsgBlock) and headers (MsgHeaders) messages.
 type KaspaBlockHeader struct {
@@ -487,9 +489,26 @@ func (b *KaspaBlock) Copy() CrossChainBlock {
 	return &block
 }
 
+func (b *KaspaBlock) BlockNumber() uint64 {
+	return b.Header.DAAScore()
+}
+
 func (b *KaspaBlock) BlockHash() string {
 	hash := b.Header.PowHash()
 	return hash.String()
+}
+
+// No need to return seal hash
+func (b *KaspaBlock) SealHash() string {
+	return emptyHash
+}
+
+func (b *KaspaBlock) MixHash() string {
+	return emptyHash
+}
+
+func (b *KaspaBlock) Bits() uint64 {
+	return uint64(b.Header.Kbits)
 }
 
 func (b *KaspaBlock) Timestamp() uint64 {

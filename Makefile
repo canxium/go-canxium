@@ -8,15 +8,10 @@ GOBIN = ./build/bin
 GO ?= latest
 GORUN = env GO111MODULE=on go run
 
-canxium: libkawpow
-	env CGO_LDFLAGS="-w -s" $(GORUN) build/ci.go install ./cmd/canxium
+canxium:
+	env $(GORUN) build/ci.go install ./cmd/canxium
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/canxium\" to launch canxium."
-
-# Build the kawpow native library only when the source files change
-libkawpow:
-	@mkdir -p build/lib
-	$(MAKE) -C ./crypto/kawpow OUTPUT_DIR=$(PWD)/build/lib
 
 all:
 	$(GORUN) build/ci.go install

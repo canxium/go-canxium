@@ -28,6 +28,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
@@ -223,7 +224,14 @@ func (beacon *Beacon) VerifyUncles(chain consensus.ChainReader, block *types.Blo
 func (beacon *Beacon) VerifyMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error {
 	// cross mining
 	if tx.Type() == types.CrossMiningTxType {
-		return misc.VerifyCrossMiningTxSeal(config, tx, block)
+		// kawpow algorithm need ethash verification
+		if tx.Algorithm() == crosschain.KawPoWAlgorithm {
+			return beacon.ethone.VerifyMiningTxSeal(config, tx, block, fulldag)
+		}
+		if err := misc.VerifyCrossMiningTx(config, tx, block); err != nil {
+			return err
+		}
+		return misc.VerifyCrossMiningTxSeal(tx)
 	}
 	// offline mining
 	if tx.Type() == types.MiningTxType && misc.IsEthashAlgorithm(config, block.Time, tx.Algorithm()) {

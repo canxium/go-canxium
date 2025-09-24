@@ -15,7 +15,6 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
@@ -72,9 +71,9 @@ func (header *RavenBlockHeader) clone() *RavenBlockHeader {
 	}
 }
 
-// HeaderHash computes the header hash for KawPoW validation
+// SealHash computes the header hash for KawPoW validation
 // This implements the exact CKAWPOWInput serialization from Ravencoin's C++ code
-func (header *RavenBlockHeader) HeaderHash() common.Hash {
+func (header *RavenBlockHeader) SealHash() common.Hash {
 	if header.hash != (common.Hash{}) {
 		return header.hash
 	}
@@ -126,55 +125,6 @@ func (header *RavenBlockHeader) HeaderHash() common.Hash {
 
 	header.hash = common.BytesToHash(result)
 	return header.hash
-}
-
-// VerifyKawPoW verifies the KawPoW proof of work for this header
-// This implements the exact same logic as Ravencoin's KAWPOWHash() function
-func (header *RavenBlockHeader) VerifyKawPoW() error {
-	// Generate the KawPoW hash and mix hash
-	finalHash, calculatedMixHash, err := header.GenerateKawPoW()
-	if err != nil {
-		return err
-	}
-
-	// Verify the mix hash matches what's stored in the header
-	if calculatedMixHash != header.MixHash {
-		return fmt.Errorf("mix hash mismatch: expected %s, got %s", header.MixHash.Hex(), calculatedMixHash.Hex())
-	}
-
-	// Check if the final hash meets the difficulty target
-	target := bitsToTarget(header.Bits)
-	finalHashBig := finalHash.Big()
-
-	// In PoW, the hash must be <= target to be valid
-	if finalHashBig.Cmp(target) <= 0 {
-		return nil // Valid KawPoW proof of work
-	}
-
-	return fmt.Errorf("final hash %s exceeds target %s", finalHash.Hex(), target.Text(16))
-}
-
-// GenerateKawPoW generates a KawPoW hash and mix hash for this header
-// This implements the same logic as Ravencoin's KAWPOWHash() function
-func (header *RavenBlockHeader) GenerateKawPoW() (common.Hash, common.Hash, error) {
-	// Get the header hash (same as blockHeader.GetKAWPOWHeaderHash() in C++)
-	headerHash := header.HeaderHash()
-
-	// Convert to the format expected by kawpow-cgo
-	// Remove the "0x" prefix from the hex string
-	headerHashStr := headerHash.Hex()[2:]
-	nonceStr := fmt.Sprintf("%016x", header.Nonce)
-	height := int64(header.Height)
-
-	// Call kawpow hash function (equivalent to progpow::hash() in C++)
-	// This matches Ravencoin's KAWPOWHash() implementation
-	hash, mixHash := crypto.KawpowHash(headerHashStr, nonceStr, height)
-
-	// Convert the returned byte arrays to common.Hash
-	finalHash := common.BytesToHash(hash)
-	calculatedMixHash := common.BytesToHash(mixHash)
-
-	return finalHash, calculatedMixHash, nil
 }
 
 // GetDifficulty calculates the difficulty from bits field
@@ -507,8 +457,24 @@ func (b *RavenBlock) Copy() CrossChainBlock {
 	return block
 }
 
+func (b *RavenBlock) BlockNumber() uint64 {
+	return uint64(b.Header.Height)
+}
+
 func (b *RavenBlock) BlockHash() string {
 	return b.Hash.Hex()
+}
+
+func (b *RavenBlock) SealHash() string {
+	return b.Header.SealHash().Hex()
+}
+
+func (b *RavenBlock) MixHash() string {
+	return b.Header.MixHash.Hex()
+}
+
+func (b *RavenBlock) Bits() uint64 {
+	return uint64(b.Header.Bits)
 }
 
 func (b *RavenBlock) Timestamp() uint64 {
@@ -517,7 +483,7 @@ func (b *RavenBlock) Timestamp() uint64 {
 
 // Verify block's PoW
 func (b *RavenBlock) VerifyPoW() error {
-	return b.Header.VerifyKawPoW()
+	return errors.New("raven block PoW verification not implemented without ethash cache")
 }
 
 func (b *RavenBlock) Difficulty() *big.Int {
@@ -639,6 +605,7 @@ func (b *RavenBlock) verifyMerkleProofForCoinbaseTx() bool {
 	// Iterate through the proof and compute the root
 	computedHash := coinbaseHash
 	for _, siblingHash := range b.MerkleProof {
+		// Always treat the computed hash as the left node (coinbase is always first)
 		computedHash = hashRavenMerkleBranches(computedHash, siblingHash)
 	}
 
@@ -800,41 +767,4 @@ func (block *RavenBlock) DecodeRLP(s *rlp.Stream) error {
 	block.MerkleProof = merkleProof
 
 	return nil
-}
-
-// bitsToTarget converts the compact "bits" representation to a big.Int target
-// This implements the exact same logic as Ravencoin's arith_uint256::SetCompact() method
-func bitsToTarget(bits uint32) *big.Int {
-	// Extract the size (exponent) and word (mantissa) following Ravencoin's SetCompact
-	nSize := int(bits >> 24)
-	nWord := bits & 0x007fffff // Note: 0x007fffff not 0x00ffffff (excludes sign bit)
-
-	var target *big.Int
-
-	if nSize <= 3 {
-		// For size <= 3, shift the word right
-		nWord >>= uint(8 * (3 - nSize))
-		target = big.NewInt(int64(nWord))
-	} else {
-		// For size > 3, shift the word left
-		target = big.NewInt(int64(nWord))
-		target.Lsh(target, uint(8*(nSize-3)))
-	}
-
-	// Handle negative values and overflow cases like Ravencoin
-	// If the sign bit is set (0x00800000) and nWord != 0, it's negative
-	if nWord != 0 && (bits&0x00800000) != 0 {
-		// In Ravencoin, negative targets are invalid, return 0
-		return big.NewInt(0)
-	}
-
-	// Check for overflow like Ravencoin does
-	if nWord != 0 && ((nSize > 34) ||
-		(nWord > 0xff && nSize > 33) ||
-		(nWord > 0xffff && nSize > 32)) {
-		// Overflow case, return 0 (invalid)
-		return big.NewInt(0)
-	}
-
-	return target
 }

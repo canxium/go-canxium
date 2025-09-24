@@ -60,8 +60,16 @@ type CrossChainBlock interface {
 	VerifyCoinbase() bool
 	// Canxium miner address
 	GetMinerAddress() (common.Address, error)
+	// Return block number, if any
+	BlockNumber() uint64
 	// Block hash, in string
 	BlockHash() string
+	// Return Seal hash, in string, this hash will be used for PoW generation
+	SealHash() string
+	// Return mix hash, in string, if any
+	MixHash() string
+	// Return header bits, used to encode the target threshold
+	Bits() uint64
 	// Block difficulty
 	Difficulty() *big.Int
 	// Nonce number of the block

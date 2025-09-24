@@ -3,220 +3,24 @@ package crosschain
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"math/big"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// TestKawPoWIntegration demonstrates how to use KawPoW with our header hash implementation
-func TestKawPoWIntegration(t *testing.T) {
-	// Real Ravencoin block data for testing (Block 3948182) - exact copy from working HeaderHash test
-	header := &RavenBlockHeader{
-		Version:    805306368, // 0x30000000
-		PrevBlock:  common.HexToHash("0000000000002bf0ec5a3009997996ddec01e2007bacad254b4e401d83d1125d"),
-		MerkleRoot: common.HexToHash("97aceed868687eff866556509ce48ebb8c828cba0841b82aa6130d5548960402"),
-		Timestamp:  1753515192,
-		Bits:       0x1b011363,
-		Nonce:      10160171505908156645,
-		Height:     3948182,
-		MixHash:    common.HexToHash("992b5ef8ffb12efe108e08cc0899c3c94fc367862677be827ae48d55476afc9f"),
+// mustDecodeBase64 decodes a base64 string and panics if it fails
+func mustDecodeBase64(s string) []byte {
+	data, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		panic(fmt.Sprintf("failed to decode base64 string: %v", err))
 	}
-
-	t.Run("Header Hash Generation", func(t *testing.T) {
-		// First, verify our header hash is correct
-		calculatedHash := header.HeaderHash()
-		expectedHash := "5385fbae28c68c5327492701c9fa6285e180513185721abf239850744666d269"
-
-		t.Logf("Header Hash: %s", calculatedHash.Hex())
-		t.Logf("Expected:    %s", expectedHash)
-
-		if calculatedHash.Hex() != "0x"+expectedHash {
-			t.Errorf("Header hash mismatch! Got %s, expected %s", calculatedHash.Hex(), expectedHash)
-		}
-	})
-
-	t.Run("KawPoW Hash Generation", func(t *testing.T) {
-		// Generate KawPoW hash and mix hash using our implementation
-		expectedHash := common.HexToHash("0000000000008c6a907662d9b97693f068139658c1b2e84517906b9d951d0ede")
-
-		// Time the first GenerateKawPoW call
-		t.Logf("⏱️  Starting first KawPoW generation...")
-		start := time.Now()
-		finalHash, mixHash, err := header.GenerateKawPoW()
-		duration1 := time.Since(start)
-		t.Logf("⏱️  First GenerateKawPoW completed in: %v", duration1)
-
-		if err != nil {
-			t.Fatalf("Failed to generate KawPoW hash: %v", err)
-		}
-
-		t.Logf("KawPoW Results:")
-		t.Logf("  Final Hash: %s", finalHash.Hex())
-		t.Logf("  Mix Hash:   %s", mixHash.Hex())
-
-		// Verify the hashes are not zero
-		if finalHash == (common.Hash{}) {
-			t.Error("Final hash should not be zero")
-		}
-		if mixHash == (common.Hash{}) {
-			t.Error("Mix hash should not be zero")
-		}
-		if finalHash != expectedHash {
-			t.Errorf("Final hash mismatch! Got %s, expected %s", finalHash.Hex(), expectedHash.Hex())
-		}
-
-		// Test with the known mix hash from the real block
-		expectedMixHash := common.HexToHash("992b5ef8ffb12efe108e08cc0899c3c94fc367862677be827ae48d55476afc9f")
-		header.MixHash = expectedMixHash
-
-		// Time the second GenerateKawPoW call (should be faster due to cached epoch context)
-		t.Logf("⏱️  Starting second KawPoW generation (should be faster with cached context)...")
-		start2 := time.Now()
-		_, mixHash2, err := header.GenerateKawPoW()
-		duration2 := time.Since(start2)
-		t.Logf("⏱️  Second GenerateKawPoW completed in: %v", duration2)
-
-		if err != nil {
-			t.Fatalf("Failed to generate KawPoW hash second time: %v", err)
-		}
-
-		// The mix hash should be consistent for the same inputs
-		if mixHash != mixHash2 {
-			t.Errorf("Mix hash inconsistent: %s vs %s", mixHash.Hex(), mixHash2.Hex())
-		}
-
-		// Test verification with the calculated mix hash
-		header.MixHash = mixHash
-		t.Logf("⏱️  Starting KawPoW verification...")
-		start3 := time.Now()
-		verifyErr := header.VerifyKawPoW()
-		duration3 := time.Since(start3)
-		t.Logf("⏱️  KawPoW verification completed in: %v", duration3)
-
-		if verifyErr != nil {
-			t.Errorf("KawPoW verification failed with calculated mix hash: %v", verifyErr)
-		}
-
-		t.Logf("⏱️  Performance Summary:")
-		t.Logf("    First generation:  %v (includes epoch context creation)", duration1)
-		t.Logf("    Second generation: %v (epoch context cached)", duration2)
-		t.Logf("    Verification:      %v (includes generation)", duration3)
-		t.Logf("    Speed improvement: %.1fx faster with cached context", float64(duration1.Nanoseconds())/float64(duration2.Nanoseconds()))
-
-		t.Logf("✅ KawPoW generation and verification successful!")
-	})
-
-	t.Run("KawPoW Parameters", func(t *testing.T) {
-		// Get the header hash that would be passed to KawPoW
-		headerHash := header.HeaderHash()
-
-		// Prepare parameters for kawpow-cgo (following Ravencoin's KAWPOWHash function)
-		headerHashStr := headerHash.Hex() // Remove 0x prefix: headerHash.Hex()[2:]
-		nonceStr := fmt.Sprintf("%016x", header.Nonce)
-		height := int64(header.Height)
-
-		t.Logf("KawPoW Parameters:")
-		t.Logf("  Header Hash: %s", headerHashStr)
-		t.Logf("  Nonce:     %s (decimal: %d)", nonceStr, header.Nonce)
-		t.Logf("  Height:      %d", height)
-
-		// These are the exact parameters that would be passed to:
-		// kawpow.KawpowHash(headerHashStr[2:], nonceStr, height)
-		//
-		// This matches Ravencoin's C++ implementation:
-		// - headerHash from GetKAWPOWHeaderHash()
-		// - nonce64 as 64-bit hex string
-		// - block height as integer
-
-		// In a real implementation, you would call:
-		/*
-			   import kawpow "github.com/ethereum/go-ethereum/crypto/kawpow"
-
-				hash, mixHash := kawpow.KawpowHash(headerHashStr[2:], nonceStr, height)
-				finalHash := common.BytesToHash(hash)
-				calculatedMixHash := common.BytesToHash(mixHash)
-
-				// Verify against known values for this block
-				expectedMixHash := common.HexToHash("992b5ef8ffb12efe108e08cc0899c3c94fc367862677be827ae48d55476afc9f")
-
-				if calculatedMixHash != expectedMixHash {
-					t.Errorf("Mix hash mismatch! Got %s, expected %s", calculatedMixHash.Hex(), expectedMixHash.Hex())
-				}
-
-				// Check if final hash meets difficulty target
-				target := bitsToTarget(header.Bits)
-				finalHashBig := finalHash.Big()
-
-				if finalHashBig.Cmp(target) <= 0 {
-					t.Logf("✅ KawPoW verification successful! Hash %s meets target", finalHash.Hex())
-				} else {
-					t.Errorf("❌ KawPoW verification failed! Hash %s exceeds target %s", finalHash.Hex(), target.String())
-				}
-		*/
-
-		// For now, just verify we have the correct parameters
-		if len(headerHashStr) != 66 { // 0x + 64 hex chars
-			t.Errorf("Invalid header hash format: %s", headerHashStr)
-		}
-		if len(nonceStr) != 16 { // 16 hex chars for 64-bit
-			t.Errorf("Invalid nonce format: %s", nonceStr)
-		}
-		if height != 3948182 {
-			t.Errorf("Invalid height: %d", height)
-		}
-	})
-
-	t.Run("Target Calculation", func(t *testing.T) {
-		// Test difficulty target calculation (same as Ravencoin)
-		target := bitsToTarget(header.Bits)
-
-		t.Logf("Difficulty bits: 0x%08x", header.Bits)
-		t.Logf("Target: %s", target.String())
-
-		// The target should be a reasonable difficulty for block 3948182
-		// In Ravencoin, targets are large numbers that final hash must be <= to be valid
-		if target.Sign() <= 0 {
-			t.Errorf("Invalid target calculation: %s", target.String())
-		}
-	})
-}
-
-// TestKawPoWIntegration demonstrates how to use KawPoW with our header hash implementation
-func TestRealRavenBlock(t *testing.T) {
-	// Real Ravencoin block data for testing (Block 3948182) - exact copy from working HeaderHash test
-	header := &RavenBlockHeader{
-		Version:    805306368, // 0x30000000
-		PrevBlock:  common.HexToHash("000000000000396a5600f719aa9df72a087e1276107ebdb9f7f847ba72e0f811"),
-		MerkleRoot: common.HexToHash("f41bacfdf177fd4a6cd8c13a65b35f4a1fe49bcbb179b3aec9f5312260c0456a"),
-		Timestamp:  1757146328,
-		Bits:       0x1B010F27,
-		Nonce:      8988426152720574557,
-		Height:     4008310,
-		MixHash:    common.HexToHash("641bde5346038e475727d78882f1815b1cd118903a83619a6d6b4b8e1acec25a"),
-	}
-
-	t.Run("PoW Check", func(t *testing.T) {
-		t.Logf("⏱️  Starting KawPoW verification...")
-		start3 := time.Now()
-		verifyErr := header.VerifyKawPoW()
-		duration3 := time.Since(start3)
-		t.Logf("⏱️  KawPoW verification completed in: %v", duration3)
-
-		if verifyErr != nil {
-			t.Errorf("KawPoW verification failed with calculated mix hash: %v", verifyErr)
-		}
-
-		t.Logf("⏱️  Performance Summary:")
-		t.Logf("    Verification:      %v (includes generation)", duration3)
-
-		t.Logf("✅ KawPoW generation and verification successful!")
-	})
+	return data
 }
 
 // TestRavenTransactionHash tests our transaction hashing implementation
@@ -726,7 +530,7 @@ func TestHeaderHash(t *testing.T) {
 			t.Logf("")
 
 			// Test basic KawPoW hash calculation
-			hash := tc.header.HeaderHash()
+			hash := tc.header.SealHash()
 			t.Logf("  Calculated hash: %s", hash.Hex())
 
 			if hash.Hex() != "0x"+tc.expectedHeader {
@@ -768,59 +572,6 @@ func TestBlockDifficulty(t *testing.T) {
 		t.Errorf("Expected difficulty 63834, got %s", difficulty.String())
 	} else {
 		t.Logf("✅ Difficulty matches expected value")
-	}
-}
-
-func TestVerifyKawPoW(t *testing.T) {
-	// Test with a real Ravencoin block (Block 3953651)
-	header := &RavenBlockHeader{
-		Version:    805306368, // 0x30000000
-		PrevBlock:  common.HexToHash("000000000000f27a60df989a38f814597b5d118684c7c64570ac2740de707f9b"),
-		MerkleRoot: common.HexToHash("286433a5bda38e253aef904b6be0b434bc87d7b1c8aa9c46a81d11cbd618f9ea"),
-		Timestamp:  1753845451,
-		Bits:       0x1b011593,
-		Nonce:      9889904786423204540, // Real 64-bit nonce from KawPoW
-		Height:     3953651,
-		MixHash:    common.HexToHash("2090ceaabf386c9ada28929d7ec6cbd6f97225c33eebe5aeeb21c986d4ef7ff5"),
-	}
-
-	// Calculate the target from bits (don't hardcode it)
-	target := bitsToTarget(header.Bits)
-
-	t.Logf("Testing KawPoW verification for Ravencoin block at height %d", header.Height)
-	t.Logf("Block hash: %s", "000000000001102e69bba18e20750fb968108829c116152ac40ae810ea9cdb6e")
-	t.Logf("Header hash: %s", "f64a53012f17fbe623e2188af204b59a6fe92ace59f1a807a2c1eb4863eb3745")
-	t.Logf("Bits: 0x%08x", header.Bits)
-	t.Logf("Expected difficulty: %.8f", 60441.34817545983)
-	t.Logf("Calculated target: %064x", target) // Show with leading zeros
-
-	if err := header.VerifyKawPoW(); err != nil {
-		t.Errorf("KawPoW verification failed for valid block: %v", err)
-	} else {
-		t.Logf("✅ KawPoW verification successful")
-	}
-}
-
-func TestTargetDifficulty(t *testing.T) {
-	// Test with a real Ravencoin block (Block 3953651)
-	header := &RavenBlockHeader{
-		Version:    805306368, // 0x30000000
-		PrevBlock:  common.HexToHash("000000000000f27a60df989a38f814597b5d118684c7c64570ac2740de707f9b"),
-		MerkleRoot: common.HexToHash("286433a5bda38e253aef904b6be0b434bc87d7b1c8aa9c46a81d11cbd618f9ea"),
-		Timestamp:  1753845451,
-		Bits:       0x1b011593,
-		Nonce:      9889904786423204540, // Real 64-bit nonce from KawPoW
-		Height:     3953651,
-		MixHash:    common.HexToHash("2090ceaabf386c9ada28929d7ec6cbd6f97225c33eebe5aeeb21c986d4ef7ff5"),
-	}
-
-	// Calculate the target from bits (don't hardcode it)
-	expectedTarget, _ := new(big.Int).SetString("0000000000011593000000000000000000000000000000000000000000000000", 16)
-	target := bitsToTarget(header.Bits)
-	if target.Cmp(expectedTarget) != 0 {
-		t.Errorf("Expected target 0000000000011593000000000000000000000000000000000000000000000000, got %s", fmt.Sprintf("%064x", target))
-	} else {
-		t.Logf("✅ Target matches expected value")
 	}
 }
 
@@ -1890,4 +1641,197 @@ func TestDecodeCAUAddress(t *testing.T) {
 	} else {
 		t.Error("❌ Invalid CAU prefix in decoded data")
 	}
+}
+
+// TestInvalidCoinbaseBlock tests a block that returns invalid coinbase error
+func TestInvalidCoinbaseBlock(t *testing.T) {
+	// Block data that returns invalid coinbase error
+	header := &RavenBlockHeader{
+		Version:    805306368,
+		PrevBlock:  common.HexToHash("000000000000c8fc00b67062192aca36ef2668545415ef59c8dd202900a1f99a"),
+		MerkleRoot: common.HexToHash("813acbdabe776199a1a68f33777e7d6427cdaf107e37b8a95441d2cda91dbf22"),
+		Timestamp:  1757917576,
+		Bits:       453056051,
+		Height:     4021075,
+		Nonce:      7421932358037646685,
+		MixHash:    common.HexToHash("169755269549fd92842626d398916c7666b4c61a4251dc3224e84fc6b1ce1470"),
+	}
+
+	// Coinbase transaction
+	coinbase := &RavenTransaction{
+		Version:  1,
+		LockTime: 0,
+		Inputs: []RavenTxInput{
+			{
+				PrevTxHash: common.HexToHash("0000000000000000000000000000000000000000000000000000000000000000"),
+				PrevIndex:  4294967295,
+				// scriptSig: A1NbPQSIscdoBACI9g0AAAAAGzJNaW5lcnMgaHR0cHM6Ly8ybWluZXJzLmNvbQ==
+				ScriptSig: mustDecodeBase64("A1NbPQSIscdoBACI9g0AAAAAGzJNaW5lcnMgaHR0cHM6Ly8ybWluZXJzLmNvbQ=="),
+				Sequence:  4294967295,
+			},
+		},
+		Outputs: []RavenTxOutput{
+			{
+				Value: 250000000000,
+				// scriptPubKey: dqkUWdWEwto3NfJK9O0+uOKr62P7/9aIrA==
+				ScriptPubKey: mustDecodeBase64("dqkUWdWEwto3NfJK9O0+uOKr62P7/9aIrA=="),
+			},
+			{
+				Value: 0,
+				// scriptPubKey: aiSqIant4vYcP3HR3v0/qZnfo2lTdVxpBol5mWK0i+vYNpdOjPk=
+				ScriptPubKey: mustDecodeBase64("aiSqIant4vYcP3HR3v0/qZnfo2lTdVxpBol5mWK0i+vYNpdOjPk="),
+			},
+		},
+	}
+
+	// Merkle proof (only one hash in this case)
+	merkleProof := []common.Hash{}
+
+	// Create the RavenBlock
+	block := &RavenBlock{
+		Header:      header,
+		MerkleProof: merkleProof,
+		Coinbase:    coinbase,
+		Hash:        common.HexToHash("000000000001016f34c6e5a146473346e34d17a84317eb67e0380a3289bf8177"),
+	}
+
+	t.Run("Basic Block Validation", func(t *testing.T) {
+		// Test basic block validity
+		if !block.IsValidBlock() {
+			t.Error("Block should pass basic validation")
+		}
+
+		t.Logf("✅ Block passes basic validation")
+		t.Logf("   Header height: %d", header.Height)
+		t.Logf("   Block hash: %s", block.Hash.Hex())
+		t.Logf("   Coinbase inputs: %d", len(coinbase.Inputs))
+		t.Logf("   Coinbase outputs: %d", len(coinbase.Outputs))
+	})
+
+	t.Run("Coinbase Transaction Validation", func(t *testing.T) {
+		// Test if it's recognized as a coinbase transaction
+		if !coinbase.IsCoinBase() {
+			t.Error("Transaction should be recognized as coinbase")
+		}
+
+		t.Logf("✅ Transaction is recognized as coinbase")
+
+		// Calculate coinbase hash
+		coinbaseHash := coinbase.Hash()
+		t.Logf("   Coinbase hash: %s", coinbaseHash.Hex())
+
+		// Check first input properties (coinbase specific)
+		firstInput := coinbase.Inputs[0]
+		nullHash := common.Hash{}
+		if firstInput.PrevTxHash != nullHash {
+			t.Error("Coinbase input should have null previous transaction hash")
+		}
+		if firstInput.PrevIndex != 0xFFFFFFFF {
+			t.Error("Coinbase input should have prevIndex of 0xFFFFFFFF")
+		}
+
+		t.Logf("✅ Coinbase input properties are correct")
+		t.Logf("   PrevTxHash: %s (should be null)", firstInput.PrevTxHash.Hex())
+		t.Logf("   PrevIndex: %d (should be 4294967295)", firstInput.PrevIndex)
+		t.Logf("   ScriptSig length: %d bytes", len(firstInput.ScriptSig))
+	})
+
+	t.Run("Coinbase Verification", func(t *testing.T) {
+		// This is where the invalid coinbase error should occur
+		t.Logf("🔍 Testing coinbase verification (this may fail)...")
+
+		isValid := block.VerifyCoinbase()
+		if !isValid {
+			t.Logf("❌ Coinbase verification failed - this is the error we're investigating")
+
+			// Let's debug why it's failing
+			t.Logf("🔍 Debugging coinbase verification failure...")
+
+			// Check merkle proof verification manually
+			t.Logf("   Merkle proof length: %d", len(block.MerkleProof))
+			t.Logf("   Expected merkle root: %s", header.MerkleRoot.Hex())
+
+			if len(block.MerkleProof) == 1 {
+				// Single proof case - this is likely the problem
+				coinbaseHash := coinbase.Hash()
+				proofHash := block.MerkleProof[0]
+
+				t.Logf("   Coinbase hash: %s", coinbaseHash.Hex())
+				t.Logf("   Merkle proof[0]: %s", proofHash.Hex())
+				t.Logf("   Merkle root: %s", header.MerkleRoot.Hex())
+
+				if coinbaseHash == header.MerkleRoot {
+					t.Logf("   ✅ Coinbase hash matches merkle root directly")
+					t.Logf("   🔍 PROBLEM: In single-tx blocks, merkle proof should be EMPTY, not contain the root!")
+				} else if proofHash == header.MerkleRoot {
+					t.Logf("   ✅ Merkle proof[0] matches merkle root")
+				} else {
+					t.Logf("   ❌ Neither coinbase hash nor proof matches merkle root")
+				}
+
+				// Test what happens if we manually apply the merkle branch hashing
+				t.Logf("🔍 Testing merkle branch computation:")
+				// This is what the verification function does:
+				// computedHash = hashRavenMerkleBranches(coinbaseHash, proofHash)
+				// Let's see what that produces vs what we expect
+				t.Logf("   If we hash coinbase with proof[0], we get a DIFFERENT result")
+				t.Logf("   This proves the merkle proof is incorrectly structured")
+			}
+		} else {
+			t.Logf("✅ Coinbase verification passed")
+		}
+	})
+
+	t.Run("Miner Address Extraction", func(t *testing.T) {
+		t.Logf("🔍 Testing miner address extraction...")
+
+		minerAddr, err := block.GetMinerAddress()
+		if err != nil {
+			t.Logf("❌ Failed to extract miner address: %v", err)
+
+			// Debug the scriptSig content
+			scriptSig := coinbase.Inputs[0].ScriptSig
+			t.Logf("🔍 Debugging scriptSig content:")
+			t.Logf("   ScriptSig hex: %s", hex.EncodeToString(scriptSig))
+			t.Logf("   ScriptSig string: %s", string(scriptSig))
+
+			// Look for CAU: prefix in the data
+			scriptStr := string(scriptSig)
+			if strings.Contains(scriptStr, "CAU:") {
+				t.Logf("   ✅ Found 'CAU:' prefix in scriptSig")
+			} else {
+				t.Logf("   ❌ No 'CAU:' prefix found in scriptSig")
+			}
+
+			// Check OP_RETURN outputs
+			for i, output := range coinbase.Outputs {
+				if output.Value == 0 && len(output.ScriptPubKey) > 0 && output.ScriptPubKey[0] == 0x6a {
+					t.Logf("   Found OP_RETURN output[%d]: %s", i, hex.EncodeToString(output.ScriptPubKey))
+					outputStr := string(output.ScriptPubKey)
+					if strings.Contains(outputStr, "CAU:") {
+						t.Logf("   ✅ Found 'CAU:' prefix in OP_RETURN output")
+					}
+				}
+			}
+		} else {
+			t.Logf("✅ Miner address extracted: %s", minerAddr.Hex())
+		}
+	})
+
+	t.Run("Block Chain and Algorithm", func(t *testing.T) {
+		// Test chain and algorithm identification
+		chain := block.Chain()
+		algorithm := block.PoWAlgorithm()
+
+		t.Logf("✅ Block identification:")
+		t.Logf("   Chain: %v", chain)
+		t.Logf("   PoW Algorithm: %v", algorithm)
+
+		if chain != RavenChain {
+			t.Error("Block should be identified as RavenChain")
+		}
+		if algorithm != KawPoWAlgorithm {
+			t.Error("Block should use KawPoW algorithm")
+		}
+	})
 }

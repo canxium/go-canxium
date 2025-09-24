@@ -88,7 +88,7 @@ func isValidKaspaBlockHash(hashHex string) (bool, error) {
 }
 
 // verifyCrossMiningTxSeal checks whether a cross mining satisfies the PoW difficulty requirements,
-func VerifyCrossMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header) error {
+func VerifyCrossMiningTx(config *params.ChainConfig, tx *types.Transaction, block *types.Header) error {
 	if tx.AuxPoW() == nil {
 		return ErrInvalidNilBlock
 	}
@@ -141,10 +141,6 @@ func VerifyCrossMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 	if tx.Value().Cmp(reward) != 0 {
 		return ErrInvalidMiningTxValue
 	}
-
-	if err := crossBlock.VerifyPoW(); err != nil {
-		return ErrInvalidMergePoW
-	}
 	if !crossBlock.VerifyCoinbase() {
 		return ErrInvalidMergeCoinbase
 	}
@@ -157,6 +153,18 @@ func VerifyCrossMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, 
 	inputData := buildCrossMiningTxInput(crossBlock.Chain(), miner, timestamp)
 	if !bytes.Equal(inputData, tx.Data()) {
 		return ErrInvalidMiningInput
+	}
+
+	return nil
+}
+
+func VerifyCrossMiningTxSeal(tx *types.Transaction) error {
+	if tx.AuxPoW() == nil {
+		return ErrInvalidNilBlock
+	}
+	crossBlock := tx.AuxPoW()
+	if err := crossBlock.VerifyPoW(); err != nil {
+		return ErrInvalidMergePoW
 	}
 
 	return nil

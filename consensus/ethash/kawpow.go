@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"math/bits"
 
+	"github.com/ethereum/go-ethereum/common"
 	"golang.org/x/crypto/sha3"
 )
 
@@ -38,30 +39,6 @@ var ravencoinKawpow = [15]uint32{
 	0x00000050, // P
 	0x0000004F, // O
 	0x00000057, // W
-}
-
-func progpowLight(size uint64, cache []uint32, hash []byte, nonce uint64, blockNumber uint64, cDag []uint32) ([]byte, []byte) {
-	keccak512 := makeHasher(sha3.NewLegacyKeccak512())
-	lookup := func(index uint32) []byte {
-		return generateDatasetItem(cache, index/16, keccak512)
-	}
-	return progpow(hash, nonce, size, blockNumber, cDag, lookup)
-}
-
-func progpowFull(dataset []uint32, hash []byte, nonce uint64, blockNumber uint64) ([]byte, []byte) {
-	lookup := func(index uint32) []byte {
-		mix := make([]byte, hashBytes)
-		for i := uint32(0); i < hashWords; i++ {
-			binary.LittleEndian.PutUint32(mix[i*4:], dataset[index+i])
-		}
-		return mix
-	}
-	cDag := make([]uint32, progpowCacheBytes/4)
-	for i := uint32(0); i < progpowCacheBytes/4; i += 2 {
-		cDag[i+0] = dataset[i+0]
-		cDag[i+1] = dataset[i+1]
-	}
-	return progpow(hash, nonce, uint64(len(dataset))*4, blockNumber, cDag, lookup)
 }
 
 func rotl32(x uint32, n uint32) uint32 {
@@ -269,7 +246,7 @@ func merge(a *uint32, b uint32, r uint32) {
 	}
 }
 
-func progpowInit(seed uint64) (kiss99State, [progpowRegs]uint32, [progpowRegs]uint32) {
+func kawpowInit(seed uint64) (kiss99State, [progpowRegs]uint32, [progpowRegs]uint32) {
 	var randState kiss99State
 
 	fnvHash := uint32(0x811c9dc5)
@@ -297,7 +274,7 @@ func progpowInit(seed uint64) (kiss99State, [progpowRegs]uint32, [progpowRegs]ui
 }
 
 // Random math between two input values
-func progpowMath(a uint32, b uint32, r uint32) uint32 {
+func kawpowMath(a uint32, b uint32, r uint32) uint32 {
 	switch r % 11 {
 	case 0:
 		return a + b
@@ -330,7 +307,7 @@ func progpowMath(a uint32, b uint32, r uint32) uint32 {
 	}
 }
 
-func progpowLoop(seed uint64, loop uint32, mix *[progpowLanes][progpowRegs]uint32,
+func round(seed uint64, loop uint32, mix *[progpowLanes][progpowRegs]uint32,
 	lookup func(index uint32) []byte,
 	cDag []uint32, datasetSize uint32) {
 	// All lanes share a base address for the global load
@@ -360,15 +337,9 @@ func progpowLoop(seed uint64, loop uint32, mix *[progpowLanes][progpowRegs]uint3
 	for l := uint32(0); l < progpowLanes; l++ {
 
 		// initialize the seed and mix destination sequence
-		randState, dstSeq, srcSeq = progpowInit(seed)
+		randState, dstSeq, srcSeq = kawpowInit(seed)
 		srcCounter = uint32(0)
 		dstCounter = uint32(0)
-
-		//if progpowCntCache > progpowCntMath {
-		//	iMax = progpowCntCache
-		//} else {
-		//	iMax = progpowCntMath
-		//}
 
 		for i := uint32(0); i < progpowCntMath; i++ {
 			if i < progpowCntCache {
@@ -397,7 +368,7 @@ func progpowLoop(seed uint64, loop uint32, mix *[progpowLanes][progpowRegs]uint3
 				if src2 >= src1 {
 					src2++
 				}
-				data32 := progpowMath(mix[l][src1], mix[l][src2], rnd(&randState))
+				data32 := kawpowMath(mix[l][src1], mix[l][src2], rnd(&randState))
 
 				dst := dstSeq[(dstCounter)%progpowRegs]
 				dstCounter++
@@ -422,7 +393,7 @@ func progpowLoop(seed uint64, loop uint32, mix *[progpowLanes][progpowRegs]uint3
 	}
 }
 
-func progpow(hash []byte, nonce uint64, size uint64, blockNumber uint64, cDag []uint32,
+func kawpow(hash []byte, nonce uint64, size uint64, blockNumber uint64, cDag []uint32,
 	lookup func(index uint32) []byte) ([]byte, []byte) {
 	var (
 		mix         [progpowLanes][progpowRegs]uint32
@@ -434,7 +405,7 @@ func progpow(hash []byte, nonce uint64, size uint64, blockNumber uint64, cDag []
 
 	period := (blockNumber / progpowPeriodLength)
 	for l := uint32(0); l < progpowCntDag; l++ {
-		progpowLoop(period, l, &mix, lookup, cDag, uint32(size/progpowMixBytes))
+		round(period, l, &mix, lookup, cDag, uint32(size/progpowMixBytes))
 	}
 
 	// Reduce mix data to a single per-lane result
@@ -458,4 +429,17 @@ func progpow(hash []byte, nonce uint64, size uint64, blockNumber uint64, cDag []
 	finalHash := keccakF800Long(state2, result[:])
 
 	return mixHash[:], finalHash[:]
+}
+
+func (ethash *Ethash) KawPowHash(number uint64, hash common.Hash, nonce uint64) (common.Hash, common.Hash) {
+	cache := ethash.kawpowCache(number)
+	size := datasetSize(number, kawpowEpochLength)
+
+	keccak512 := makeHasher(sha3.NewLegacyKeccak512())
+	lookup := func(index uint32) []byte {
+		return generateDatasetItem(cache.cache, index/16, keccak512, kawpowDatasetParents)
+	}
+
+	mixHash, finalHash := kawpow(hash.Bytes(), nonce, size, number, cache.cDag, lookup)
+	return common.BytesToHash(mixHash), common.BytesToHash(finalHash)
 }

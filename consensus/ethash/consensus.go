@@ -31,6 +31,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
@@ -578,7 +579,7 @@ func (ethash *Ethash) verifySeal(chain consensus.ChainHeaderReader, header *type
 	if !fulldag {
 		cache := ethash.cache(number)
 
-		size := datasetSize(number)
+		size := datasetSize(number, ethashEpochLength)
 		if ethash.config.PowMode == ModeTest {
 			size = 32 * 1024
 		}
@@ -672,7 +673,7 @@ func (ethash *Ethash) verifyEthashMiningTxSeal(config *params.ChainConfig, tx *t
 	if !fulldag {
 		cache := ethash.cache(number)
 
-		size := datasetSize(number)
+		size := datasetSize(number, ethashEpochLength)
 		if ethash.config.PowMode == ModeTest {
 			size = 32 * 1024
 		}
@@ -694,15 +695,57 @@ func (ethash *Ethash) verifyEthashMiningTxSeal(config *params.ChainConfig, tx *t
 	return nil
 }
 
+// KawPow verification is need to be verified by ethash, because kawpow algorithm is based on ethash.
+func (ethash *Ethash) VerifyKawPowSeal(tx *types.Transaction) error {
+	if tx.AuxPoW() == nil {
+		return misc.ErrInvalidNilBlock
+	}
+	if tx.Algorithm() != crosschain.KawPoWAlgorithm {
+		return ErrInvalidMiningAlgorithm
+	}
+
+	// Generate the KawPoW hash and mix hash
+	auxBlock := tx.AuxPoW()
+	calculatedMixHash, finalHash := ethash.KawPowHash(auxBlock.BlockNumber(), common.HexToHash(auxBlock.SealHash()), auxBlock.PowNonce())
+
+	// Verify the mix hash matches what's stored in the header
+
+	if calculatedMixHash.Hex() != auxBlock.MixHash() {
+		return fmt.Errorf("mix hash mismatch: expected %s, got %s", auxBlock.MixHash(), calculatedMixHash.Hex())
+	}
+
+	// Check if the final hash meets the difficulty target
+	target := kawpowBitsToTarget(uint32(auxBlock.Bits()))
+	finalHashBig := finalHash.Big()
+
+	// In PoW, the hash must be <= target to be valid
+	if finalHashBig.Cmp(target) <= 0 {
+		return nil // Valid KawPoW proof of work
+	}
+
+	return fmt.Errorf("final hash %s exceeds target %s", finalHash.Hex(), target.Text(16))
+}
+
 // VerifyMiningTxSeal checks whether a offline mining or cross mining transaction satisfies the PoW difficulty requirements,
 func (ethash *Ethash) VerifyMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error {
+	if tx.AuxPoW() == nil {
+		return misc.ErrInvalidNilBlock
+	}
 	// offline mining
 	if tx.Type() == types.MiningTxType && misc.IsEthashAlgorithm(config, block.Time, tx.Algorithm()) {
 		return ethash.verifyEthashMiningTxSeal(config, tx, block, fulldag)
 	}
 	// cross mining
 	if tx.Type() == types.CrossMiningTxType {
-		return misc.VerifyCrossMiningTxSeal(config, tx, block)
+		if err := misc.VerifyCrossMiningTx(config, tx, block); err != nil {
+			return err
+		}
+		// kawpow algorithm need ethash verification
+		if tx.Algorithm() == crosschain.KawPoWAlgorithm {
+			return ethash.VerifyKawPowSeal(tx)
+		}
+
+		return misc.VerifyCrossMiningTxSeal(tx)
 	}
 	return ErrInvalidMiningAlgorithm
 }
@@ -885,4 +928,41 @@ func calculateRewards(config *params.ChainConfig, header *types.Header) (*big.In
 	foundation.Div(foundation, big100)
 	reward.Sub(reward, foundation)
 	return reward, foundation
+}
+
+// bitsToTarget converts the compact "bits" representation to a big.Int target
+// This implements the exact same logic as Ravencoin's arith_uint256::SetCompact() method
+func kawpowBitsToTarget(bits uint32) *big.Int {
+	// Extract the size (exponent) and word (mantissa) following Ravencoin's SetCompact
+	nSize := int(bits >> 24)
+	nWord := bits & 0x007fffff // Note: 0x007fffff not 0x00ffffff (excludes sign bit)
+
+	var target *big.Int
+
+	if nSize <= 3 {
+		// For size <= 3, shift the word right
+		nWord >>= uint(8 * (3 - nSize))
+		target = big.NewInt(int64(nWord))
+	} else {
+		// For size > 3, shift the word left
+		target = big.NewInt(int64(nWord))
+		target.Lsh(target, uint(8*(nSize-3)))
+	}
+
+	// Handle negative values and overflow cases like Ravencoin
+	// If the sign bit is set (0x00800000) and nWord != 0, it's negative
+	if nWord != 0 && (bits&0x00800000) != 0 {
+		// In Ravencoin, negative targets are invalid, return 0
+		return big.NewInt(0)
+	}
+
+	// Check for overflow like Ravencoin does
+	if nWord != 0 && ((nSize > 34) ||
+		(nWord > 0xff && nSize > 33) ||
+		(nWord > 0xffff && nSize > 32)) {
+		// Overflow case, return 0 (invalid)
+		return big.NewInt(0)
+	}
+
+	return target
 }

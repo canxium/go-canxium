@@ -14,15 +14,13 @@
 // You should have received a copy of the GNU Lesser General Public License
 // along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
 
-package ethash
+package kawpow
 
 import (
 	"encoding/binary"
 	"hash"
 	"math/big"
 	"reflect"
-	"runtime"
-	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -281,73 +279,6 @@ func generateDatasetItem(cache []uint32, index uint32, keccak512 hasher) []byte 
 	}
 	keccak512(mix, mix)
 	return mix
-}
-
-// generateDataset generates the entire ethash dataset for mining.
-// This method places the result into dest in machine byte order.
-func generateDataset(dest []uint32, epoch uint64, cache []uint32) {
-	// Print some debug logs to allow analysis on low end devices
-	logger := log.New("epoch", epoch)
-
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-
-		logFn := logger.Debug
-		if elapsed > 3*time.Second {
-			logFn = logger.Info
-		}
-		logFn("Generated ethash verification cache", "elapsed", common.PrettyDuration(elapsed))
-	}()
-
-	// Figure out whether the bytes need to be swapped for the machine
-	swapped := !isLittleEndian()
-
-	// Convert our destination slice to a byte buffer
-	header := *(*reflect.SliceHeader)(unsafe.Pointer(&dest))
-	header.Len *= 4
-	header.Cap *= 4
-	dataset := *(*[]byte)(unsafe.Pointer(&header))
-
-	// Generate the dataset on many goroutines since it takes a while
-	threads := runtime.NumCPU()
-	size := uint64(len(dataset))
-
-	var pend sync.WaitGroup
-	pend.Add(threads)
-
-	var progress uint32
-	for i := 0; i < threads; i++ {
-		go func(id int) {
-			defer pend.Done()
-
-			// Create a hasher to reuse between invocations
-			keccak512 := makeHasher(sha3.NewLegacyKeccak512())
-
-			// Calculate the data segment this thread should generate
-			batch := uint32((size + hashBytes*uint64(threads) - 1) / (hashBytes * uint64(threads)))
-			first := uint32(id) * batch
-			limit := first + batch
-			if limit > uint32(size/hashBytes) {
-				limit = uint32(size / hashBytes)
-			}
-			// Calculate the dataset segment
-			percent := uint32(size / hashBytes / 100)
-			for index := first; index < limit; index++ {
-				item := generateDatasetItem(cache, index, keccak512)
-				if swapped {
-					swap(item)
-				}
-				copy(dataset[index*hashBytes:], item)
-
-				if status := atomic.AddUint32(&progress, 1); status%percent == 0 {
-					logger.Info("Generating DAG in progress", "percentage", uint64(status*100)/(size/hashBytes), "elapsed", common.PrettyDuration(time.Since(start)))
-				}
-			}
-		}(i)
-	}
-	// Wait for all the generators to finish and return
-	pend.Wait()
 }
 
 const maxEpoch = 2048
