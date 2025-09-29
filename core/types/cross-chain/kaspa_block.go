@@ -489,6 +489,11 @@ func (b *KaspaBlock) Copy() CrossChainBlock {
 	return &block
 }
 
+// Epoch returns 0 for Kaspa as it does not use epochs
+func (b *KaspaBlock) Epoch() uint64 {
+	return 0
+}
+
 func (b *KaspaBlock) BlockNumber() uint64 {
 	return b.Header.DAAScore()
 }

@@ -457,6 +457,11 @@ func (b *RavenBlock) Copy() CrossChainBlock {
 	return block
 }
 
+func (b *RavenBlock) Epoch() uint64 {
+	// Each epoch is 7500 blocks
+	return uint64(b.Header.Height) / 7500
+}
+
 func (b *RavenBlock) BlockNumber() uint64 {
 	return uint64(b.Header.Height)
 }

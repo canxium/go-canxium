@@ -1,4 +1,4 @@
-package misc
+package cpow
 
 import (
 	"bytes"
@@ -87,8 +87,8 @@ func isValidKaspaBlockHash(hashHex string) (bool, error) {
 	return hashInt.Cmp(maxPoWInLithiumFork) == -1, nil
 }
 
-// verifyCrossMiningTxSeal checks whether a cross mining satisfies the PoW difficulty requirements,
-func VerifyCrossMiningTx(config *params.ChainConfig, tx *types.Transaction, block *types.Header) error {
+// verifyCrossMiningTxSeal checks whether a cross mining satisfies the basic requirements of the cross-chain mining protocol
+func verifyCrossMiningBasic(config *params.ChainConfig, tx *types.Transaction, block *types.Header) error {
 	if tx.AuxPoW() == nil {
 		return ErrInvalidNilBlock
 	}
@@ -158,7 +158,8 @@ func VerifyCrossMiningTx(config *params.ChainConfig, tx *types.Transaction, bloc
 	return nil
 }
 
-func VerifyCrossMiningTxSeal(tx *types.Transaction) error {
+// verifyCrossMiningSeal checks whether a cross mining satisfies the proof of work requirement of the cross-chain mining protocol
+func VerifyCrossMiningSeal(tx *types.Transaction) error {
 	if tx.AuxPoW() == nil {
 		return ErrInvalidNilBlock
 	}

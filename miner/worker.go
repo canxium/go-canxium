@@ -27,6 +27,7 @@ import (
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/cpow"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -926,12 +927,12 @@ func (w *worker) commitTransactions(env *environment, txs *types.TransactionsByP
 			reward := big.NewInt(0)
 			if tx.Type() == types.MiningTxType {
 				// skip old mining transaction have different mining reward, not match this period
-				subsidy := misc.TransactionMiningSubsidy(w.chainConfig, env.header.Number)
+				subsidy := cpow.TransactionMiningSubsidy(w.chainConfig, env.header.Number)
 				reward = new(big.Int).Mul(subsidy, tx.Difficulty())
 			} else if tx.Type() == types.CrossMiningTxType {
-				forkTime := misc.CrossMiningForkTime(w.chainConfig, tx.AuxPoW().Chain())
+				forkTime := cpow.CrossMiningForkTime(w.chainConfig, tx.AuxPoW().Chain())
 				isLithiumFork := w.chainConfig.IsLithium(env.header.Time)
-				reward = misc.CrossMiningReward(isLithiumFork, tx.AuxPoW(), forkTime, env.header.Time)
+				reward = cpow.CrossMiningReward(isLithiumFork, tx.AuxPoW(), forkTime, env.header.Time)
 			}
 
 			if tx.Value().Cmp(reward) != 0 {

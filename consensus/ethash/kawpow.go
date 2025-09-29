@@ -19,6 +19,8 @@ const (
 	progpowPeriodLength = 3            // Blocks per progpow epoch (N)
 	progpowCntDag       = loopAccesses // Number of DAG accesses, same as ethash (64)
 	progpowMixBytes     = 2 * mixBytes
+
+	kawPowAlgorithmRevision = 194
 )
 
 var fnvOffsetBasis uint32 = 0x811c9dc5

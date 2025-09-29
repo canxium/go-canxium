@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/cpow"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -54,6 +55,9 @@ const (
 	// more expensive to propagate; larger transactions also take more resources
 	// to validate whether they fit into the pool or not.
 	txMaxSize = 4 * txSlotSize // 128KB
+
+	RAVEN_ETHASH_EPOCH_LENGTH  = uint64(7500)
+	RAVEN_MAX_EPOCH_DIFFERENCE = uint64(0) // allow only same epoch transactions in the pool
 )
 
 var (
@@ -719,12 +723,12 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 	}
 
 	if tx.IsMiningTx() {
-		// check tx seal, minimum difficulty
-		if err := pool.engine.VerifyMiningTxSeal(pool.chainconfig, tx, pool.chain.CurrentBlock(), false); err != nil {
+		// Check the mining basic validation
+		if err := cpow.VerifyMiningTxBasic(pool.chainconfig, tx, pool.chain.CurrentBlock()); err != nil {
 			return err
 		}
-	} else if misc.IsUnauthorizedCrossMiningTx(pool.chainconfig, tx) {
-		return misc.ErrUnauthorizedCrossMiningTx
+	} else if cpow.IsUnauthorizedCrossMiningTx(pool.chainconfig, tx) {
+		return cpow.ErrUnauthorizedCrossMiningTx
 	}
 
 	return nil
@@ -742,7 +746,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	// Ensure the cross mining transaction adheres to block timestamp ordering
 	if tx.Type() == types.CrossMiningTxType {
 		if tx.AuxPoW() == nil {
-			return misc.ErrInvalidCrossChainBlock
+			return cpow.ErrInvalidCrossChainBlock
 		}
 		proof := tx.AuxPoW()
 		miner, err := proof.GetMinerAddress()
@@ -1762,15 +1766,15 @@ func (pool *TxPool) demoteUnexecutables() {
 // Check if the mining transaction has correct value, mining rewards will be reduced every month
 func (pool *TxPool) isValidMiningSubsidy(headNumber *big.Int, headTime uint64, tx *types.Transaction) bool {
 	if tx.Type() == types.MiningTxType {
-		subsidy := misc.TransactionMiningSubsidy(pool.chainconfig, headNumber)
+		subsidy := cpow.TransactionMiningSubsidy(pool.chainconfig, headNumber)
 		value := new(big.Int).Mul(subsidy, tx.Difficulty())
 		return tx.Value().Cmp(value) == 0
 	}
 
 	if tx.Type() == types.CrossMiningTxType {
-		forkTime := misc.CrossMiningForkTime(pool.chainconfig, tx.AuxPoW().Chain())
+		forkTime := cpow.CrossMiningForkTime(pool.chainconfig, tx.AuxPoW().Chain())
 		isLithiumFork := pool.chainconfig.IsLithium(headTime)
-		value := misc.CrossMiningReward(isLithiumFork, tx.AuxPoW(), forkTime, headTime)
+		value := cpow.CrossMiningReward(isLithiumFork, tx.AuxPoW(), forkTime, headTime)
 		return tx.Value().Cmp(value) == 0
 	}
 
@@ -1893,7 +1897,7 @@ func newLookup() *lookup {
 // Range calls f on each key and value present in the map. The callback passed
 // should return the indicator whether the iteration needs to be continued.
 // Callers need to specify which set (or both) to be iterated.
-func (t *lookup) Range(f func(hash common.Hash, tx *types.Transaction, local bool) bool, local bool, remote bool) {
+func (t *lookup) Range(f func(hash common.Hash, tx *types.Transaction, local bool) bool, local bool, remote bool, merge bool) {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
@@ -1908,6 +1912,16 @@ func (t *lookup) Range(f func(hash common.Hash, tx *types.Transaction, local boo
 		for key, value := range t.remotes {
 			if !f(key, value, false) {
 				return
+			}
+		}
+	}
+	if merge {
+		for _, value := range t.merges {
+			tx := t.Get(*value)
+			if tx != nil {
+				if !f(tx.Hash(), tx, false) {
+					return
+				}
 			}
 		}
 	}
@@ -2048,7 +2062,7 @@ func (t *lookup) RemotesBelowTip(threshold *big.Int) types.Transactions {
 			found = append(found, tx)
 		}
 		return true
-	}, false, true) // Only iterate remotes
+	}, false, true, false) // Only iterate remotes
 	return found
 }
 

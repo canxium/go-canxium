@@ -639,7 +639,7 @@ func (l *pricedList) Reheap() {
 	l.all.Range(func(hash common.Hash, tx *types.Transaction, local bool) bool {
 		l.urgent.list = append(l.urgent.list, tx)
 		return true
-	}, false, true) // Only iterate remotes
+	}, false, true, false) // Only iterate remotes
 	heap.Init(&l.urgent)
 
 	// balance out the two heaps by moving the worse half of transactions into the

@@ -60,6 +60,8 @@ type CrossChainBlock interface {
 	VerifyCoinbase() bool
 	// Canxium miner address
 	GetMinerAddress() (common.Address, error)
+	// Epoch, for ethash base algorithm
+	Epoch() uint64
 	// Return block number, if any
 	BlockNumber() uint64
 	// Block hash, in string
@@ -81,8 +83,3 @@ type CrossChainBlock interface {
 	// Deep copy
 	Copy() CrossChainBlock
 }
-
-const (
-	// Monero constants
-	RandomXActivationTimestamp = 1561234567 // Example timestamp, replace with actual Monero RandomX activation timestamp
-)

@@ -20,15 +20,12 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"runtime"
-	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/ethereum/go-ethereum/trie"
@@ -220,104 +217,16 @@ func (beacon *Beacon) VerifyUncles(chain consensus.ChainReader, block *types.Blo
 	return nil
 }
 
-// VerifyMiningTxSeal checks whether a offline mining or cross mining transaction satisfies the PoW difficulty requirements,
-func (beacon *Beacon) VerifyMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error {
-	// cross mining
-	if tx.Type() == types.CrossMiningTxType {
-		// kawpow algorithm need ethash verification
-		if tx.Algorithm() == crosschain.KawPoWAlgorithm {
-			return beacon.ethone.VerifyMiningTxSeal(config, tx, block, fulldag)
-		}
-		if err := misc.VerifyCrossMiningTx(config, tx, block); err != nil {
-			return err
-		}
-		return misc.VerifyCrossMiningTxSeal(tx)
-	}
-	// offline mining
-	if tx.Type() == types.MiningTxType && misc.IsEthashAlgorithm(config, block.Time, tx.Algorithm()) {
-		return beacon.ethone.VerifyMiningTxSeal(config, tx, block, fulldag)
-	}
-	return errInvalidMiningAlgorithm
+// VerifyEthashTxSeal checks whether a offline mining transaction satisfies the PoW difficulty requirements,
+// either using the usual ethash cache for it, or alternatively using a full DAG
+// to make remote mining fast.
+func (beacon *Beacon) VerifyEthashTxSeal(tx *types.Transaction, fulldag bool) error {
+	return beacon.ethone.VerifyEthashTxSeal(tx, fulldag)
 }
 
-// VerifyMiningTxsSeal is similar to VerifyTxSeal, but verifies a batch of mining transactions
-// concurrently. The method returns a quit channel to abort the operations and
-// a results channel to retrieve the async verifications.
-func (beacon *Beacon) VerifyMiningTxsSeal(config *params.ChainConfig, txs types.Transactions, block *types.Header, fulldag bool) <-chan int64 {
-	// If we're running a full engine faking, accept any input as valid
-	result := make(chan int64, 1)
-	defer close(result)
-	if len(txs) == 0 {
-		result <- 0
-		return result
-	}
-
-	// Spawn as many workers as allowed threads
-	workers := runtime.GOMAXPROCS(0)
-	if len(txs) < workers {
-		workers = len(txs)
-	}
-
-	// Create a task channel and spawn the verifiers
-	var (
-		inputs       = make(chan int)
-		done         = make(chan int, workers)
-		errors       = make([]error, len(txs))
-		numMiningTxs = int64(0)
-	)
-	for i := 0; i < workers; i++ {
-		go func() {
-			for index := range inputs {
-				if !txs[index].IsMiningTx() {
-					if misc.IsUnauthorizedCrossMiningTx(config, txs[index]) {
-						errors[index] = misc.ErrUnauthorizedCrossMiningTx
-					} else {
-						errors[index] = nil
-					}
-					done <- index
-					continue
-				}
-
-				atomic.AddInt64(&numMiningTxs, 1)
-				errors[index] = beacon.VerifyMiningTxSeal(config, txs[index], block, fulldag)
-				done <- index
-			}
-		}()
-	}
-
-	sealCh := make(chan int64, 1)
-	go func() {
-		defer close(inputs)
-		defer close(sealCh)
-		var (
-			in, out = 0, 0
-			checked = make([]bool, len(txs))
-			inputs  = inputs
-		)
-		for {
-			select {
-			case inputs <- in:
-				if in++; in == len(txs) {
-					// Reached end of headers. Stop sending to workers.
-					inputs = nil
-				}
-			case index := <-done:
-				for checked[index] = true; checked[out]; out++ {
-					if errors[out] != nil {
-						sealCh <- -1
-						// if any of txs have error, return.
-						return
-					}
-
-					if out == len(txs)-1 {
-						sealCh <- atomic.LoadInt64(&numMiningTxs)
-						return
-					}
-				}
-			}
-		}
-	}()
-	return sealCh
+// VerifyKawPowTxSeal checks whether a mining transaction satisfies the KawPoW difficulty requirements.
+func (beacon *Beacon) VerifyKawPowTxSeal(tx *types.Transaction) error {
+	return beacon.ethone.VerifyKawPowTxSeal(tx)
 }
 
 // verifyHeader checks whether a header conforms to the consensus rules of the

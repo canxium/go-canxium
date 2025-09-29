@@ -1,4 +1,4 @@
-package misc
+package cpow
 
 import (
 	"fmt"
