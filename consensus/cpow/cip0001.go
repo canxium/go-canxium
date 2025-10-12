@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/types"
 	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -27,6 +28,8 @@ var (
 	CanxiumMiningTxDataLength = 36
 	// mining(address) method
 	CanxiumMiningTxDataMethod = common.Hex2Bytes("eedc3c83000000000000000000000000")
+
+	ethashEpochLength = uint64(30000) // Ethash epoch length, used to calculate DAG size
 )
 
 var (
@@ -46,6 +49,7 @@ var (
 	errInvalidMiningTxType  = errors.New("invalid mining transaction type")
 	errInvalidMiningTxValue = errors.New("invalid mining transaction value")
 	errInvalidEngine        = errors.New("invalid consensus engine")
+	errInvalidMiningEpoch   = errors.New("invalid mining epoch, offline mining tx nonce must be < 30000 after Beryllium fork")
 )
 
 // VerifyMiningTx verifies a mining transaction
@@ -75,10 +79,23 @@ func VerifyMiningTxSeal(engine consensus.Engine, config *params.ChainConfig, tx 
 		}
 		return VerifyCrossMiningSeal(tx)
 	}
-	if tx.Type() == types.MiningTxType && IsEthashAlgorithm(config, block.Time, tx.Algorithm()) {
+	// We only support ethash offline mining for the MiningTxType
+	if tx.Type() == types.MiningTxType {
 		return engine.VerifyEthashTxSeal(tx, false)
 	}
 	return ErrInvalidMiningType
+}
+
+// MiningEpoch returns the epoch number for a given mining transaction
+func MiningEpoch(tx *types.Transaction) uint64 {
+	if tx.Type() == types.CrossMiningTxType && tx.AuxPoW() != nil {
+		return tx.AuxPoW().Epoch()
+	}
+	// for the MiningTxType, the epoch number is calculated base on the nonce and only ethash is supported
+	if tx.Type() == types.MiningTxType {
+		return GetEthashEpochNumber(tx.Nonce())
+	}
+	return 0
 }
 
 // VerifyMiningTxs verifies a batch of mining transactions
@@ -88,6 +105,22 @@ func VerifyMiningTxs(config *params.ChainConfig, engine consensus.Engine, txs ty
 	// If we're running a full engine faking, accept any input as valid
 	result := make(chan int64, 1)
 	defer close(result)
+	// After Beryllium fork, we only allow one epoch per mining algorithm in a block
+	if config.IsBerylliumTime(block.Time) {
+		epochMap := make(map[crosschain.PoWAlgorithm]uint64)
+		for _, tx := range txs {
+			if !tx.IsMiningTx() {
+				continue
+			}
+			epoch := MiningEpoch(tx)
+			if lastEpoch, ok := epochMap[tx.Algorithm()]; ok && lastEpoch != epoch {
+				log.Error("Multiple mining epochs in single block", "algorithm", tx.Algorithm(), "epoch1", lastEpoch, "epoch2", epoch)
+				result <- -1
+				return result
+			}
+			epochMap[tx.Algorithm()] = epoch
+		}
+	}
 	if len(txs) == 0 {
 		result <- 0
 		return result
@@ -166,6 +199,10 @@ func verifyOfflineMiningBasic(config *params.ChainConfig, tx *types.Transaction,
 	if !config.IsHydro(block.Number) {
 		return types.ErrTxTypeNotSupported
 	}
+	// After Beryllium fork, we don't allow legacy mining tx have nonce > 30,000
+	if config.IsBerylliumTime(block.Time) && tx.Nonce() >= ethashEpochLength {
+		return errInvalidMiningEpoch
+	}
 	// Ensure the receiver is the mining smart contract
 	if tx.To() == nil || *tx.To() != config.MiningContract {
 		return ErrInvalidMiningReceiver
@@ -224,20 +261,7 @@ func TransactionMiningSubsidy(config *params.ChainConfig, block *big.Int) *big.I
 	return subsidy
 }
 
-// Check to see if an algorithm number is presenting for ethash
-// Because before the Helium fork, we didn't verify the tx.Algorithm number, so all number = ethash, but we want it is 1.
-// Some miner set a different number (2, 3, 4) and the transaction is excuted success, now we have to defined all that number to be ethash
-func IsEthashAlgorithm(config *params.ChainConfig, blockTime uint64, algorithm crosschain.PoWAlgorithm) bool {
-	// before helium fork, all number is ethash
-	if !config.IsHelium(blockTime) {
-		return true
-	}
-
-	// after helium fork, only number 1
-	switch algorithm {
-	case crosschain.EthashAlgorithm:
-		return true
-	}
-
-	return false
+// GetEthashEpochNumber return the ethash epoch number for a given block number
+func GetEthashEpochNumber(blockNumber uint64) uint64 {
+	return blockNumber / ethashEpochLength
 }

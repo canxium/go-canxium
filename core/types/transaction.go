@@ -507,6 +507,13 @@ func (tx *Transaction) WithSignature(signer Signer, sig []byte) (*Transaction, e
 	return &Transaction{inner: cpy, time: tx.time}, nil
 }
 
+// TxEntry represents a transaction with epoch and pow verification status (only for mining tx)
+type TxEntry struct {
+	Tx          *Transaction
+	PoWVerified bool // whether the mining transaction PoW is verified
+	Epoch       uint64
+}
+
 // Transactions implements DerivableList for transactions.
 type Transactions []*Transaction
 
