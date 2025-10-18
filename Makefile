@@ -9,7 +9,7 @@ GO ?= latest
 GORUN = env GO111MODULE=on go run
 
 canxium:
-	env $(GORUN) build/ci.go install ./cmd/canxium
+	$(GORUN) build/ci.go install ./cmd/canxium
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/canxium\" to launch canxium."
 
@@ -24,7 +24,7 @@ lint: ## Run linters.
 
 clean:
 	env GO111MODULE=on go clean -cache
-	rm -fr build/_workspace/pkg/ $(GOBIN)/* build/lib/
+	rm -fr build/_workspace/pkg/ $(GOBIN)/*
 
 # The devtools target installs tools required for 'go generate'.
 # You need to put $GOBIN (or $GOPATH/bin) in your PATH to use 'go generate'.
