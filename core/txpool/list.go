@@ -25,7 +25,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	goList "container/list"
+
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/cpow"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
@@ -661,4 +664,235 @@ func (l *pricedList) Reheap() {
 func (l *pricedList) SetBaseFee(baseFee *big.Int) {
 	l.urgent.baseFee = baseFee
 	l.Reheap()
+}
+
+// miningList holds mining transactions awaiting PoW validation
+type miningList struct {
+	mu           sync.RWMutex
+	transactions map[common.Hash]*types.TxEntry
+	epochs       map[uint64]*goList.List // Group by epoch for efficient DAG management
+	sortedEpochs []uint64                // Sorted list of epochs for ordering
+}
+
+// newMiningQueue creates a new mining transaction queue
+func newMiningQueue() *miningList {
+	return &miningList{
+		transactions: make(map[common.Hash]*types.TxEntry),
+		epochs:       make(map[uint64]*goList.List),
+		sortedEpochs: make([]uint64, 0),
+	}
+}
+
+// validateMiningTx checks if a mining transaction can be added to the queue
+func (mq *miningList) validateMiningTx(tx *types.Transaction) error {
+	if !tx.IsMiningTx() {
+		return ErrInvalidMiningType
+	}
+	mq.mu.RLock()
+	defer mq.mu.RUnlock()
+	hash := tx.Hash()
+	if _, exists := mq.transactions[hash]; exists {
+		return ErrAlreadyKnown
+	}
+	// Calculate epoch for ethash transactions
+	epoch := uint64(0)
+	if tx.Type() == types.MiningTxType {
+		// since we dont support other mining algorithm using this transaction type any more, except ethash, so use the nonce / ethash epoch calculation
+		epoch = cpow.GetEthashEpochNumber(tx.Nonce())
+	} else if tx.Type() == types.CrossMiningTxType {
+		epoch = tx.AuxPoW().Epoch()
+	}
+	if len(mq.epochs) > maxMiningEpochInQueue && mq.epochs[epoch] == nil {
+		return ErrMiningEpochOverflow
+	}
+
+	return nil
+}
+
+// Add adds a mining transaction to the queue for PoW validation
+func (mq *miningList) Add(tx *types.Transaction) {
+	if !tx.IsMiningTx() {
+		return
+	}
+	mq.mu.Lock()
+	defer mq.mu.Unlock()
+	hash := tx.Hash()
+	// Calculate epoch for ethash transactions
+	epoch := uint64(0)
+	if tx.Type() == types.MiningTxType {
+		// since we dont support other mining algorithm using this transaction type any more, except ethash, so use the nonce / ethash epoch calculation
+		epoch = cpow.GetEthashEpochNumber(tx.Nonce())
+	} else if tx.Type() == types.CrossMiningTxType {
+		epoch = tx.AuxPoW().Epoch()
+	}
+
+	entry := &types.TxEntry{
+		Tx:          tx,
+		PoWVerified: false,
+		Epoch:       epoch,
+	}
+
+	// Add to transactions map
+	mq.transactions[hash] = entry
+
+	// Add to epoch list (FIFO - append to back)
+	if mq.epochs[epoch] == nil {
+		mq.epochs[epoch] = goList.New()
+		// Insert epoch in sorted order
+		mq.insertEpochSorted(epoch)
+	}
+	mq.epochs[epoch].PushBack(entry)
+
+	// Update metrics
+	miningQueueGauge.Inc(1)
+	miningEpochsGauge.Update(int64(len(mq.epochs)))
+}
+
+// insertEpochSorted inserts an epoch into the sorted epochs list
+func (mq *miningList) insertEpochSorted(epoch uint64) {
+	// Find insertion point using binary search
+	left, right := 0, len(mq.sortedEpochs)
+	for left < right {
+		mid := (left + right) / 2
+		if mq.sortedEpochs[mid] < epoch {
+			left = mid + 1
+		} else {
+			right = mid
+		}
+	}
+	// Insert at the found position
+	mq.sortedEpochs = append(mq.sortedEpochs, 0)
+	copy(mq.sortedEpochs[left+1:], mq.sortedEpochs[left:])
+	mq.sortedEpochs[left] = epoch
+}
+
+// Pop removes and returns the first transaction from the lowest epoch
+func (mq *miningList) Pop() *types.TxEntry {
+	mq.mu.Lock()
+	defer mq.mu.Unlock()
+
+	// Find the lowest epoch with transactions
+	for len(mq.sortedEpochs) > 0 {
+		epoch := mq.sortedEpochs[0]
+		epochList := mq.epochs[epoch]
+
+		if epochList != nil && epochList.Len() > 0 {
+			// Remove first element (FIFO)
+			element := epochList.Front()
+			entry := element.Value.(*types.TxEntry)
+			epochList.Remove(element)
+
+			// Remove from transactions map
+			delete(mq.transactions, entry.Tx.Hash())
+
+			// If epoch is now empty, remove it
+			if epochList.Len() == 0 {
+				delete(mq.epochs, epoch)
+				// Remove from sorted epochs
+				mq.sortedEpochs = mq.sortedEpochs[1:]
+			}
+
+			// Update metrics
+			miningQueueGauge.Dec(1)
+			miningEpochsGauge.Update(int64(len(mq.epochs)))
+
+			return entry
+		} else {
+			// Empty epoch, remove it
+			delete(mq.epochs, epoch)
+			mq.sortedEpochs = mq.sortedEpochs[1:]
+		}
+	}
+
+	return nil
+}
+
+// Remove removes a mining transaction from the queue
+func (mq *miningList) Remove(hash common.Hash) *types.TxEntry {
+	mq.mu.Lock()
+	defer mq.mu.Unlock()
+
+	entry, exists := mq.transactions[hash]
+	if !exists {
+		return nil
+	}
+
+	delete(mq.transactions, hash)
+
+	// Remove from epoch tracking
+	epoch := entry.Epoch
+	if epochList, exists := mq.epochs[epoch]; exists {
+		// Find and remove the entry from the linked list
+		for element := epochList.Front(); element != nil; element = element.Next() {
+			if element.Value.(*types.TxEntry) == entry {
+				epochList.Remove(element)
+				break
+			}
+		}
+
+		// If epoch is now empty, remove it completely
+		if epochList.Len() == 0 {
+			delete(mq.epochs, epoch)
+			// Remove from sorted epochs
+			for i, e := range mq.sortedEpochs {
+				if e == epoch {
+					mq.sortedEpochs = append(mq.sortedEpochs[:i], mq.sortedEpochs[i+1:]...)
+					break
+				}
+			}
+		}
+	}
+
+	// Update metrics
+	miningQueueGauge.Dec(1)
+	miningEpochsGauge.Update(int64(len(mq.epochs)))
+	return entry
+}
+
+// Get retrieves a mining transaction by hash
+func (mq *miningList) Get(hash common.Hash) *types.TxEntry {
+	mq.mu.RLock()
+	defer mq.mu.RUnlock()
+	return mq.transactions[hash]
+}
+
+// len returns the number of transactions in the mining queue
+func (mq *miningList) len() int {
+	mq.mu.RLock()
+	defer mq.mu.RUnlock()
+	return len(mq.transactions)
+}
+
+// getEpochs returns all active epochs in sorted order
+func (mq *miningList) getEpochs() []uint64 {
+	mq.mu.RLock()
+	defer mq.mu.RUnlock()
+
+	// Return a copy of sorted epochs
+	epochs := make([]uint64, len(mq.sortedEpochs))
+	copy(epochs, mq.sortedEpochs)
+	return epochs
+}
+
+// GetEpochSize returns the number of transactions in a specific epoch
+func (mq *miningList) GetEpochSize(epoch uint64) int {
+	mq.mu.RLock()
+	defer mq.mu.RUnlock()
+
+	if epochList, exists := mq.epochs[epoch]; exists {
+		return epochList.Len()
+	}
+	return 0
+}
+
+// GetLowestEpoch returns the lowest epoch with transactions, or false if empty
+func (mq *miningList) GetLowestEpoch() (uint64, bool) {
+	mq.mu.RLock()
+	defer mq.mu.RUnlock()
+
+	if len(mq.sortedEpochs) == 0 {
+		return 0, false
+	}
+
+	return mq.sortedEpochs[0], true
 }

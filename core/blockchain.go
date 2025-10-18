@@ -34,6 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/common/mclock"
 	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/cpow"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/state/snapshot"
@@ -1756,7 +1757,7 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 
 		// Before insert block to the chain, make sure all mining transaction are valid
 		// This type of transaction requires special verification steps, which cannot be verified by conventional methods.
-		txSealCh := bc.engine.VerifyMiningTxsSeal(bc.chainConfig, block.Transactions(), block.Header(), false)
+		txSealCh := cpow.VerifyMiningTxs(bc.chainConfig, bc.engine, block.Transactions(), block.Header())
 		if txSealCh == nil {
 			return it.index, errInvalidEngine
 		}

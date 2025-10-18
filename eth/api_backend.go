@@ -291,12 +291,7 @@ func (b *EthAPIBackend) GetPoolTransaction(hash common.Hash) *types.Transaction 
 }
 
 func (b *EthAPIBackend) GetPoolTransactionByAuxPoWHash(hash string) *types.Transaction {
-	txHash := b.eth.txPool.GetByAuxPoWHash(hash)
-	if txHash != nil {
-		return b.eth.txPool.Get(*txHash)
-	}
-
-	return nil
+	return b.eth.txPool.GetByAuxPoWHash(hash)
 }
 
 func (b *EthAPIBackend) GetTransaction(ctx context.Context, txHash common.Hash) (*types.Transaction, common.Hash, uint64, uint64, error) {

@@ -80,14 +80,13 @@ type Engine interface {
 	// rules of a given engine.
 	VerifyUncles(chain ChainReader, block *types.Block) error
 
-	// VerifyTxSeal verifies that the given mining transaction conform to the consensus
+	// VerifyEthashTxSeal verifies that the given ethash offline mining transaction conform to the consensus
 	// rules of a given engine.
-	VerifyMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error
+	VerifyEthashTxSeal(tx *types.Transaction, fulldag bool) error
 
-	// VerifyMiningTxsSeal verifies that the given mining transactions conform to the consensus
-	// rules of a given engine. return a channel which number of valid mining transaction
-	// -1 if there is any invalid mining tx
-	VerifyMiningTxsSeal(config *params.ChainConfig, txs types.Transactions, block *types.Header, fulldag bool) <-chan int64
+	// VerifyKawPowTxSeal verifies that the given kawpow cross mining transaction conform to the consensus
+	// rules of a given engine.
+	VerifyKawPowTxSeal(tx *types.Transaction) error
 
 	// Prepare initializes the consensus fields of a block header according to the
 	// rules of a particular engine. The changes are executed inline.

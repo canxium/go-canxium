@@ -29,10 +29,12 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/cpow"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -54,6 +56,9 @@ const (
 	// more expensive to propagate; larger transactions also take more resources
 	// to validate whether they fit into the pool or not.
 	txMaxSize = 4 * txSlotSize // 128KB
+
+	// maxMiningEpochInQueue is the maximum number of mining epochs to process concurrently
+	maxMiningEpochInQueue = 10
 )
 
 var (
@@ -77,6 +82,14 @@ var (
 	// ErrTxPoolOverflow is returned if the transaction pool is full and can't accept
 	// another remote transaction.
 	ErrTxPoolOverflow = errors.New("txpool is full")
+
+	// ErrMiningPoolOverflow is returned if the mining transaction pool is full and can't accept
+	// another remote transaction.
+	ErrMiningPoolOverflow = errors.New("mining txpool is full")
+
+	// ErrMiningEpochOverflow is returned if the mining transaction pool is full and can't accept
+	// another epoch transaction.
+	ErrMiningEpochOverflow = errors.New("mining txpool epoch overflow")
 
 	// ErrReplaceUnderpriced is returned if a transaction is attempted to be replaced
 	// with a different one without the required price bump.
@@ -106,12 +119,16 @@ var (
 	// ErrUnderDifficulty is returned if a mining transaction's difficulty is below the minimum
 	// configured for the offline mining consensus.
 	ErrDifficultyUnderValue = errors.New("mining transaction difficulty under value")
+
+	// ErrInvalidMiningType is returned if a transaction is not a mining transaction
+	ErrInvalidMiningType = errors.New("invalid mining transaction type")
 )
 
 var (
-	evictionInterval         = time.Minute      // Time interval to check for evictable transactions
-	garbageCollectorInterval = 60 * time.Minute // Time interval to check for invalid mining transactions
-	statsReportInterval      = 8 * time.Second  // Time interval to report transaction pool stats
+	evictionInterval         = time.Minute     // Time interval to check for evictable transactions
+	garbageCollectorInterval = 5 * time.Minute // Time interval to check for invalid mining transactions
+	statsReportInterval      = 8 * time.Second // Time interval to report transaction pool stats
+	miningValidationInterval = 1 * time.Second // Time interval to process mining transaction queue
 )
 
 var (
@@ -149,6 +166,12 @@ var (
 	localGauge   = metrics.NewRegisteredGauge("txpool/local", nil)
 	slotsGauge   = metrics.NewRegisteredGauge("txpool/slots", nil)
 
+	// Mining queue metrics
+	miningQueueGauge          = metrics.NewRegisteredGauge("txpool/mining/queue", nil)
+	miningValidationMeter     = metrics.NewRegisteredMeter("txpool/mining/validated", nil)
+	miningValidationFailMeter = metrics.NewRegisteredMeter("txpool/mining/failed", nil)
+	miningEpochsGauge         = metrics.NewRegisteredGauge("txpool/mining/epochs", nil)
+
 	reheapTimer = metrics.NewRegisteredTimer("txpool/reheap", nil)
 )
 
@@ -160,6 +183,7 @@ const (
 	TxStatusQueued
 	TxStatusPending
 	TxStatusIncluded
+	TxStatusMiningValidation // New status for mining transactions being validated
 )
 
 // blockChain provides the state of blockchain and current gas limit to do
@@ -283,6 +307,9 @@ type TxPool struct {
 	all     *lookup                      // All transactions to allow lookups
 	priced  *pricedList                  // All transactions sorted by price
 
+	// Mining transaction queue for PoW validation
+	mining *miningList
+
 	chainHeadCh     chan core.ChainHeadEvent
 	chainHeadSub    event.Subscription
 	reqResetCh      chan *txpoolResetRequest
@@ -319,6 +346,7 @@ func NewTxPool(config Config, chainconfig *params.ChainConfig, chain blockChain,
 		queue:           make(map[common.Address]*list),
 		beats:           make(map[common.Address]time.Time),
 		all:             newLookup(),
+		mining:          newMiningQueue(),
 		chainHeadCh:     make(chan core.ChainHeadEvent, chainHeadChanSize),
 		reqResetCh:      make(chan *txpoolResetRequest),
 		reqPromoteCh:    make(chan *accountSet),
@@ -357,6 +385,10 @@ func NewTxPool(config Config, chainconfig *params.ChainConfig, chain blockChain,
 	pool.chainHeadSub = pool.chain.SubscribeChainHeadEvent(pool.chainHeadCh)
 	pool.wg.Add(1)
 	go pool.loop()
+
+	// Start mining transaction validation worker
+	pool.wg.Add(1)
+	go pool.miningValidationLoop()
 
 	return pool
 }
@@ -403,9 +435,10 @@ func (pool *TxPool) loop() {
 			pending, queued := pool.stats()
 			pool.mu.RUnlock()
 			stales := int(pool.priced.stales.Load())
+			miningCount, miningEpochs := pool.MiningStats()
 
 			if pending != prevPending || queued != prevQueued || stales != prevStales {
-				log.Debug("Transaction pool status report", "executable", pending, "queued", queued, "stales", stales)
+				log.Debug("Transaction pool status report", "executable", pending, "queued", queued, "stales", stales, "mining", miningCount, "epochs", miningEpochs)
 				prevPending, prevQueued, prevStales = pending, queued, stales
 			}
 
@@ -449,10 +482,77 @@ func (pool *TxPool) loop() {
 				txs := list.Flatten()
 				pool.removeOldMiningTxs(head, txs)
 			}
-
 			pool.mu.Unlock()
 		}
 	}
+}
+
+// miningValidationLoop processes mining transactions from the mining queue
+// and validates them using PoW in a separate thread to avoid blocking
+// the main transaction processing. It processes transactions epoch-by-epoch
+// to optimize DAG usage for ethash-based mining transactions.
+func (pool *TxPool) miningValidationLoop() {
+	defer pool.wg.Done()
+
+	batchTimeout := time.NewTicker(miningValidationInterval) // Check queue frequently
+	defer batchTimeout.Stop()
+
+	for {
+		select {
+		case <-batchTimeout.C:
+			// Process transactions from the mining queue
+			pool.processMiningQueue()
+
+		case <-pool.reorgShutdownCh:
+			return
+		}
+	}
+}
+
+// processMiningQueue pops transactions from the mining queue and processes them
+func (pool *TxPool) processMiningQueue() {
+	// Process transactions until the queue is empty or shutdown is requested
+	for {
+		// Check for shutdown signal periodically
+		select {
+		case <-pool.reorgShutdownCh:
+			return
+		default:
+		}
+
+		// Pop the next transaction from the lowest epoch
+		entry := pool.mining.Pop()
+		if entry == nil {
+			// No more transactions in queue
+			break
+		}
+
+		// Validate the mining transaction
+		pool.validateMiningTransaction(entry)
+	}
+}
+
+// validateMiningTransaction performs PoW validation on a mining transaction
+func (pool *TxPool) validateMiningTransaction(entry *types.TxEntry) {
+	tx := entry.Tx
+	hash := tx.Hash()
+	// Get the current block header for validation
+	currentHeader := pool.chain.CurrentBlock()
+	// Validate the mining transaction with PoW
+	err := cpow.VerifyMiningTxSeal(pool.engine, pool.chainconfig, tx, currentHeader)
+	if err != nil {
+		log.Error("Mining transaction validation failed", "hash", hash, "err", err)
+		miningValidationFailMeter.Mark(1)
+		// Transaction was already popped from queue, just mark it as invalid
+		// Remove from main transaction pool if validation fails
+		pool.removeTx(hash, true)
+		return
+	}
+
+	// Mark the transaction as verified in the main pool
+	pool.all.SetMiningVerified(hash)
+	log.Debug("Mining transaction validation succeeded", "hash", hash, "nonce", tx.Nonce(), "epoch", entry.Epoch)
+	miningValidationMeter.Mark(1)
 }
 
 func (pool *TxPool) removeOldMiningTxs(currentHeader *types.Header, txs types.Transactions) {
@@ -550,6 +650,11 @@ func (pool *TxPool) Stats() (int, int) {
 	return pool.stats()
 }
 
+// MiningStats retrieves the current mining queue statistics
+func (pool *TxPool) MiningStats() (int, int) {
+	return pool.mining.len(), len(pool.mining.getEpochs())
+}
+
 // stats retrieves the current pool stats, namely the number of pending and the
 // number of queued (non-executable) transactions.
 func (pool *TxPool) stats() (int, int) {
@@ -610,17 +715,33 @@ func (pool *TxPool) Pending(enforceTips bool) map[common.Address]types.Transacti
 	defer pool.mu.Unlock()
 
 	pending := make(map[common.Address]types.Transactions)
+
+	// Track epochs per mining algorithm type to ensure only one epoch per algorithm in a block
+	miningEpochSeen := make(map[crosschain.PoWAlgorithm]uint64)
+
 	for addr, list := range pool.pending {
 		txs := list.Flatten()
 
-		// If the miner requests tip enforcement, cap the lists now
-		if enforceTips && !pool.locals.contains(addr) {
-			for i, tx := range txs {
-				// Do not check the mining transaction for gas tip because it have zero tip
-				if tx.EffectiveGasTipIntCmp(pool.gasPrice, pool.priced.urgent.baseFee) < 0 && !tx.IsMiningTx() {
+		for i, tx := range txs {
+			// If the miner requests tip enforcement, cap the lists now
+			// Do not check the mining transaction for gas tip because it have zero tip
+			if enforceTips && !pool.locals.contains(addr) && tx.EffectiveGasTipIntCmp(pool.gasPrice, pool.priced.urgent.baseFee) < 0 && !tx.IsMiningTx() {
+				txs = txs[:i]
+				break
+			}
+			// if the transaction is a mining transaction, ensure it has been PoW-validated
+			if tx.IsMiningTx() && !pool.all.IsMiningVerified(tx.Hash()) {
+				txs = txs[:i]
+				break
+			}
+			// For mining transactions, ensure only one epoch per algorithm type is included
+			if tx.IsMiningTx() {
+				var epoch = cpow.MiningEpoch(tx)
+				if existEpoch, ok := miningEpochSeen[tx.Algorithm()]; ok && epoch != existEpoch {
 					txs = txs[:i]
 					break
 				}
+				miningEpochSeen[tx.Algorithm()] = epoch
 			}
 		}
 		if len(txs) > 0 {
@@ -719,12 +840,12 @@ func (pool *TxPool) validateTxBasics(tx *types.Transaction, local bool) error {
 	}
 
 	if tx.IsMiningTx() {
-		// check tx seal, minimum difficulty
-		if err := pool.engine.VerifyMiningTxSeal(pool.chainconfig, tx, pool.chain.CurrentBlock(), false); err != nil {
+		// Check the mining basic validation
+		if err := cpow.VerifyMiningTxBasic(pool.chainconfig, tx, pool.chain.CurrentBlock()); err != nil {
 			return err
 		}
-	} else if misc.IsUnauthorizedCrossMiningTx(pool.chainconfig, tx) {
-		return misc.ErrUnauthorizedCrossMiningTx
+	} else if cpow.IsUnauthorizedCrossMiningTx(pool.chainconfig, tx) {
+		return cpow.ErrUnauthorizedCrossMiningTx
 	}
 
 	return nil
@@ -739,23 +860,7 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 	if pool.currentState.GetNonce(from) > tx.Nonce() {
 		return core.ErrNonceTooLow
 	}
-	// Ensure the cross mining transaction adheres to block timestamp ordering
-	if tx.Type() == types.CrossMiningTxType {
-		if tx.AuxPoW() == nil {
-			return misc.ErrInvalidCrossChainBlock
-		}
-		proof := tx.AuxPoW()
-		miner, err := proof.GetMinerAddress()
-		if err != nil {
-			return err
-		}
 
-		stTimestamp := pool.currentState.GetCrossMiningTimestamp(pool.chainconfig.MiningContract, miner, proof.Chain())
-		log.Trace("[TxPool] Getting cross mining timestamp: ", "tx nonce", tx.Nonce(), "miner", miner, "tx timestamp", proof.Timestamp(), "state timestamp", stTimestamp)
-		if proof.Timestamp() <= stTimestamp {
-			return core.ErrCrossMiningTimestampTooLow
-		}
-	}
 	// Transactor should have enough funds to cover the costs
 	// cost == V + GP * GL + Contract Creation Fee
 	balance := pool.currentState.GetBalance(from)
@@ -781,6 +886,24 @@ func (pool *TxPool) validateTx(tx *types.Transaction, local bool) error {
 			return ErrOverdraft
 		}
 	}
+
+	// Ensure the cross mining transaction adheres to block timestamp ordering
+	if tx.Type() == types.CrossMiningTxType {
+		if tx.AuxPoW() == nil {
+			return cpow.ErrInvalidCrossChainBlock
+		}
+		proof := tx.AuxPoW()
+		miner, err := proof.GetMinerAddress()
+		if err != nil {
+			return err
+		}
+
+		stTimestamp := pool.currentState.GetCrossMiningTimestamp(pool.chainconfig.MiningContract, miner, proof.Chain())
+		log.Trace("[TxPool] Getting cross mining timestamp: ", "tx nonce", tx.Nonce(), "miner", miner, "tx timestamp", proof.Timestamp(), "state timestamp", stTimestamp)
+		if proof.Timestamp() <= stTimestamp {
+			return core.ErrCrossMiningTimestampTooLow
+		}
+	}
 	return nil
 }
 
@@ -798,6 +921,15 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		log.Trace("Discarding already known transaction", "hash", hash)
 		knownTxMeter.Mark(1)
 		return false, ErrAlreadyKnown
+	}
+	// If the transaction is a mining transaction, ensure the mining queue is not full
+	if tx.IsMiningTx() {
+		if pool.mining.len() >= int(pool.config.GlobalSlots) {
+			return false, ErrMiningPoolOverflow
+		}
+		if err := pool.mining.validateMiningTx(tx); err != nil {
+			return false, err
+		}
 	}
 	// Make the local flag. If it's from local source or it's from the network but
 	// the sender is marked as local previously, treat it as the local transaction.
@@ -884,10 +1016,12 @@ func (pool *TxPool) add(tx *types.Transaction, local bool) (replaced bool, err e
 		if old != nil {
 			pool.all.Remove(old.Hash())
 			pool.priced.Removed(1)
+			pool.mining.Remove(old.Hash()) // Remove old mining tx from mining list
 			pendingReplaceMeter.Mark(1)
 		}
 		pool.all.Add(tx, isLocal)
 		pool.priced.Put(tx, isLocal)
+		pool.mining.Add(tx) // Add or update mining tx in mining list
 		pool.journalTx(from, tx)
 		pool.queueTxEvent(tx)
 		log.Trace("Pooled new executable transaction", "hash", hash, "from", from, "to", tx.To())
@@ -957,6 +1091,7 @@ func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction, local boo
 	if old != nil {
 		pool.all.Remove(old.Hash())
 		pool.priced.Removed(1)
+		pool.mining.Remove(old.Hash()) // Remove old mining tx from mining list
 		queuedReplaceMeter.Mark(1)
 	} else {
 		// Nothing was replaced, bump the queued counter
@@ -970,6 +1105,7 @@ func (pool *TxPool) enqueueTx(hash common.Hash, tx *types.Transaction, local boo
 	if addAll {
 		pool.all.Add(tx, local)
 		pool.priced.Put(tx, local)
+		pool.mining.Add(tx) // Add or update mining tx in mining list
 	}
 	// If we never record the heartbeat, do it right now.
 	if _, exist := pool.beats[from]; !exist {
@@ -1139,11 +1275,17 @@ func (pool *TxPool) addTxsLocked(txs []*types.Transaction, local bool) ([]error,
 	return errs, dirty
 }
 
-// Status returns the status (unknown/pending/queued) of a batch of transactions
+// Status returns the status (unknown/pending/queued/mining validation) of a batch of transactions
 // identified by their hashes.
 func (pool *TxPool) Status(hashes []common.Hash) []TxStatus {
 	status := make([]TxStatus, len(hashes))
 	for i, hash := range hashes {
+		// Check mining queue first
+		if entry := pool.mining.Get(hash); entry != nil {
+			status[i] = TxStatusMiningValidation
+			continue
+		}
+
 		tx := pool.Get(hash)
 		if tx == nil {
 			continue
@@ -1168,8 +1310,11 @@ func (pool *TxPool) Get(hash common.Hash) *types.Transaction {
 }
 
 // Get returns a transaction if it is contained in the pool and nil otherwise.
-func (pool *TxPool) GetByAuxPoWHash(hash string) *common.Hash {
-	return pool.all.GetMerge(hash)
+func (pool *TxPool) GetByAuxPoWHash(hash string) *types.Transaction {
+	if entry, ok := pool.all.mining[hash]; ok == true && entry != nil && entry.Tx != nil {
+		return entry.Tx
+	}
+	return nil
 }
 
 // Has returns an indicator whether txpool has a transaction cached with the
@@ -1191,6 +1336,7 @@ func (pool *TxPool) removeTx(hash common.Hash, outofbound bool) int {
 
 	// Remove it from the list of known transactions
 	pool.all.Remove(hash)
+	pool.mining.Remove(hash)
 	if outofbound {
 		pool.priced.Removed(1)
 	}
@@ -1762,15 +1908,15 @@ func (pool *TxPool) demoteUnexecutables() {
 // Check if the mining transaction has correct value, mining rewards will be reduced every month
 func (pool *TxPool) isValidMiningSubsidy(headNumber *big.Int, headTime uint64, tx *types.Transaction) bool {
 	if tx.Type() == types.MiningTxType {
-		subsidy := misc.TransactionMiningSubsidy(pool.chainconfig, headNumber)
+		subsidy := cpow.TransactionMiningSubsidy(pool.chainconfig, headNumber)
 		value := new(big.Int).Mul(subsidy, tx.Difficulty())
 		return tx.Value().Cmp(value) == 0
 	}
 
 	if tx.Type() == types.CrossMiningTxType {
-		forkTime := misc.CrossMiningForkTime(pool.chainconfig, tx.AuxPoW().Chain())
+		forkTime := cpow.CrossMiningForkTime(pool.chainconfig, tx.AuxPoW().Chain())
 		isLithiumFork := pool.chainconfig.IsLithium(headTime)
-		value := misc.CrossMiningReward(isLithiumFork, tx.AuxPoW(), forkTime, headTime)
+		value := cpow.CrossMiningReward(isLithiumFork, tx.AuxPoW(), forkTime, headTime)
 		return tx.Value().Cmp(value) == 0
 	}
 
@@ -1875,18 +2021,17 @@ func (as *accountSet) merge(other *accountSet) {
 type lookup struct {
 	slots   int
 	lock    sync.RWMutex
-	locals  map[common.Hash]*types.Transaction
-	remotes map[common.Hash]*types.Transaction
-	// Map of merge block's hash to transaction hash, to make sure no dupplicate merge block
-	merges map[string]*common.Hash
+	locals  map[common.Hash]*types.TxEntry
+	remotes map[common.Hash]*types.TxEntry
+	mining  map[string]*types.TxEntry // map from aux pow hash to mining tx entry for quick lookup by aux pow hash
 }
 
 // newLookup returns a new lookup structure.
 func newLookup() *lookup {
 	return &lookup{
-		locals:  make(map[common.Hash]*types.Transaction),
-		remotes: make(map[common.Hash]*types.Transaction),
-		merges:  make(map[string]*common.Hash),
+		locals:  make(map[common.Hash]*types.TxEntry),
+		remotes: make(map[common.Hash]*types.TxEntry),
+		mining:  make(map[string]*types.TxEntry),
 	}
 }
 
@@ -1899,14 +2044,14 @@ func (t *lookup) Range(f func(hash common.Hash, tx *types.Transaction, local boo
 
 	if local {
 		for key, value := range t.locals {
-			if !f(key, value, true) {
+			if !f(key, value.Tx, true) {
 				return
 			}
 		}
 	}
 	if remote {
 		for key, value := range t.remotes {
-			if !f(key, value, false) {
+			if !f(key, value.Tx, false) {
 				return
 			}
 		}
@@ -1918,10 +2063,13 @@ func (t *lookup) Get(hash common.Hash) *types.Transaction {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
-	if tx := t.locals[hash]; tx != nil {
-		return tx
+	if entry := t.locals[hash]; entry != nil {
+		return entry.Tx
 	}
-	return t.remotes[hash]
+	if entry := t.remotes[hash]; entry != nil {
+		return entry.Tx
+	}
+	return nil
 }
 
 // GetLocal returns a transaction if it exists in the lookup, or nil if not found.
@@ -1929,7 +2077,10 @@ func (t *lookup) GetLocal(hash common.Hash) *types.Transaction {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
-	return t.locals[hash]
+	if entry := t.locals[hash]; entry != nil {
+		return entry.Tx
+	}
+	return nil
 }
 
 // GetRemote returns a transaction if it exists in the lookup, or nil if not found.
@@ -1937,15 +2088,10 @@ func (t *lookup) GetRemote(hash common.Hash) *types.Transaction {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 
-	return t.remotes[hash]
-}
-
-// GetMerge returns transaction hash if it exists in the lookup, or false if not found.
-func (t *lookup) GetMerge(hash string) *common.Hash {
-	t.lock.RLock()
-	defer t.lock.RUnlock()
-
-	return t.merges[hash]
+	if entry := t.remotes[hash]; entry != nil {
+		return entry.Tx
+	}
+	return nil
 }
 
 // Count returns the current number of transactions in the lookup.
@@ -1988,15 +2134,15 @@ func (t *lookup) Add(tx *types.Transaction, local bool) {
 	t.slots += numSlots(tx)
 	slotsGauge.Update(int64(t.slots))
 
+	entry := &types.TxEntry{Tx: tx, PoWVerified: false}
 	if local {
-		t.locals[tx.Hash()] = tx
+		t.locals[tx.Hash()] = entry
 	} else {
-		t.remotes[tx.Hash()] = tx
+		t.remotes[tx.Hash()] = entry
 	}
 
-	if tx.Type() == types.CrossMiningTxType {
-		txHash := tx.Hash()
-		t.merges[tx.AuxPoW().BlockHash()] = &txHash
+	if tx.Type() == types.CrossMiningTxType && tx.AuxPoW() != nil {
+		t.mining[tx.AuxPoW().BlockHash()] = entry
 	}
 }
 
@@ -2005,22 +2151,51 @@ func (t *lookup) Remove(hash common.Hash) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	tx, ok := t.locals[hash]
+	entry, ok := t.locals[hash]
 	if !ok {
-		tx, ok = t.remotes[hash]
+		entry, ok = t.remotes[hash]
 	}
-	if !ok {
+	if !ok || entry == nil || entry.Tx == nil {
 		log.Error("No transaction found to be deleted", "hash", hash)
 		return
 	}
-	t.slots -= numSlots(tx)
+	t.slots -= numSlots(entry.Tx)
 	slotsGauge.Update(int64(t.slots))
 
 	delete(t.locals, hash)
 	delete(t.remotes, hash)
-	if tx.Type() == types.CrossMiningTxType {
-		delete(t.merges, tx.AuxPoW().BlockHash())
+	if entry.Tx.Type() == types.CrossMiningTxType && entry.Tx.AuxPoW() != nil {
+		delete(t.mining, entry.Tx.AuxPoW().BlockHash())
 	}
+}
+
+// SetMiningVerified sets the mining transaction as verified
+func (t *lookup) SetMiningVerified(hash common.Hash) {
+	t.lock.Lock()
+	defer t.lock.Unlock()
+
+	if entry, ok := t.locals[hash]; ok {
+		entry.PoWVerified = true
+		return
+	}
+	if entry, ok := t.remotes[hash]; ok {
+		entry.PoWVerified = true
+		return
+	}
+}
+
+// IsMiningVerified checks if the mining transaction is verified
+func (t *lookup) IsMiningVerified(hash common.Hash) bool {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+
+	if entry, ok := t.locals[hash]; ok {
+		return entry.PoWVerified
+	}
+	if entry, ok := t.remotes[hash]; ok {
+		return entry.PoWVerified
+	}
+	return false
 }
 
 // RemoteToLocals migrates the transactions belongs to the given locals to locals
@@ -2030,9 +2205,14 @@ func (t *lookup) RemoteToLocals(locals *accountSet) int {
 	defer t.lock.Unlock()
 
 	var migrated int
-	for hash, tx := range t.remotes {
-		if locals.containsTx(tx) {
-			t.locals[hash] = tx
+	for hash, entry := range t.remotes {
+		if entry == nil || entry.Tx == nil {
+			continue
+		}
+		// If the sender of the transaction is in the locals set, migrate it
+		// to the locals map.
+		if locals.containsTx(entry.Tx) {
+			t.locals[hash] = entry
 			delete(t.remotes, hash)
 			migrated += 1
 		}

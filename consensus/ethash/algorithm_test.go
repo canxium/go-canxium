@@ -107,7 +107,7 @@ func TestCacheGeneration(t *testing.T) {
 	}
 	for i, tt := range tests {
 		cache := make([]uint32, tt.size/4)
-		generateCache(cache, tt.epoch, seedHash(tt.epoch*epochLength+1))
+		generateCache(cache, tt.epoch, seedHash(tt.epoch*ethashEpochLength+1, ethashEpochLength))
 
 		want := make([]uint32, tt.size/4)
 		prepare(want, tt.cache)
@@ -647,10 +647,10 @@ func TestDatasetGeneration(t *testing.T) {
 	}
 	for i, tt := range tests {
 		cache := make([]uint32, tt.cacheSize/4)
-		generateCache(cache, tt.epoch, seedHash(tt.epoch*epochLength+1))
+		generateCache(cache, tt.epoch, seedHash(tt.epoch*ethashEpochLength+1, ethashEpochLength))
 
 		dataset := make([]uint32, tt.datasetSize/4)
-		generateDataset(dataset, tt.epoch, cache)
+		generateDataset(dataset, tt.epoch, cache, ethashDatasetParents)
 
 		want := make([]uint32, tt.datasetSize/4)
 		prepare(want, tt.dataset)
@@ -669,7 +669,7 @@ func TestHashimoto(t *testing.T) {
 	generateCache(cache, 0, make([]byte, 32))
 
 	dataset := make([]uint32, 32*1024/4)
-	generateDataset(dataset, 0, cache)
+	generateDataset(dataset, 0, cache, ethashDatasetParents)
 
 	// Create a block to verify
 	hash := hexutil.MustDecode("0xc9149cc0386e689d789a1c2f3d5d169a61a6218ed30e74414dc736e442ef3d1f")
@@ -747,7 +747,7 @@ func TestConcurrentDiskCacheGeneration(t *testing.T) {
 // Benchmarks the cache generation performance.
 func BenchmarkCacheGeneration(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		cache := make([]uint32, cacheSize(1)/4)
+		cache := make([]uint32, cacheSize(1, ethashEpochLength)/4)
 		generateCache(cache, 0, make([]byte, 32))
 	}
 }
@@ -760,20 +760,20 @@ func BenchmarkSmallDatasetGeneration(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		dataset := make([]uint32, 32*65536/4)
-		generateDataset(dataset, 0, cache)
+		generateDataset(dataset, 0, cache, ethashDatasetParents)
 	}
 }
 
 // Benchmarks the light verification performance.
 func BenchmarkHashimotoLight(b *testing.B) {
-	cache := make([]uint32, cacheSize(1)/4)
+	cache := make([]uint32, cacheSize(1, ethashEpochLength)/4)
 	generateCache(cache, 0, make([]byte, 32))
 
 	hash := hexutil.MustDecode("0xc9149cc0386e689d789a1c2f3d5d169a61a6218ed30e74414dc736e442ef3d1f")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		hashimotoLight(datasetSize(1), cache, hash, 0)
+		hashimotoLight(datasetSize(1, ethashEpochLength), cache, hash, 0)
 	}
 }
 
@@ -783,7 +783,7 @@ func BenchmarkHashimotoFullSmall(b *testing.B) {
 	generateCache(cache, 0, make([]byte, 32))
 
 	dataset := make([]uint32, 32*65536/4)
-	generateDataset(dataset, 0, cache)
+	generateDataset(dataset, 0, cache, ethashDatasetParents)
 
 	hash := hexutil.MustDecode("0xc9149cc0386e689d789a1c2f3d5d169a61a6218ed30e74414dc736e442ef3d1f")
 

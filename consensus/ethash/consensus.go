@@ -28,9 +28,11 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/cpow"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
@@ -46,11 +48,6 @@ var (
 	CanxiumBlockFirstYearReward             = big.NewInt(25e16) // First year reward per block in canxium chain: 0.25 CLI
 	CanxiumFoundationRewardPercent          = big.NewInt(2)     // Foudation reward: 2%
 	CanxiumFoundationFirstYearRewardPercent = big.NewInt(25)    // First year Foudation reward: 25%
-
-	// make sure miner set the correct input data for the transaction
-	CanxiumMiningTxDataLength = 36
-	// mining(address) method
-	CanxiumMiningTxDataMethod = common.Hex2Bytes("eedc3c83000000000000000000000000")
 
 	maxUncles                     = 2        // Maximum number of uncles allowed in a single block
 	allowedFutureBlockTimeSeconds = int64(7) // Max seconds from current time allowed for blocks, before they're considered future blocks
@@ -578,7 +575,7 @@ func (ethash *Ethash) verifySeal(chain consensus.ChainHeaderReader, header *type
 	if !fulldag {
 		cache := ethash.cache(number)
 
-		size := datasetSize(number)
+		size := datasetSize(number, ethashEpochLength)
 		if ethash.config.PowMode == ModeTest {
 			size = 32 * 1024
 		}
@@ -599,13 +596,10 @@ func (ethash *Ethash) verifySeal(chain consensus.ChainHeaderReader, header *type
 	return nil
 }
 
-// verifyEthashMiningTxSeal checks whether a offline mining satisfies the PoW difficulty requirements,
+// VerifyEthashTxSeal checks whether a offline mining satisfies the PoW difficulty requirements,
 // either using the usual ethash cache for it, or alternatively using a full DAG
 // to make remote mining fast.
-func (ethash *Ethash) verifyEthashMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error {
-	if !config.IsHydro(block.Number) {
-		return types.ErrTxTypeNotSupported
-	}
+func (ethash *Ethash) VerifyEthashTxSeal(tx *types.Transaction, fulldag bool) error {
 	// If we're running a fake PoW, accept any seal as valid
 	if ethash.config.PowMode == ModeFake || ethash.config.PowMode == ModeFullFake {
 		time.Sleep(ethash.fakeDelay)
@@ -613,43 +607,11 @@ func (ethash *Ethash) verifyEthashMiningTxSeal(config *params.ChainConfig, tx *t
 	}
 	// If we're running a shared PoW, delegate verification to it
 	if ethash.shared != nil {
-		return ethash.shared.verifyEthashMiningTxSeal(config, tx, block, fulldag)
-	}
-	// Ensure the receiver is the mining smart contract
-	if tx.To() == nil || *tx.To() != config.MiningContract {
-		return ErrInvalidMiningReceiver
-	}
-	// Ensure that we have a valid difficulty for the transaction
-	if tx.Difficulty().Sign() <= 0 {
-		return errInvalidDifficulty
-	}
-	if tx.Difficulty().Cmp(config.Ethash.MinimumDifficulty) < 0 {
-		return errDifficultyUnderValue
-	}
-	// Ensure signer and from are same to avoid pow relay attack
-	signer := types.MakeSigner(config, block.Number)
-	from, err := types.Sender(signer, tx)
-	if err != nil {
-		return err
-	}
-	if from != tx.From() {
-		return ErrInvalidMiningSender
+		return ethash.shared.VerifyEthashTxSeal(tx, fulldag)
 	}
 
-	// Make sure they call the correct method of contract: mining(address)
-	if len(tx.Data()) != CanxiumMiningTxDataLength || !bytes.Equal(CanxiumMiningTxDataMethod, tx.Data()[0:16]) {
-		return ErrInvalidMiningInput
-	}
-
-	// Ensure value is valid: reward * difficulty
-	subsidy := misc.TransactionMiningSubsidy(config, block.Number)
-	value := new(big.Int).Mul(subsidy, tx.Difficulty())
-	if tx.Value().Cmp(value) != 0 {
-		return errInvalidMiningTxValue
-	}
 	// Recompute the digest and PoW values, using tx nonce and the number of dataset
 	number := tx.Nonce()
-
 	var (
 		digest []byte
 		result []byte
@@ -672,7 +634,7 @@ func (ethash *Ethash) verifyEthashMiningTxSeal(config *params.ChainConfig, tx *t
 	if !fulldag {
 		cache := ethash.cache(number)
 
-		size := datasetSize(number)
+		size := datasetSize(number, ethashEpochLength)
 		if ethash.config.PowMode == ModeTest {
 			size = 32 * 1024
 		}
@@ -694,97 +656,35 @@ func (ethash *Ethash) verifyEthashMiningTxSeal(config *params.ChainConfig, tx *t
 	return nil
 }
 
-// VerifyMiningTxSeal checks whether a offline mining or cross mining transaction satisfies the PoW difficulty requirements,
-func (ethash *Ethash) VerifyMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error {
-	// offline mining
-	if tx.Type() == types.MiningTxType && misc.IsEthashAlgorithm(config, block.Time, tx.Algorithm()) {
-		return ethash.verifyEthashMiningTxSeal(config, tx, block, fulldag)
+// KawPow verification is need to be verified by ethash, because kawpow algorithm is based on ethash.
+func (ethash *Ethash) VerifyKawPowTxSeal(tx *types.Transaction) error {
+	if tx.AuxPoW() == nil {
+		return cpow.ErrInvalidNilBlock
 	}
-	// cross mining
-	if tx.Type() == types.CrossMiningTxType {
-		return misc.VerifyCrossMiningTxSeal(config, tx, block)
-	}
-	return ErrInvalidMiningAlgorithm
-}
-
-// VerifyMiningTxsSeal is similar to VerifyTxSeal, but verifies a batch of mining transactions
-// concurrently. The method returns a quit channel to abort the operations and
-// a results channel to retrieve the async verifications.
-func (ethash *Ethash) VerifyMiningTxsSeal(config *params.ChainConfig, txs types.Transactions, block *types.Header, fulldag bool) <-chan int64 {
-	// If we're running a full engine faking, accept any input as valid
-	result := make(chan int64, 1)
-	defer close(result)
-	if ethash.config.PowMode == ModeFullFake || len(txs) == 0 {
-		result <- 0
-		return result
+	if tx.Algorithm() != crosschain.KawPoWAlgorithm {
+		return ErrInvalidMiningAlgorithm
 	}
 
-	// Spawn as many workers as allowed threads
-	workers := runtime.GOMAXPROCS(0)
-	if len(txs) < workers {
-		workers = len(txs)
+	// Generate the KawPoW hash and mix hash
+	auxBlock := tx.AuxPoW()
+	calculatedMixHash, finalHash := ethash.KawPowHash(auxBlock.BlockNumber(), common.HexToHash(auxBlock.SealHash()), auxBlock.PowNonce())
+
+	// Verify the mix hash matches what's stored in the header
+
+	if calculatedMixHash.Hex() != auxBlock.MixHash() {
+		return fmt.Errorf("mix hash mismatch: expected %s, got %s", auxBlock.MixHash(), calculatedMixHash.Hex())
 	}
 
-	// Create a task channel and spawn the verifiers
-	var (
-		inputs       = make(chan int)
-		done         = make(chan int, workers)
-		errors       = make([]error, len(txs))
-		numMiningTxs = int64(0)
-	)
-	for i := 0; i < workers; i++ {
-		go func() {
-			for index := range inputs {
-				if !txs[index].IsMiningTx() {
-					if misc.IsUnauthorizedCrossMiningTx(config, txs[index]) {
-						errors[index] = misc.ErrUnauthorizedCrossMiningTx
-					} else {
-						errors[index] = nil
-					}
-					done <- index
-					continue
-				}
+	// Check if the final hash meets the difficulty target
+	target := kawpowBitsToTarget(uint32(auxBlock.Bits()))
+	finalHashBig := finalHash.Big()
 
-				numMiningTxs += 1
-				errors[index] = ethash.VerifyMiningTxSeal(config, txs[index], block, fulldag)
-				done <- index
-			}
-		}()
+	// In PoW, the hash must be <= target to be valid
+	if finalHashBig.Cmp(target) <= 0 {
+		return nil // Valid KawPoW proof of work
 	}
 
-	sealCh := make(chan int64, 1)
-	go func() {
-		defer close(inputs)
-		defer close(sealCh)
-		var (
-			in, out = 0, 0
-			checked = make([]bool, len(txs))
-			inputs  = inputs
-		)
-		for {
-			select {
-			case inputs <- in:
-				if in++; in == len(txs) {
-					// Reached end of headers. Stop sending to workers.
-					inputs = nil
-				}
-			case index := <-done:
-				for checked[index] = true; checked[out]; out++ {
-					if errors[out] != nil {
-						sealCh <- -1
-						// if any of txs have error, return.
-						return
-					}
-
-					if out == len(txs)-1 {
-						sealCh <- numMiningTxs
-						return
-					}
-				}
-			}
-		}
-	}()
-	return sealCh
+	return fmt.Errorf("final hash %s exceeds target %s", finalHash.Hex(), target.Text(16))
 }
 
 // Prepare implements consensus.Engine, initializing the difficulty field of a
@@ -885,4 +785,41 @@ func calculateRewards(config *params.ChainConfig, header *types.Header) (*big.In
 	foundation.Div(foundation, big100)
 	reward.Sub(reward, foundation)
 	return reward, foundation
+}
+
+// bitsToTarget converts the compact "bits" representation to a big.Int target
+// This implements the exact same logic as Ravencoin's arith_uint256::SetCompact() method
+func kawpowBitsToTarget(bits uint32) *big.Int {
+	// Extract the size (exponent) and word (mantissa) following Ravencoin's SetCompact
+	nSize := int(bits >> 24)
+	nWord := bits & 0x007fffff // Note: 0x007fffff not 0x00ffffff (excludes sign bit)
+
+	var target *big.Int
+
+	if nSize <= 3 {
+		// For size <= 3, shift the word right
+		nWord >>= uint(8 * (3 - nSize))
+		target = big.NewInt(int64(nWord))
+	} else {
+		// For size > 3, shift the word left
+		target = big.NewInt(int64(nWord))
+		target.Lsh(target, uint(8*(nSize-3)))
+	}
+
+	// Handle negative values and overflow cases like Ravencoin
+	// If the sign bit is set (0x00800000) and nWord != 0, it's negative
+	if nWord != 0 && (bits&0x00800000) != 0 {
+		// In Ravencoin, negative targets are invalid, return 0
+		return big.NewInt(0)
+	}
+
+	// Check for overflow like Ravencoin does
+	if nWord != 0 && ((nSize > 34) ||
+		(nWord > 0xff && nSize > 33) ||
+		(nWord > 0xffff && nSize > 32)) {
+		// Overflow case, return 0 (invalid)
+		return big.NewInt(0)
+	}
+
+	return target
 }

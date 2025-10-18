@@ -21,6 +21,7 @@ const (
 	ScryptAlgorithm
 	KHeavyHashAlgorithm
 	RandomXAlgorithm
+	KawPoWAlgorithm
 )
 
 type CrossChain uint16
@@ -28,12 +29,13 @@ type CrossChain uint16
 const (
 	UnknownChain CrossChain = iota
 	KaspaChain
-	MoneroChain
+	RavenChain
 )
 
 const (
 	// prefix of kaspa miner in the coinbase transaction payload. To extract the canxium address
-	minerTagPrefix = "canxiuminer:"
+	minerTagPrefix     = "canxiuminer:"
+	utxoMinerTagPrefix = "CAU:" // smaller prefix for UTXO miner tag
 )
 
 var (
@@ -58,8 +60,18 @@ type CrossChainBlock interface {
 	VerifyCoinbase() bool
 	// Canxium miner address
 	GetMinerAddress() (common.Address, error)
+	// Epoch, for ethash base algorithm
+	Epoch() uint64
+	// Return block number, if any
+	BlockNumber() uint64
 	// Block hash, in string
 	BlockHash() string
+	// Return Seal hash, in string, this hash will be used for PoW generation
+	SealHash() string
+	// Return mix hash, in string, if any
+	MixHash() string
+	// Return header bits, used to encode the target threshold
+	Bits() uint64
 	// Block difficulty
 	Difficulty() *big.Int
 	// Nonce number of the block
@@ -71,8 +83,3 @@ type CrossChainBlock interface {
 	// Deep copy
 	Copy() CrossChainBlock
 }
-
-const (
-	// Monero constants
-	RandomXActivationTimestamp = 1561234567 // Example timestamp, replace with actual Monero RandomX activation timestamp
-)

@@ -459,18 +459,16 @@ func (c *Clique) VerifyUncles(chain consensus.ChainReader, block *types.Block) e
 	return nil
 }
 
-// VerifyTxSeal checks whether a offline mining transaction satisfies the PoW difficulty requirements,
+// VerifyEthashTxSeal checks whether a offline mining transaction satisfies the PoW difficulty requirements,
 // either using the usual ethash cache for it, or alternatively using a full DAG
 // to make remote mining fast.
-func (c *Clique) VerifyMiningTxSeal(config *params.ChainConfig, tx *types.Transaction, block *types.Header, fulldag bool) error {
-	return nil
+func (c *Clique) VerifyEthashTxSeal(tx *types.Transaction, fulldag bool) error {
+	return errors.New("clique does not support ethash seal verification")
 }
 
-// VerifyMiningTxsSeal checks whether offline mining transactions satisfies the PoW difficulty requirements,
-// either using the usual ethash cache for it, or alternatively using a full DAG
-// to make remote mining fast.
-func (c *Clique) VerifyMiningTxsSeal(config *params.ChainConfig, txs types.Transactions, block *types.Header, fulldag bool) <-chan int64 {
-	return nil
+// VerifyKawPowTxSeal checks whether a mining transaction satisfies the KawPoW difficulty requirements.
+func (c *Clique) VerifyKawPowTxSeal(tx *types.Transaction) error {
+	return errors.New("clique does not support kawpow seal verification")
 }
 
 // verifySeal checks whether the signature contained in the header satisfies the
