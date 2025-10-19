@@ -37,18 +37,9 @@ var (
 )
 
 var (
-	errOlderBlockTime       = errors.New("timestamp older than parent")
-	errTooManyUncles        = errors.New("too many uncles")
-	errDuplicateUncle       = errors.New("duplicate uncle")
-	errUncleIsAncestor      = errors.New("uncle is ancestor")
-	errDanglingUncle        = errors.New("uncle's parent is not ancestor")
 	errInvalidDifficulty    = errors.New("non-positive difficulty")
-	errInvalidMixDigest     = errors.New("invalid mix digest")
-	errInvalidPoW           = errors.New("invalid proof-of-work")
 	errDifficultyUnderValue = errors.New("mining transaction difficulty under value")
-	errInvalidMiningTxType  = errors.New("invalid mining transaction type")
 	errInvalidMiningTxValue = errors.New("invalid mining transaction value")
-	errInvalidEngine        = errors.New("invalid consensus engine")
 	errInvalidMiningEpoch   = errors.New("invalid mining epoch, offline mining tx nonce must be < 30000 after Beryllium fork")
 )
 
