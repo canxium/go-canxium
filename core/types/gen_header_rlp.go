@@ -5,8 +5,11 @@
 
 package types
 
-import "github.com/ethereum/go-ethereum/rlp"
-import "io"
+import (
+	"io"
+
+	"github.com/ethereum/go-ethereum/rlp"
+)
 
 func (obj *Header) EncodeRLP(_w io.Writer) error {
 	w := rlp.NewEncoderBuffer(_w)
@@ -47,22 +50,6 @@ func (obj *Header) EncodeRLP(_w io.Writer) error {
 			return rlp.ErrNegativeBigInt
 		}
 		w.WriteBigInt(obj.BaseFee)
-	}
-	if obj.MinerReward == nil {
-		w.Write(rlp.EmptyString)
-	} else {
-		if obj.MinerReward.Sign() == -1 {
-			return rlp.ErrNegativeBigInt
-		}
-		w.WriteBigInt(obj.MinerReward)
-	}
-	if obj.FundReward == nil {
-		w.Write(rlp.EmptyString)
-	} else {
-		if obj.FundReward.Sign() == -1 {
-			return rlp.ErrNegativeBigInt
-		}
-		w.WriteBigInt(obj.FundReward)
 	}
 	if obj.WithdrawalsHash == nil {
 		w.Write([]byte{})

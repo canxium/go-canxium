@@ -210,7 +210,7 @@ type Config struct {
 }
 
 // CreateConsensusEngine creates a consensus engine for the given chain configuration.
-func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, cliqueConfig *params.CliqueConfig, notify []string, noverify bool, db ethdb.Database) consensus.Engine {
+func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, cliqueConfig *params.CliqueConfig, notify []string, noverify bool, coinbase common.Address, db ethdb.Database) consensus.Engine {
 	// If proof-of-authority is requested, set it up
 	var engine consensus.Engine
 	if cliqueConfig != nil {
@@ -235,6 +235,7 @@ func CreateConsensusEngine(stack *node.Node, ethashConfig *ethash.Config, clique
 			DatasetsOnDisk:   ethashConfig.DatasetsOnDisk,
 			DatasetsLockMmap: ethashConfig.DatasetsLockMmap,
 			NotifyFull:       ethashConfig.NotifyFull,
+			Coinbase:         coinbase,
 		}, notify, noverify)
 		engine.(*ethash.Ethash).SetThreads(-1) // Disable CPU mining
 	}

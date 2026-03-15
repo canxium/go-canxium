@@ -713,11 +713,6 @@ func (ethash *Ethash) FinalizeAndAssemble(chain consensus.ChainHeaderReader, hea
 	// Finalize block
 	ethash.Finalize(chain, header, state, txs, uncles, nil)
 
-	reward, foundation := calculateRewards(chain.Config(), header)
-	// Assign the final reward to header.
-	header.MinerReward = reward
-	header.FundReward = foundation
-
 	// Assign the final state root to header.
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
 
@@ -746,12 +741,6 @@ func (ethash *Ethash) SealHash(header *types.Header) (hash common.Hash) {
 	}
 	if header.BaseFee != nil {
 		enc = append(enc, header.BaseFee)
-	}
-	if header.MinerReward != nil {
-		enc = append(enc, header.MinerReward)
-	}
-	if header.FundReward != nil {
-		enc = append(enc, header.FundReward)
 	}
 	if header.WithdrawalsHash != nil {
 		panic("withdrawal hash set on ethash")

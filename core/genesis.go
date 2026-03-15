@@ -439,20 +439,18 @@ func (g *Genesis) ToBlock() *types.Block {
 		panic(err)
 	}
 	head := &types.Header{
-		Number:      new(big.Int).SetUint64(g.Number),
-		Nonce:       types.EncodeNonce(g.Nonce),
-		Time:        g.Timestamp,
-		ParentHash:  g.ParentHash,
-		Extra:       g.ExtraData,
-		GasLimit:    g.GasLimit,
-		GasUsed:     g.GasUsed,
-		BaseFee:     g.BaseFee,
-		Difficulty:  g.Difficulty,
-		MixDigest:   g.Mixhash,
-		Coinbase:    g.Coinbase,
-		Root:        root,
-		MinerReward: big.NewInt(0),
-		FundReward:  big.NewInt(0),
+		Number:     new(big.Int).SetUint64(g.Number),
+		Nonce:      types.EncodeNonce(g.Nonce),
+		Time:       g.Timestamp,
+		ParentHash: g.ParentHash,
+		Extra:      g.ExtraData,
+		GasLimit:   g.GasLimit,
+		GasUsed:    g.GasUsed,
+		BaseFee:    g.BaseFee,
+		Difficulty: g.Difficulty,
+		MixDigest:  g.Mixhash,
+		Coinbase:   g.Coinbase,
+		Root:       root,
 	}
 	if g.GasLimit == 0 {
 		head.GasLimit = params.GenesisGasLimit
@@ -472,7 +470,12 @@ func (g *Genesis) ToBlock() *types.Block {
 		head.WithdrawalsHash = &types.EmptyWithdrawalsHash
 		withdrawals = make([]*types.Withdrawal, 0)
 	}
-	return types.NewBlock(head, nil, nil, nil, trie.NewStackTrie(nil)).WithWithdrawals(withdrawals)
+	var proposal = &types.FutureProposal{
+		TxHashes:  make([]common.Hash, 0),
+		Root:      common.Hash{},
+		Signature: make([]byte, 0),
+	}
+	return types.NewBlock(head, nil, nil, nil, trie.NewStackTrie(nil)).WithWithdrawals(withdrawals).WithProposal(proposal)
 }
 
 // Commit writes the block and state of a genesis specification to the database.

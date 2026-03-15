@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/cpow"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
@@ -49,7 +50,7 @@ func NewBlockValidator(config *params.ChainConfig, blockchain *BlockChain, engin
 // ValidateBody validates the given block's uncles and verifies the block
 // header's transaction and uncle roots. The headers are assumed to be already
 // validated at this point.
-func (v *BlockValidator) ValidateBody(block *types.Block) error {
+func (v *BlockValidator) ValidateBody(block *types.Block, parent *types.Header) error {
 	// Check whether the block is already imported.
 	if v.bc.HasBlockAndState(block.Hash(), block.NumberU64()) {
 		return ErrKnownBlock
@@ -79,6 +80,37 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	} else if block.Withdrawals() != nil {
 		// Withdrawals are not allowed prior to shanghai fork
 		return fmt.Errorf("withdrawals present in block body")
+	}
+
+	if parent == nil {
+		parent = v.bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
+	}
+
+	if parent == nil {
+		return consensus.ErrUnknownParent
+	}
+
+	// Verify system & mining transactions
+	numOfMiningTxs := 0
+	for index, tx := range block.Transactions() {
+		if err := cpow.VerifyWDCSystemTx(v.config, v.bc.WdcCache, tx, index == len(block.Transactions())-1, parent); err != nil {
+			v.bc.reportBlock(block, nil, cpow.ErrBadSystemTx)
+			return err
+		}
+
+		if err := cpow.VerifyMiningTx(v.engine, v.config, tx, block.Header()); err != nil {
+			v.bc.reportBlock(block, nil, ErrBadMiningTxs)
+			return err
+		}
+
+		if tx.IsMiningTx() {
+			numOfMiningTxs++
+		}
+
+		if numOfMiningTxs > cpow.MaxMiningTransactionPerBlock {
+			v.bc.reportBlock(block, nil, ErrBadMiningTxs)
+			return ErrBadMiningTxs
+		}
 	}
 
 	if !v.bc.HasBlockAndState(block.ParentHash(), block.NumberU64()-1) {

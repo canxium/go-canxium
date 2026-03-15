@@ -570,22 +570,20 @@ func (s *Service) reportLatency(conn *connWrapper) error {
 
 // blockStats is the information to report about individual blocks.
 type blockStats struct {
-	Number      *big.Int       `json:"number"`
-	Hash        common.Hash    `json:"hash"`
-	ParentHash  common.Hash    `json:"parentHash"`
-	Timestamp   *big.Int       `json:"timestamp"`
-	Miner       common.Address `json:"miner"`
-	GasUsed     uint64         `json:"gasUsed"`
-	GasLimit    uint64         `json:"gasLimit"`
-	Diff        string         `json:"difficulty"`
-	TotalDiff   string         `json:"totalDifficulty"`
-	Txs         []txStats      `json:"transactions"`
-	TxHash      common.Hash    `json:"transactionsRoot"`
-	Root        common.Hash    `json:"stateRoot"`
-	Uncles      uncleStats     `json:"uncles"`
-	BaseFee     *big.Int       `json:"baseFee"`
-	MinerReward *big.Int       `json:"minerReward"`
-	FundReward  *big.Int       `json:"fundReward"`
+	Number     *big.Int       `json:"number"`
+	Hash       common.Hash    `json:"hash"`
+	ParentHash common.Hash    `json:"parentHash"`
+	Timestamp  *big.Int       `json:"timestamp"`
+	Miner      common.Address `json:"miner"`
+	GasUsed    uint64         `json:"gasUsed"`
+	GasLimit   uint64         `json:"gasLimit"`
+	Diff       string         `json:"difficulty"`
+	TotalDiff  string         `json:"totalDifficulty"`
+	Txs        []txStats      `json:"transactions"`
+	TxHash     common.Hash    `json:"transactionsRoot"`
+	Root       common.Hash    `json:"stateRoot"`
+	Uncles     uncleStats     `json:"uncles"`
+	BaseFee    *big.Int       `json:"baseFee"`
 }
 
 // txStats is the information to report about individual transactions.
@@ -671,22 +669,20 @@ func (s *Service) assembleBlockStats(block *types.Block) *blockStats {
 	author, _ := s.engine.Author(header)
 
 	return &blockStats{
-		Number:      header.Number,
-		Hash:        header.Hash(),
-		ParentHash:  header.ParentHash,
-		Timestamp:   new(big.Int).SetUint64(header.Time),
-		Miner:       author,
-		GasUsed:     header.GasUsed,
-		GasLimit:    header.GasLimit,
-		Diff:        header.Difficulty.String(),
-		TotalDiff:   td.String(),
-		Txs:         txs,
-		TxHash:      header.TxHash,
-		Root:        header.Root,
-		Uncles:      uncles,
-		BaseFee:     header.BaseFee,
-		MinerReward: header.MinerReward,
-		FundReward:  header.FundReward,
+		Number:     header.Number,
+		Hash:       header.Hash(),
+		ParentHash: header.ParentHash,
+		Timestamp:  new(big.Int).SetUint64(header.Time),
+		Miner:      author,
+		GasUsed:    header.GasUsed,
+		GasLimit:   header.GasLimit,
+		Diff:       header.Difficulty.String(),
+		TotalDiff:  td.String(),
+		Txs:        txs,
+		TxHash:     header.TxHash,
+		Root:       header.Root,
+		Uncles:     uncles,
+		BaseFee:    header.BaseFee,
 	}
 }
 

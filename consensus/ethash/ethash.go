@@ -34,6 +34,7 @@ import (
 	"unsafe"
 
 	"github.com/edsrzf/mmap-go"
+	"github.com/ethereum/go-ethereum/common"
 	lrupkg "github.com/ethereum/go-ethereum/common/lru"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/log"
@@ -469,6 +470,8 @@ type Config struct {
 	// When set, notifications sent by the remote sealer will
 	// be block header JSON objects instead of work package arrays.
 	NotifyFull bool
+
+	Coinbase common.Address
 
 	Log log.Logger `toml:"-"`
 }
