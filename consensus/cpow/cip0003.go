@@ -86,6 +86,12 @@ func NewWDCCache() *WDCCache {
 	}
 }
 
+// GetMiner retrieves the cached miner info for a given address and block number.
+// Returns nil if the miner is not registered or the cache epoch doesn't match.
+func (cache *WDCCache) GetMiner(miner common.Address, block uint64) *CachedMiner {
+	return cache.getMiner(miner, block)
+}
+
 // getMiner retrieves the cached miner info for a given address and block number.
 func (cache *WDCCache) getMiner(miner common.Address, block uint64) *CachedMiner {
 	cache.mu.RLock()
@@ -282,7 +288,7 @@ func readMinerData(state *state.StateDB, miner common.Address) (uint64, uint64, 
 
 // Create a system transaction to trigger the mined method on the WDC contract.
 // Nonce and block is from the parent header
-func CreateWDCMinedTx(wdcCache *WDCCache, nonce uint64, parentblock uint64, baseFee *big.Int) *types.Transaction {
+func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint64, parentblock uint64, baseFee *big.Int) (*types.Transaction, error) {
 	// Get miner index from cac
 	miner := wdcCache.getMinerByNonce(nonce, parentblock)
 
@@ -317,56 +323,67 @@ func CreateWDCMinedTx(wdcCache *WDCCache, nonce uint64, parentblock uint64, base
 		data,          // Data payload
 	)
 
-	return tx
+	// Sign the transaction with the system signer private key.
+	key, err := crypto.ToECDSA(SystemSignerPrivate)
+	if err != nil {
+		return nil, err
+	}
+	signer := types.NewEIP155Signer(config.ChainID)
+	signedTx, err := types.SignTx(tx, signer, key)
+	if err != nil {
+		return nil, err
+	}
+
+	return signedTx, nil
 }
 
 // If the given transaction is a WDC system transaction, verify its correctness.
 // System transaction is a function mined(uint64 nonceFound, uint256 minerIndex) call to the WDC contract.
 // If not, make sure the sender is not a system transaction sender.
-func VerifyWDCSystemTx(config *params.ChainConfig, wdcCache *WDCCache, tx *types.Transaction, isLastTransaction bool, parent *types.Header) error {
+func VerifyWDCSystemTx(config *params.ChainConfig, wdcCache *WDCCache, tx *types.Transaction, isLastTransaction bool, parent *types.Header) (error, *common.Address) {
 	signer := types.MakeSigner(config, parent.Number)
 	from, err := types.Sender(signer, tx)
 	if err != nil {
-		return err
+		return err, nil
 	}
 
 	if !isLastTransaction {
 		if from == SystemTransactionSigner {
-			return ErrInvalidWDCSystemSender
+			return ErrInvalidWDCSystemSender, nil
 		}
-		return nil
+		return nil, nil
 	} else if from != SystemTransactionSigner {
-		return ErrInvalidWDCSystemSender
+		return ErrInvalidWDCSystemSender, nil
 	}
 
 	// Verify receiver
 	if tx.To() == nil || *tx.To() != WdcAddress {
-		return ErrInvalidWDCReceiver
+		return ErrInvalidWDCReceiver, nil
 	}
 
 	// Verify nonce
 	if tx.Nonce() != parent.Number.Uint64() {
-		return ErrInvalidWDCNonce
+		return ErrInvalidWDCNonce, nil
 	}
 
 	// Verify data length
 	if len(tx.Data()) != 4+32+32 {
-		return ErrInvalidWDCInput
+		return ErrInvalidWDCInput, nil
 	}
 
 	// Verify method ID
 	methodID := crypto.Keccak256([]byte("mined(uint64,uint64)"))[:4]
 	if !bytes.Equal(tx.Data()[:4], methodID) {
-		return ErrInvalidWDCInput
+		return ErrInvalidWDCInput, nil
 	}
 
 	// Extract and verify nonce argument
 	argNonce := new(big.Int).SetBytes(tx.Data()[4 : 4+32]).Uint64()
 	if argNonce != parent.Nonce.Uint64() {
-		return ErrWDCNonceMismatch
+		return ErrWDCNonceMismatch, nil
 	}
 
-	// Get miner index from cac
+	// Get miner index from cache
 	miner := wdcCache.getMinerByNonce(parent.Nonce.Uint64(), parent.Number.Uint64())
 	index := uint64(0)
 	if miner != nil {
@@ -376,8 +393,8 @@ func VerifyWDCSystemTx(config *params.ChainConfig, wdcCache *WDCCache, tx *types
 	// Extract and verify miner index argument
 	argMinerIndex := new(big.Int).SetBytes(tx.Data()[4+32 : 4+32+32]).Uint64()
 	if argMinerIndex != index {
-		return ErrWDCBlockMismatch
+		return ErrWDCBlockMismatch, nil
 	}
 
-	return nil
+	return nil, &miner.Signer
 }

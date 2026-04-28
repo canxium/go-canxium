@@ -13,12 +13,10 @@ import (
 func (f FutureProposal) MarshalJSON() ([]byte, error) {
 	type FutureProposal struct {
 		TxHashes  []common.Hash `json:"txHashes"`
-		Root      common.Hash   `json:"root"`
 		Signature hexutil.Bytes `json:"signature"`
 	}
 	var enc FutureProposal
 	enc.TxHashes = f.TxHashes
-	enc.Root = f.Root
 	enc.Signature = hexutil.Bytes(f.Signature)
 	return json.Marshal(&enc)
 }
@@ -27,7 +25,6 @@ func (f FutureProposal) MarshalJSON() ([]byte, error) {
 func (f *FutureProposal) UnmarshalJSON(input []byte) error {
 	type FutureProposal struct {
 		TxHashes  []common.Hash  `json:"txHashes"`
-		Root      *common.Hash   `json:"root"`
 		Signature *hexutil.Bytes `json:"signature"`
 	}
 	var dec FutureProposal
@@ -36,9 +33,6 @@ func (f *FutureProposal) UnmarshalJSON(input []byte) error {
 	}
 	if dec.TxHashes != nil {
 		f.TxHashes = dec.TxHashes
-	}
-	if dec.Root != nil {
-		f.Root = *dec.Root
 	}
 	if dec.Signature != nil {
 		f.Signature = *dec.Signature

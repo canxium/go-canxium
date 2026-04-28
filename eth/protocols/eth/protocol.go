@@ -237,24 +237,25 @@ type BlockBodiesRLPPacket66 struct {
 
 // BlockBody represents the data content of a single block.
 type BlockBody struct {
-	Transactions []*types.Transaction // Transactions contained within a block
-	Uncles       []*types.Header      // Uncles contained within a block
-	Withdrawals  []*types.Withdrawal  `rlp:"optional"` // Withdrawals contained within a block
+	Transactions []*types.Transaction  // Transactions contained within a block
+	Uncles       []*types.Header       // Uncles contained within a block
+	Proposal     *types.FutureProposal // N+2 tx commitment (PoW 2.0)
+	Withdrawals  []*types.Withdrawal   `rlp:"optional"` // Withdrawals contained within a block
 }
 
-// Unpack retrieves the transactions and uncles from the range packet and returns
-// them in a split flat format that's more consistent with the internal data structures.
-func (p *BlockBodiesPacket) Unpack() ([][]*types.Transaction, [][]*types.Header, [][]*types.Withdrawal) {
-	// TODO(matt): add support for withdrawals to fetchers
+// Unpack retrieves the transactions, uncles, withdrawals and proposals from the
+// range packet and returns them in a split flat format.
+func (p *BlockBodiesPacket) Unpack() ([][]*types.Transaction, [][]*types.Header, [][]*types.Withdrawal, []*types.FutureProposal) {
 	var (
 		txset         = make([][]*types.Transaction, len(*p))
 		uncleset      = make([][]*types.Header, len(*p))
 		withdrawalset = make([][]*types.Withdrawal, len(*p))
+		proposalset   = make([]*types.FutureProposal, len(*p))
 	)
 	for i, body := range *p {
-		txset[i], uncleset[i], withdrawalset[i] = body.Transactions, body.Uncles, body.Withdrawals
+		txset[i], uncleset[i], withdrawalset[i], proposalset[i] = body.Transactions, body.Uncles, body.Withdrawals, body.Proposal
 	}
-	return txset, uncleset, withdrawalset
+	return txset, uncleset, withdrawalset, proposalset
 }
 
 // GetNodeDataPacket represents a trie node data query.

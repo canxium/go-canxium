@@ -19,6 +19,7 @@ package core
 import (
 	"fmt"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/cpow"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -81,6 +82,14 @@ func (v *BlockValidator) ValidateBody(block *types.Block, parent *types.Header) 
 		// Withdrawals are not allowed prior to shanghai fork
 		return fmt.Errorf("withdrawals present in block body")
 	}
+	// Proposal commitment is present when ProposalHash is set in the header.
+	if header.ProposalHash != nil {
+		if block.Proposal() == nil {
+			return fmt.Errorf("missing proposal in block body")
+		}
+	} else if block.Proposal() != nil {
+		return fmt.Errorf("unexpected proposal in block body")
+	}
 
 	if parent == nil {
 		parent = v.bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
@@ -91,11 +100,17 @@ func (v *BlockValidator) ValidateBody(block *types.Block, parent *types.Header) 
 	}
 
 	// Verify system & mining transactions
+	totalTxs := len(block.Transactions())
 	numOfMiningTxs := 0
+	// proposalSigner is nil when no WDC system tx is present (e.g. early blocks).
+	// VerifyFutureProposal skips the signer identity check when proposalSigner is nil.
+	var proposalSigner *common.Address
 	for index, tx := range block.Transactions() {
-		if err := cpow.VerifyWDCSystemTx(v.config, v.bc.WdcCache, tx, index == len(block.Transactions())-1, parent); err != nil {
+		if err, signer := cpow.VerifyWDCSystemTx(v.config, v.bc.WdcCache, tx, index == totalTxs-1, parent); err != nil {
 			v.bc.reportBlock(block, nil, cpow.ErrBadSystemTx)
 			return err
+		} else if signer != nil {
+			proposalSigner = signer
 		}
 
 		if err := cpow.VerifyMiningTx(v.engine, v.config, tx, block.Header()); err != nil {
@@ -111,6 +126,12 @@ func (v *BlockValidator) ValidateBody(block *types.Block, parent *types.Header) 
 			v.bc.reportBlock(block, nil, ErrBadMiningTxs)
 			return ErrBadMiningTxs
 		}
+	}
+
+	// Verify the block proposal (root integrity, signature, tx sanity).
+	if err := cpow.VerifyFutureProposal(block.NumberU64(), header.ProposalHash, block.Body().Proposal, proposalSigner); err != nil {
+		v.bc.reportBlock(block, nil, ErrBadProposal)
+		return err
 	}
 
 	if !v.bc.HasBlockAndState(block.ParentHash(), block.NumberU64()-1) {

@@ -8,6 +8,7 @@ package types
 import (
 	"io"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
@@ -19,8 +20,24 @@ func (obj *FutureProposal) EncodeRLP(_w io.Writer) error {
 		w.WriteBytes(hash[:])
 	}
 	w.ListEnd(_tmp1)
-	w.WriteBytes(obj.Root[:])
 	w.WriteBytes(obj.Signature)
 	w.ListEnd(_tmp0)
 	return w.Flush()
+}
+
+// decFutureProposal is an intermediate struct used to decode FutureProposal via
+// standard RLP reflection, ensuring the decoder matches EncodeRLP exactly.
+type decFutureProposal struct {
+	TxHashes  []common.Hash
+	Signature []byte
+}
+
+func (obj *FutureProposal) DecodeRLP(s *rlp.Stream) error {
+	var dec decFutureProposal
+	if err := s.Decode(&dec); err != nil {
+		return err
+	}
+	obj.TxHashes = dec.TxHashes
+	obj.Signature = dec.Signature
+	return nil
 }

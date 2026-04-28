@@ -472,9 +472,9 @@ func (g *Genesis) ToBlock() *types.Block {
 	}
 	var proposal = &types.FutureProposal{
 		TxHashes:  make([]common.Hash, 0),
-		Root:      common.Hash{},
 		Signature: make([]byte, 0),
 	}
+	head.ProposalHash = &types.EmptyProposalHash
 	return types.NewBlock(head, nil, nil, nil, trie.NewStackTrie(nil)).WithWithdrawals(withdrawals).WithProposal(proposal)
 }
 

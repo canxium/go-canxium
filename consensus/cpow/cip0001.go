@@ -8,7 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/types"
-	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -73,12 +72,9 @@ func VerifyMiningTxBasic(config *params.ChainConfig, tx *types.Transaction, bloc
 	return ErrInvalidMiningType
 }
 
-// verifyTxMiningSeal checks whether a mining transaction satisfies the proof of work requirement of the mining protocol, including ethash, kkHeavyHash, kawpow and more
+// verifyTxMiningSeal checks whether a mining transaction satisfies the proof of work requirement of the mining protocol, including ethash, kkHeavyHash and more
 func VerifyMiningTxSeal(engine consensus.Engine, config *params.ChainConfig, tx *types.Transaction, block *types.Header) error {
 	if tx.Type() == types.CrossMiningTxType {
-		if tx.Algorithm() == crosschain.KawPoWAlgorithm {
-			return engine.VerifyKawPowTxSeal(tx)
-		}
 		return VerifyCrossMiningSeal(tx)
 	}
 	// We only support ethash offline mining for the MiningTxType

@@ -83,16 +83,20 @@ type Header struct {
 	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
 
 	// WithdrawalsHash was added by EIP-4895 and is ignored in legacy headers.
-	WithdrawalsHash *common.Hash `json:"withdrawalsRoot" rlp:"optional"`
+	WithdrawalsHash *common.Hash `json:"withdrawalsRoot" rlp:"optional,nilString"`
 
 	// ExcessDataGas was added by EIP-4844 and is ignored in legacy headers.
 	ExcessDataGas *big.Int `json:"excessDataGas" rlp:"optional"`
+
+	// ProposalHash commits the FutureProposal carried in the block body (Canxium PoW 2.0).
+	ProposalHash *common.Hash `json:"proposalRoot" rlp:"optional,nilString"`
 
 	/*
 		TODO (MariusVanDerWijden) Add this field once needed
 		// Random was added during the merge and contains the BeaconState randomness
 		Random common.Hash `json:"random" rlp:"optional"`
 	*/
+
 }
 
 // field type overrides for gencodec
@@ -150,7 +154,7 @@ func (h *Header) SanityCheck() error {
 }
 
 // EmptyBody returns true if there is no additional 'body' to complete the header
-// that is: no transactions, no uncles and no withdrawals.
+// that is: no transactions, no uncles, no withdrawals, and no proposal.
 func (h *Header) EmptyBody() bool {
 	if h.WithdrawalsHash == nil {
 		return h.TxHash == EmptyTxsHash && h.UncleHash == EmptyUncleHash
@@ -166,7 +170,6 @@ func (h *Header) EmptyReceipts() bool {
 // FutureProposal represents the N+2 transaction commitment included in Block N.
 type FutureProposal struct {
 	TxHashes  []common.Hash // The list of transaction hashes for N+2
-	Root      common.Hash   // The Merkle root of these hashes (PayloadHash)
 	Signature []byte        // Signed by the miner of Block N
 }
 
@@ -175,8 +178,8 @@ type FutureProposal struct {
 type Body struct {
 	Transactions []*Transaction
 	Uncles       []*Header
-	Withdrawals  []*Withdrawal   `rlp:"optional"`
-	Proposal     *FutureProposal `rlp:"optional"`
+	Proposal     *FutureProposal
+	Withdrawals  []*Withdrawal `rlp:"optional"`
 }
 
 // Block represents an entire block in the Ethereum blockchain.
@@ -204,8 +207,8 @@ type extblock struct {
 	Header      *Header
 	Txs         []*Transaction
 	Uncles      []*Header
-	Withdrawals []*Withdrawal   `rlp:"optional"`
-	Proposal    *FutureProposal `rlp:"optional"`
+	Proposal    *FutureProposal
+	Withdrawals []*Withdrawal `rlp:"optional"`
 }
 
 // NewBlock creates a new block. The input data is copied,
@@ -297,6 +300,10 @@ func CopyHeader(h *Header) *Header {
 		cpy.WithdrawalsHash = new(common.Hash)
 		*cpy.WithdrawalsHash = *h.WithdrawalsHash
 	}
+	if h.ProposalHash != nil {
+		cpy.ProposalHash = new(common.Hash)
+		*cpy.ProposalHash = *h.ProposalHash
+	}
 	return &cpy
 }
 
@@ -307,7 +314,7 @@ func (b *Block) DecodeRLP(s *rlp.Stream) error {
 	if err := s.Decode(&eb); err != nil {
 		return err
 	}
-	b.header, b.uncles, b.transactions, b.withdrawals, b.proposal = eb.Header, eb.Uncles, eb.Txs, eb.Withdrawals, eb.Proposal
+	b.header, b.uncles, b.transactions, b.proposal, b.withdrawals = eb.Header, eb.Uncles, eb.Txs, eb.Proposal, eb.Withdrawals
 	b.size.Store(rlp.ListSize(size))
 	return nil
 }
@@ -318,8 +325,8 @@ func (b *Block) EncodeRLP(w io.Writer) error {
 		Header:      b.header,
 		Txs:         b.transactions,
 		Uncles:      b.uncles,
-		Withdrawals: b.withdrawals,
 		Proposal:    b.proposal,
+		Withdrawals: b.withdrawals,
 	})
 }
 
@@ -373,7 +380,7 @@ func (b *Block) Proposal() *FutureProposal {
 func (b *Block) Header() *Header { return CopyHeader(b.header) }
 
 // Body returns the non-header content of the block.
-func (b *Block) Body() *Body { return &Body{b.transactions, b.uncles, b.withdrawals, b.proposal} }
+func (b *Block) Body() *Body { return &Body{b.transactions, b.uncles, b.proposal, b.withdrawals} }
 
 // Size returns the true RLP encoded storage size of the block, either by encoding
 // and returning it, or returning a previously cached value.
@@ -449,7 +456,6 @@ func (b *Block) WithWithdrawals(withdrawals []*Withdrawal) *Block {
 func (b *Block) WithProposal(proposal *FutureProposal) *Block {
 	if proposal != nil {
 		b.proposal = &FutureProposal{
-			Root:      proposal.Root,
 			TxHashes:  make([]common.Hash, len(proposal.TxHashes)),
 			Signature: make([]byte, len(proposal.Signature)),
 		}

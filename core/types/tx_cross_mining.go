@@ -195,10 +195,6 @@ func DecodeCrossChainBlock(data []byte) (crosschain.CrossChainBlock, error) {
 		var proof crosschain.KaspaBlock
 		err := rlp.DecodeBytes(data[1:], &proof)
 		return &proof, err
-	case crosschain.RavenChain:
-		var proof crosschain.RavenBlock
-		err := rlp.DecodeBytes(data[1:], &proof)
-		return &proof, err
 	default:
 		return nil, ErrMergeTxChainNotSupported
 	}

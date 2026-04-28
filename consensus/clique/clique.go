@@ -466,11 +466,6 @@ func (c *Clique) VerifyEthashTxSeal(tx *types.Transaction, fulldag bool) error {
 	return errors.New("clique does not support ethash seal verification")
 }
 
-// VerifyKawPowTxSeal checks whether a mining transaction satisfies the KawPoW difficulty requirements.
-func (c *Clique) VerifyKawPowTxSeal(tx *types.Transaction) error {
-	return errors.New("clique does not support kawpow seal verification")
-}
-
 // verifySeal checks whether the signature contained in the header satisfies the
 // consensus protocol requirements. The method accepts an optional list of parent
 // headers that aren't yet part of the local blockchain to generate the snapshots

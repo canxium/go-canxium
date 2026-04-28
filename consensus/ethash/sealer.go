@@ -143,10 +143,16 @@ func (ethash *Ethash) mine(block *types.Block, id int, seed uint64, abort chan s
 	var (
 		attempts  = int64(0)
 		nonce     = seed
+		nonceEnd  = uint64(math.MaxUint64)
 		powBuffer = new(big.Int)
 	)
+	// CIP-0003: override start nonce with assigned range if available
+	if ethash.hasMinerNonce.Load() {
+		nonce = ethash.minerNonceStart.Load()
+		nonceEnd = ethash.minerNonceEnd.Load()
+	}
 	logger := ethash.config.Log.New("miner", id)
-	logger.Trace("Started ethash search for new nonces", "seed", seed)
+	logger.Info("Started ethash search for new nonces", "seed", nonce, "target", target, "number", number, "nonceEnd", nonceEnd)
 search:
 	for {
 		select {
@@ -178,6 +184,10 @@ search:
 				case <-abort:
 					logger.Trace("Ethash nonce found but discarded", "attempts", nonce-seed, "nonce", nonce)
 				}
+				break search
+			}
+			if nonce == nonceEnd {
+				logger.Error("Ethash nonce search exhausted assigned range", "start", nonce, "end", nonceEnd)
 				break search
 			}
 			nonce++
@@ -352,6 +362,14 @@ func (s *remoteSealer) makeWork(state *state.StateDB, block *types.Block) {
 	s.currentWork[1] = common.BytesToHash(SeedHash(block.NumberU64())).Hex()
 	s.currentWork[2] = common.BytesToHash(new(big.Int).Div(two256, block.Difficulty()).Bytes()).Hex()
 	s.currentWork[3] = hexutil.EncodeBig(block.Number())
+	// CIP-0003: populate nonce range for remote miners
+	if s.ethash.hasMinerNonce.Load() {
+		s.currentWork[4] = hexutil.EncodeUint64(s.ethash.minerNonceStart.Load())
+		s.currentWork[5] = hexutil.EncodeUint64(s.ethash.minerNonceEnd.Load())
+	} else {
+		s.currentWork[4] = ""
+		s.currentWork[5] = ""
+	}
 
 	// Trace the seal work fetched by remote sealer.
 	s.currentBlock = block

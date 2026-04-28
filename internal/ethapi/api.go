@@ -1218,6 +1218,10 @@ func RPCMarshalHeader(head *types.Header) map[string]interface{} {
 		result["withdrawalsRoot"] = head.WithdrawalsHash
 	}
 
+	if head.ProposalHash != nil {
+		result["proposalHash"] = head.ProposalHash
+	}
+
 	return result
 }
 
@@ -1255,6 +1259,9 @@ func RPCMarshalBlock(block *types.Block, inclTx bool, fullTx bool, config *param
 	fields["uncles"] = uncleHashes
 	if block.Header().WithdrawalsHash != nil {
 		fields["withdrawals"] = block.Withdrawals()
+	}
+	if block.Proposal() != nil {
+		fields["proposal"] = block.Proposal()
 	}
 	return fields, nil
 }
@@ -1834,7 +1841,7 @@ func SubmitTransaction(ctx context.Context, b Backend, tx *types.Transaction) (c
 		addr := crypto.CreateAddress(from, tx.Nonce())
 		log.Info("Submitted contract creation", "hash", tx.Hash().Hex(), "from", from, "nonce", tx.Nonce(), "contract", addr.Hex(), "value", tx.Value())
 	} else {
-		log.Info("Submitted transaction", "hash", tx.Hash().Hex(), "from", from, "nonce", tx.Nonce(), "recipient", tx.To(), "value", tx.Value())
+		log.Debug("Submitted transaction", "hash", tx.Hash().Hex(), "from", from, "nonce", tx.Nonce(), "recipient", tx.To(), "value", tx.Value())
 	}
 	return tx.Hash(), nil
 }

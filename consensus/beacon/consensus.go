@@ -224,11 +224,6 @@ func (beacon *Beacon) VerifyEthashTxSeal(tx *types.Transaction, fulldag bool) er
 	return beacon.ethone.VerifyEthashTxSeal(tx, fulldag)
 }
 
-// VerifyKawPowTxSeal checks whether a mining transaction satisfies the KawPoW difficulty requirements.
-func (beacon *Beacon) VerifyKawPowTxSeal(tx *types.Transaction) error {
-	return beacon.ethone.VerifyKawPowTxSeal(tx)
-}
-
 // verifyHeader checks whether a header conforms to the consensus rules of the
 // stock Ethereum consensus engine. The difference between the beacon and classic is
 // (a) The following fields are expected to be constants:

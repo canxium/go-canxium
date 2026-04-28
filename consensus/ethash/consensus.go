@@ -28,11 +28,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/consensus/cpow"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
@@ -339,15 +337,15 @@ var (
 )
 
 // calcDifficultyEthPOW creates a difficultyCalculator with the origin Proof-of-work (PoW).
-// Remain old calculations & deleted fakeBlockNumber
+// Remain old calculations & deleted fakeBlockNumber.
+// Target block time: ~2 seconds.
+// The equilibrium is where x = 0, i.e. (dt // 2) = 1, meaning 2s <= dt < 4s.
 func calcDifficultyPoW(time uint64, parent *types.Header) *big.Int {
-	// Note, the calculations below looks at the parent number, which is 1 below
-	// the block number. Thus we remove one from the delay given
-	// https://github.com/ethereum/EIPs/issues/100.
 	// algorithm:
 	// diff = (parent_diff +
-	//         (parent_diff / 1024 * max((2 if len(parent.uncles) else 1) - ((timestamp - parent.timestamp) // 6), -99))
-	//        ) + 2^(periodCount - 2)
+	//         (parent_diff / DifficultyBoundDivisor * max((2 if len(parent.uncles) else 1) - ((timestamp - parent.timestamp) // 2), -99))
+	//        )
+	// Divisor of 2 targets ~2s block time: when dt==2s, (dt//2)==1 so x==0 (neutral).
 
 	bigTime := new(big.Int).SetUint64(time)
 	bigParentTime := new(big.Int).SetUint64(parent.Time)
@@ -356,24 +354,24 @@ func calcDifficultyPoW(time uint64, parent *types.Header) *big.Int {
 	x := new(big.Int)
 	y := new(big.Int)
 
-	// (2 if len(parent_uncles) else 1) - (block_timestamp - parent_timestamp) // 6
+	// (2 if len(parent_uncles) else 1) - (block_timestamp - parent_timestamp) // 2
 	x.Sub(bigTime, bigParentTime)
-	x.Div(x, big6)
+	x.Div(x, big2)
 	if parent.UncleHash == types.EmptyUncleHash {
 		x.Sub(big1, x)
 	} else {
 		x.Sub(big2, x)
 	}
-	// max((2 if len(parent_uncles) else 1) - (block_timestamp - parent_timestamp) // 6, -99)
+	// max((2 if len(parent_uncles) else 1) - (block_timestamp - parent_timestamp) // 2, -99)
 	if x.Cmp(bigMinus99) < 0 {
 		x.Set(bigMinus99)
 	}
-	// parent_diff + (parent_diff / 1024 * max((2 if len(parent.uncles) else 1) - ((timestamp - parent.timestamp) // 6), -99))
+	// parent_diff + (parent_diff / DifficultyBoundDivisor * max(...))
 	y.Div(parent.Difficulty, params.DifficultyBoundDivisor)
 	x.Mul(y, x)
 	x.Add(parent.Difficulty, x)
 
-	// minimum difficulty can ever be (before exponential factor)
+	// minimum difficulty can ever be
 	if x.Cmp(params.MinimumDifficulty) < 0 {
 		x.Set(params.MinimumDifficulty)
 	}
@@ -656,37 +654,6 @@ func (ethash *Ethash) VerifyEthashTxSeal(tx *types.Transaction, fulldag bool) er
 	return nil
 }
 
-// KawPow verification is need to be verified by ethash, because kawpow algorithm is based on ethash.
-func (ethash *Ethash) VerifyKawPowTxSeal(tx *types.Transaction) error {
-	if tx.AuxPoW() == nil {
-		return cpow.ErrInvalidNilBlock
-	}
-	if tx.Algorithm() != crosschain.KawPoWAlgorithm {
-		return ErrInvalidMiningAlgorithm
-	}
-
-	// Generate the KawPoW hash and mix hash
-	auxBlock := tx.AuxPoW()
-	calculatedMixHash, finalHash := ethash.KawPowHash(auxBlock.BlockNumber(), common.HexToHash(auxBlock.SealHash()), auxBlock.PowNonce())
-
-	// Verify the mix hash matches what's stored in the header
-
-	if calculatedMixHash.Hex() != auxBlock.MixHash() {
-		return fmt.Errorf("mix hash mismatch: expected %s, got %s", auxBlock.MixHash(), calculatedMixHash.Hex())
-	}
-
-	// Check if the final hash meets the difficulty target
-	target := kawpowBitsToTarget(uint32(auxBlock.Bits()))
-	finalHashBig := finalHash.Big()
-
-	// In PoW, the hash must be <= target to be valid
-	if finalHashBig.Cmp(target) <= 0 {
-		return nil // Valid KawPoW proof of work
-	}
-
-	return fmt.Errorf("final hash %s exceeds target %s", finalHash.Hex(), target.Text(16))
-}
-
 // Prepare implements consensus.Engine, initializing the difficulty field of a
 // header to conform to the ethash protocol. The changes are done inline.
 func (ethash *Ethash) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
@@ -774,41 +741,4 @@ func calculateRewards(config *params.ChainConfig, header *types.Header) (*big.In
 	foundation.Div(foundation, big100)
 	reward.Sub(reward, foundation)
 	return reward, foundation
-}
-
-// bitsToTarget converts the compact "bits" representation to a big.Int target
-// This implements the exact same logic as Ravencoin's arith_uint256::SetCompact() method
-func kawpowBitsToTarget(bits uint32) *big.Int {
-	// Extract the size (exponent) and word (mantissa) following Ravencoin's SetCompact
-	nSize := int(bits >> 24)
-	nWord := bits & 0x007fffff // Note: 0x007fffff not 0x00ffffff (excludes sign bit)
-
-	var target *big.Int
-
-	if nSize <= 3 {
-		// For size <= 3, shift the word right
-		nWord >>= uint(8 * (3 - nSize))
-		target = big.NewInt(int64(nWord))
-	} else {
-		// For size > 3, shift the word left
-		target = big.NewInt(int64(nWord))
-		target.Lsh(target, uint(8*(nSize-3)))
-	}
-
-	// Handle negative values and overflow cases like Ravencoin
-	// If the sign bit is set (0x00800000) and nWord != 0, it's negative
-	if nWord != 0 && (bits&0x00800000) != 0 {
-		// In Ravencoin, negative targets are invalid, return 0
-		return big.NewInt(0)
-	}
-
-	// Check for overflow like Ravencoin does
-	if nWord != 0 && ((nSize > 34) ||
-		(nWord > 0xff && nSize > 33) ||
-		(nWord > 0xffff && nSize > 32)) {
-		// Overflow case, return 0 (invalid)
-		return big.NewInt(0)
-	}
-
-	return target
 }

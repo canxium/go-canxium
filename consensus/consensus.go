@@ -84,10 +84,6 @@ type Engine interface {
 	// rules of a given engine.
 	VerifyEthashTxSeal(tx *types.Transaction, fulldag bool) error
 
-	// VerifyKawPowTxSeal verifies that the given kawpow cross mining transaction conform to the consensus
-	// rules of a given engine.
-	VerifyKawPowTxSeal(tx *types.Transaction) error
-
 	// Prepare initializes the consensus fields of a block header according to the
 	// rules of a particular engine. The changes are executed inline.
 	Prepare(chain ChainHeaderReader, header *types.Header) error

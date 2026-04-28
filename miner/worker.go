@@ -17,9 +17,12 @@
 package miner
 
 import (
+	"bytes"
+	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,6 +36,7 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
@@ -102,7 +106,7 @@ type environment struct {
 	txs      []*types.Transaction
 	receipts []*types.Receipt
 	uncles   map[common.Hash]*types.Header
-	propsal  *types.FutureProposal
+	proposal *types.FutureProposal
 }
 
 // copy creates a deep copy of environment.
@@ -154,11 +158,24 @@ func (env *environment) discard() {
 
 // task contains all information for consensus engine sealing and result submitting.
 type task struct {
-	receipts  []*types.Receipt
-	state     *state.StateDB
-	block     *types.Block
-	proposal  *types.FutureProposal
-	createdAt time.Time
+	receipts     []*types.Receipt
+	state        *state.StateDB
+	block        *types.Block
+	proposal     *types.FutureProposal
+	proposalHash *common.Hash
+	createdAt    time.Time
+
+	// PoW 2.0 proposal coordination.
+	// proposalStop is closed by resultLoop when the sealed block arrives,
+	// signalling buildProposalForCurrentEnv to stop collecting and finalise.
+	// proposalReady is closed by buildProposalForCurrentEnv once task.proposal
+	// has been written, signalling resultLoop that it may proceed.
+	// The Once guards ensure each channel is closed exactly once even when
+	// commit() is called multiple times for the same seal hash (resubmission).
+	proposalStop      chan struct{}
+	proposalStopOnce  sync.Once
+	proposalReady     chan struct{}
+	proposalReadyOnce sync.Once
 }
 
 const (
@@ -270,6 +287,10 @@ type worker struct {
 	// External functions
 	isLocalBlock func(header *types.Header) bool // Function used to determine whether the specified block is mined by local miner.
 
+	// proposalKey is the ECDSA key used to sign the N+2 FutureProposal Root.
+	// Parsed once from Config.Private at startup; nil means proposals are unsigned.
+	proposalKey *ecdsa.PrivateKey
+
 	// Test hooks
 	newTaskHook  func(*task)                        // Method to call upon receiving a new sealing task.
 	skipSealHook func(*task) bool                   // Method to decide whether skipping the sealing.
@@ -304,6 +325,22 @@ func newWorker(config *Config, chainConfig *params.ChainConfig, engine consensus
 		resubmitIntervalCh: make(chan time.Duration),
 		resubmitAdjustCh:   make(chan *intervalAdjust, resubmitAdjustChanSize),
 	}
+
+	// Parse the proposal signing key if provided.
+	if len(config.Private) <= 0 && config.Etherbase != (common.Address{}) {
+		log.Error("No miner private key provided for the etherbase: %s, worker won't be able to sign future proposals!", config.Etherbase.Hex())
+		os.Exit(1)
+	} else if len(config.Private) > 0 && config.Etherbase != (common.Address{}) {
+		key, err := crypto.ToECDSA(config.Private)
+		if err != nil {
+			log.Error("Invalid miner private key for proposal signing, proposals will be unsigned", "err", err)
+			os.Exit(1)
+		}
+
+		worker.proposalKey = key
+		log.Info("Proposal signing key loaded", "address", crypto.PubkeyToAddress(key.PublicKey))
+	}
+
 	// Subscribe NewTxsEvent for tx pool
 	worker.txsSub = eth.TxPool().SubscribeNewTxsEvent(worker.txsCh)
 	// Subscribe events for blockchain
@@ -610,7 +647,8 @@ func (w *worker) mainLoop() {
 			if w.isRunning() && current != nil && len(current.uncles) < 2 {
 				start := time.Now()
 				if err := w.commitUncle(current, ev.Block.Header()); err == nil {
-					w.commit(current.copy(), nil, true, start)
+					currentHead := w.chain.CurrentHeader()
+					w.commit(current.copy(), currentHead, nil, true, start)
 				}
 			}
 
@@ -626,6 +664,17 @@ func (w *worker) mainLoop() {
 					delete(w.remoteUncles, hash)
 				}
 			}
+
+		// Drain incoming tx-notification events. In the N+2 pipeline the tx
+		// list for the current block is fixed (from the N-2 proposal), so we
+		// don't need to act on these events. We MUST drain the channel though:
+		// event.Feed.Send blocks until every subscriber has received, so an
+		// unread txsCh eventually fills up (cap 4096) and permanently stalls
+		// the txpool's runReorg goroutine, which in turn prevents demoting
+		// already-included transactions from pending, causing pool.mu lock
+		// starvation that blocks eth_sendRawTransaction for 30+ seconds.
+		case <-w.txsCh:
+			// intentionally empty — just keep the channel drained.
 
 		// System stopped
 		case <-w.exitCh:
@@ -678,6 +727,23 @@ func (w *worker) taskLoop() {
 			w.pendingTasks[sealHash] = task
 			w.pendingMu.Unlock()
 
+			// Kick off background pre-execution for the next block only after the
+			// task has been accepted by taskLoop, so pendingTasks[sealHash] is
+			// guaranteed to exist when buildProposalForCurrentEnv looks it up.
+			go func() {
+				if err := w.prepareNextWork(sealHash); err != nil {
+					log.Warn("Failed to prepare next work", "err", err)
+				}
+			}()
+
+			// CIP-0003: push miner nonce range to ethash before sealing
+			if eth, ok := w.engine.(*ethash.Ethash); ok {
+				blockNum := task.block.NumberU64()
+				if miner := w.eth.BlockChain().WdcCache.GetMiner(w.coinbase, blockNum); miner != nil {
+					eth.SetMinerNonceRange(miner.Start, miner.End)
+				}
+			}
+
 			if err := w.engine.Seal(w.chain, task.state, task.block, w.resultCh, stopCh); err != nil {
 				log.Warn("Block sealing failed", "err", err)
 				w.pendingMu.Lock()
@@ -707,16 +773,35 @@ func (w *worker) resultLoop() {
 				continue
 			}
 			var (
-				sealhash = w.engine.SealHash(block.Header())
-				hash     = block.Hash()
+				header   = block.Header()
+				sealhash = w.engine.SealHash(header)
 			)
 			w.pendingMu.RLock()
 			task, exist := w.pendingTasks[sealhash]
 			w.pendingMu.RUnlock()
 			if !exist {
-				log.Error("Block found but no relative pending task", "number", block.Number(), "sealhash", sealhash, "hash", hash)
+				log.Error("Block found but no relative pending task", "number", block.Number(), "sealhash", sealhash)
 				continue
 			}
+
+			// Tell buildProposalForCurrentEnv to stop collecting and finalise now.
+			task.proposalStopOnce.Do(func() { close(task.proposalStop) })
+
+			log.Info("Block sealed, waiting for finalising proposal", "number", block.Number(), "sealhash", sealhash, "elapsed", common.PrettyDuration(time.Since(task.createdAt)))
+			// Wait for buildProposalForCurrentEnv to write task.proposal.
+			select {
+			case <-task.proposalReady:
+			case <-w.exitCh:
+				return
+			}
+
+			header.ProposalHash = task.proposalHash
+			// Update the block with proposal since the block generated by consensus engine may not contain the proposal.
+			block = block.WithProposal(task.proposal).WithSeal(header)
+
+			var hash = block.Hash()
+
+			log.Info("Block sealed, proposal finalised", "number", block.Number(), "sealhash", sealhash, "hash", hash, "elapsed", common.PrettyDuration(time.Since(task.createdAt)))
 
 			w.mu.Lock()
 			if w.next != nil && w.next.header.ParentHash == sealhash {
@@ -927,6 +1012,7 @@ func (w *worker) commitTransactions(env *environment, txs []common.Hash, interru
 			log.Debug("Transaction failed, account skipped", "hash", tx.Hash(), "err", err)
 		}
 	}
+
 	if !w.isRunning() && len(coalescedLogs) > 0 {
 		// We don't push the pendingLogsEvent while we are sealing. The reason is that
 		// when we are sealing, the worker will regenerate a sealing block every 3 seconds.
@@ -1028,7 +1114,20 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 // It pre-executes the transactions proposed in the grandparent block's proposal (N-1 proposal
 // which defines N+1's tx list), and builds the N+2 proposal for w.current.
 // Caller must NOT hold w.mu.
-func (w *worker) prepareNextWork(previousSealHash common.Hash) error {
+func (w *worker) prepareNextWork(previousSealHash common.Hash) (retErr error) {
+	// On any error return, unblock resultLoop which may already be waiting on
+	// task.proposalReady after receiving the sealed block.
+	defer func() {
+		if retErr != nil {
+			w.pendingMu.RLock()
+			task, exists := w.pendingTasks[previousSealHash]
+			w.pendingMu.RUnlock()
+			if exists {
+				task.proposalReadyOnce.Do(func() { close(task.proposalReady) })
+			}
+		}
+	}()
+
 	w.mu.RLock()
 	previous := w.current
 	extra := w.extra
@@ -1045,11 +1144,19 @@ func (w *worker) prepareNextWork(previousSealHash common.Hash) error {
 	}
 
 	// Construct the sealing block header for Block N+1.
+	// Block N+1's timestamp must be strictly greater than Block N's timestamp.
+	// prepareNextWork is called right after commit(), so time.Now() may still
+	// be the same second as previous.header.Time — apply the same lower-bound
+	// guard that prepareWork uses.
+	blockTime := uint64(time.Now().Unix())
+	if blockTime <= previous.header.Time {
+		blockTime = previous.header.Time + 1
+	}
 	header := &types.Header{
 		ParentHash: previousSealHash,
 		Number:     new(big.Int).Add(previous.header.Number, common.Big1),
 		GasLimit:   core.CalcGasLimit(previous.header.GasLimit, w.config.GasCeil),
-		Time:       uint64(time.Now().Unix()),
+		Time:       blockTime,
 		Coinbase:   cpow.WdcAddress,
 	}
 	if len(extra) != 0 {
@@ -1062,10 +1169,25 @@ func (w *worker) prepareNextWork(previousSealHash common.Hash) error {
 			header.GasLimit = core.CalcGasLimit(parentGasLimit, w.config.GasCeil)
 		}
 	}
-	header.Difficulty = ethash.CalcDifficulty(w.chainConfig, header.Time, previous.header)
+	// The env header's UncleHash is the zero value until FinalizeAndAssemble sets it
+	// via types.NewBlock. The difficulty formula branches on whether the parent has
+	// uncles (EmptyUncleHash vs anything else), so passing the raw env header would
+	// treat a no-uncle block as having uncles and produce a wrong difficulty.
+	// Compute the real uncle hash the same way types.NewBlock does.
+	parentForDiff := *previous.header
+	parentForDiff.UncleHash = types.CalcUncleHash(previous.unclelist())
+	header.Difficulty = ethash.CalcDifficulty(w.chainConfig, header.Time, &parentForDiff)
+
+	w.pendingMu.RLock()
+	task, exists := w.pendingTasks[previousSealHash]
+	w.pendingMu.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("missing pending task for previous seal hash %s", previousSealHash)
+	}
 
 	// Fetch the state after Block N (w.current's state already has N applied).
-	env, err := w.makeEnv(previous.state.Copy(), header, cpow.WdcAddress)
+	env, err := w.makeEnv(task.state, header, cpow.WdcAddress)
 	if err != nil {
 		log.Error("Failed to create next sealing context", "err", err)
 		return err
@@ -1075,7 +1197,7 @@ func (w *worker) prepareNextWork(previousSealHash common.Hash) error {
 	if grandParent.Body().Proposal == nil {
 		// No proposal from grandparent — this can happen at chain genesis or during
 		// protocol bootstrap. Proceed with an empty block for N+1.
-		log.Warn("Grandparent has no N+2 proposal, building empty next block",
+		log.Error("Grandparent has no N+2 proposal, this should only happen at genesis or during protocol bootstrap, proceeding with empty block",
 			"grandparent", grandParent.NumberU64())
 	} else {
 		// Pre-execute N+1 transactions.
@@ -1136,6 +1258,16 @@ func (w *worker) buildProposalForCurrentEnv(previousSealHash common.Hash) {
 		return
 	}
 
+	// Retrieve the task so we can observe proposalStop and signal proposalReady.
+	w.pendingMu.RLock()
+	task, taskExists := w.pendingTasks[previousSealHash]
+	w.pendingMu.RUnlock()
+
+	if !taskExists {
+		log.Warn("No pending task for current block, skipping proposal building", "currentBlock", current.header.Number, "sealHash", previousSealHash)
+		return
+	}
+
 	// Use a snapshot of next's gas pool so we don't mutate the pre-executed state.
 	var availableGas uint64
 	if next.gasPool != nil {
@@ -1149,10 +1281,17 @@ func (w *worker) buildProposalForCurrentEnv(previousSealHash common.Hash) {
 	pending := w.eth.TxPool().Pending(true)
 	var selectedTxHashes []common.Hash
 
+outer:
 	for address, accountTxs := range pending {
 		nextNonce := next.state.GetNonce(address)
 		accumulatedCost := new(big.Int)
 		for _, tx := range accountTxs {
+			select {
+			case <-task.proposalStop:
+				break outer
+			default:
+			}
+
 			// Skip already-executed transactions that the pool hasn't evicted yet.
 			if tx.Nonce() < nextNonce {
 				continue
@@ -1186,51 +1325,54 @@ func (w *worker) buildProposalForCurrentEnv(previousSealHash common.Hash) {
 		}
 	}
 
-	// Calculate Merkle root of the selected transaction hashes.
-	hasher := trie.NewStackTrie(nil)
-	root := types.DeriveSha(types.Transactions(func() []*types.Transaction {
-		txs := make([]*types.Transaction, len(selectedTxHashes))
-		for i, hash := range selectedTxHashes {
-			tx := w.eth.TxPool().Get(hash)
-			if tx != nil {
-				txs[i] = tx
-			}
-		}
-		return txs
-	}()), hasher)
+	// Calculate Merkle root over the transaction hashes only (no need to fetch
+	// full transaction objects from the pool).
+	root := types.DeriveSha(proposalHashList(selectedTxHashes), trie.NewStackTrie(nil))
+
+	proposal := &types.FutureProposal{
+		TxHashes: selectedTxHashes,
+	}
+
+	// Sign the proposal Root with the miner's private key.
+	sig, err := crypto.Sign(root[:], w.proposalKey)
+	if err != nil {
+		log.Warn("Failed to sign N+2 proposal", "err", err)
+		return
+	}
+
+	proposal.Signature = sig
 
 	w.mu.Lock()
 	// Guard: if current was replaced by a reorg while we were selecting, discard.
 	if w.current != current {
 		w.mu.Unlock()
 		log.Warn("Current environment changed during proposal building, discarding proposal")
+		task.proposalReadyOnce.Do(func() { close(task.proposalReady) })
 		return
 	}
-	w.current.propsal = &types.FutureProposal{
-		TxHashes:  selectedTxHashes,
-		Root:      root,
-		Signature: []byte{}, // Will be signed later by the consensus engine.
-	}
+	w.current.proposal = proposal
 	w.mu.Unlock()
 
 	w.pendingMu.Lock()
-	task, exit := w.pendingTasks[previousSealHash]
-	if exit {
-		task.proposal = w.current.propsal
-	}
+	task.proposal = proposal
+	task.proposalHash = &root
 	w.pendingMu.Unlock()
+
+	// Signal resultLoop that the proposal is ready.
+	task.proposalReadyOnce.Do(func() { close(task.proposalReady) })
 
 	log.Info("Generated N+2 proposal",
 		"current block", current.header.Number,
 		"future block", new(big.Int).Add(next.header.Number, common.Big1),
-		"tx count", len(selectedTxHashes))
+		"tx count", len(selectedTxHashes),
+		"previousSealHash", previousSealHash,
+	)
 }
 
 // newWork generates new sealing work (Block N) based on the latest chain head and
 // submits it to the consensus engine. This is the fallback path when no valid
 // pre-executed pipeline work is available in w.next.
 func (w *worker) newWork(interrupt *atomic.Int32, noempty bool, timestamp int64) (*environment, error) {
-	start := time.Now()
 	work, err := w.prepareWork(&generateParams{
 		timestamp: uint64(timestamp),
 		coinbase:  cpow.WdcAddress,
@@ -1238,11 +1380,11 @@ func (w *worker) newWork(interrupt *atomic.Int32, noempty bool, timestamp int64)
 	if err != nil {
 		return nil, err
 	}
-	// Optimistically submit an empty block so sealing can start immediately
-	// while we fill in transactions.
-	if !noempty && !w.noempty.Load() {
-		w.commit(work.copy(), nil, false, start)
-	}
+	// Note: In PoW 2.0 the transaction list is fixed by the N-2 proposal, so
+	// there is no benefit to submitting an optimistic empty block first.
+	// Doing so would cause a double-commit for the same seal hash, which
+	// creates a race in prepareNextWork ("current environment changed") and
+	// leaves resultLoop stuck waiting for proposalReady.
 
 	// The tx list for Block N was fixed by the producer of Block N-2.
 	blockNum := work.header.Number.Uint64()
@@ -1340,7 +1482,7 @@ func (w *worker) commitWork(interrupt *atomic.Int32, noempty bool, timestamp int
 	// Also discard w.current if it no longer extends the canonical chain.
 	// This covers reorgs at N-1 or deeper.
 	if w.current != nil && w.current.header.ParentHash != chainHead.Hash() && !useNext {
-		log.Warn("Current work is stale due to reorg, discarding",
+		log.Debug("Current work is stale due to reorg, discarding",
 			"current.parent", w.current.header.ParentHash,
 			"chainHead", chainHead.Hash(),
 			"chainHead.number", chainHead.Number)
@@ -1351,13 +1493,13 @@ func (w *worker) commitWork(interrupt *atomic.Int32, noempty bool, timestamp int
 	if useNext {
 		log.Info("Block pipeline hit: promoting pre-executed work",
 			"block", w.next.header.Number, "parent", w.next.header.ParentHash)
-		w.commit(w.next, w.fullTaskHook, true, start)
+		w.commit(w.next, chainHead, w.fullTaskHook, true, start)
 		w.current = w.next
 		w.next = nil
 		w.mu.Unlock()
 	} else {
 		w.mu.Unlock()
-		log.Warn("Block pipeline miss: building work from chain head",
+		log.Debug("Block pipeline miss: building work from chain head",
 			"chainHead", chainHead.Number)
 		work, err := w.newWork(interrupt, noempty, timestamp)
 		if err != nil {
@@ -1372,7 +1514,7 @@ func (w *worker) commitWork(interrupt *atomic.Int32, noempty bool, timestamp int
 			log.Warn("Chain head moved during work preparation, will retry on next event")
 			return
 		}
-		w.commit(work, w.fullTaskHook, true, start)
+		w.commit(work, chainHead, w.fullTaskHook, true, start)
 		w.current = work
 		w.mu.Unlock()
 	}
@@ -1382,7 +1524,7 @@ func (w *worker) commitWork(interrupt *atomic.Int32, noempty bool, timestamp int
 // and commits new work if consensus engine is running.
 // Note the assumption is held that the mutation is allowed to the passed env, do
 // the deep copy first.
-func (w *worker) commit(env *environment, interval func(), update bool, start time.Time) error {
+func (w *worker) commit(env *environment, parent *types.Header, interval func(), update bool, start time.Time) error {
 	if w.isRunning() {
 		if interval != nil {
 			interval()
@@ -1390,24 +1532,41 @@ func (w *worker) commit(env *environment, interval func(), update bool, start ti
 		// Create a local environment copy, avoid the data race with snapshot state.
 		// https://github.com/ethereum/go-ethereum/issues/24299
 		env := env.copy()
+		// Create and add the WDC reward transaction for PoW 2.0.
+
+		systemTx, err := cpow.CreateWDCMinedTx(w.chainConfig, w.chain.WdcCache, parent.Nonce.Uint64(), parent.Number.Uint64(), env.header.BaseFee)
+		if err != nil {
+			log.Error("Failed to create WDC reward transaction", "err", err)
+			return fmt.Errorf("failed to create WDC reward transaction: %w", err)
+		}
+
+		if env.gasPool == nil {
+			env.gasPool = new(core.GasPool).AddGas(env.header.GasLimit)
+		}
+
+		log.Info("Committing WDC reward transaction", "number", env.header.Number, "hash", systemTx.Hash(), "elapsed", common.PrettyDuration(time.Since(start)))
+
+		if logs, err := w.commitTransaction(env, systemTx); err != nil {
+			log.Error("Failed to commit WDC reward transaction", "err", err)
+			return fmt.Errorf("failed to commit WDC reward transaction: %w", err)
+		} else {
+			log.Info("Committed WDC reward transaction", "number", env.header.Number, "hash", systemTx.Hash(), "logs", len(logs), "elapsed", common.PrettyDuration(time.Since(start)))
+		}
+
+		log.Info("Assembling block for sealing", "number", env.header.Number, "txs", len(env.txs), "elapsed", common.PrettyDuration(time.Since(start)))
+
 		// Withdrawals are set to nil here, because this is only called in PoW.
 		block, err := w.engine.FinalizeAndAssemble(w.chain, env.header, env.state, env.txs, env.unclelist(), env.receipts, nil)
 		if err != nil {
 			return err
 		}
 
-		sealHash := w.engine.SealHash(block.Header())
 		// If we're post merge, just ignore
 		if !w.isTTDReached(block.Header()) {
-			// Kick off background pre-execution for the next block.
-			go func() {
-				if err := w.prepareNextWork(sealHash); err != nil {
-					log.Warn("Failed to prepare next work", "err", err)
-				}
-			}()
-
+			// Send the task to taskLoop first so pendingTasks[sealHash] is populated
+			// before prepareNextWork's buildProposalForCurrentEnv looks it up.
 			select {
-			case w.taskCh <- &task{receipts: env.receipts, state: env.state, block: block, createdAt: time.Now()}:
+			case w.taskCh <- &task{receipts: env.receipts, state: env.state, block: block, createdAt: time.Now(), proposalStop: make(chan struct{}), proposalReady: make(chan struct{})}:
 				w.unconfirmed.Shift(block.NumberU64() - 1)
 
 				fees := totalFees(block, env.receipts)
@@ -1416,7 +1575,6 @@ func (w *worker) commit(env *environment, interval func(), update bool, start ti
 					"uncles", len(env.uncles), "txs", env.tcount,
 					"gas", block.GasUsed(), "fees", feesInEther,
 					"elapsed", common.PrettyDuration(time.Since(start)))
-
 			case <-w.exitCh:
 				log.Info("Worker has exited")
 			}
@@ -1491,6 +1649,14 @@ func totalFees(block *types.Block, receipts []*types.Receipt) *big.Int {
 	}
 	return feesWei
 }
+
+// proposalHashList is a DerivableList over a slice of transaction hashes.
+// It lets us compute a Merkle root for an N+2 proposal by hashing only the
+// 32-byte tx hashes, without fetching full transaction objects from the pool.
+type proposalHashList []common.Hash
+
+func (l proposalHashList) Len() int                           { return len(l) }
+func (l proposalHashList) EncodeIndex(i int, w *bytes.Buffer) { w.Write(l[i][:]) }
 
 // signalToErr converts the interruption signal to a concrete error type for return.
 // The given signal must be a valid interruption signal.
