@@ -489,20 +489,6 @@ type Ethash struct {
 
 	// Spec for ethash
 	ethashSpec *EpochSpec
-
-	// CIP-0003: PoW 2.0 miner nonce range. When hasMinerNonce is true,
-	// mining is constrained to [minerNonceStart, minerNonceEnd].
-	minerNonceStart atomic.Uint64
-	minerNonceEnd   atomic.Uint64
-	hasMinerNonce   atomic.Bool
-}
-
-// SetMinerNonceRange sets the PoW 2.0 nonce range for this miner (CIP-0003),
-// restricting the search space during sealing. Call this after WDCCache.Refresh.
-func (ethash *Ethash) SetMinerNonceRange(start, end uint64) {
-	ethash.minerNonceStart.Store(start)
-	ethash.minerNonceEnd.Store(end)
-	ethash.hasMinerNonce.Store(true)
 }
 
 // New creates a full sized ethash PoW scheme and starts a background thread for

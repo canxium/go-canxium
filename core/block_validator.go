@@ -19,7 +19,6 @@ package core
 import (
 	"fmt"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/consensus/cpow"
 	"github.com/ethereum/go-ethereum/core/state"
@@ -104,13 +103,10 @@ func (v *BlockValidator) ValidateBody(block *types.Block, parent *types.Header) 
 	numOfMiningTxs := 0
 	// proposalSigner is nil when no WDC system tx is present (e.g. early blocks).
 	// VerifyFutureProposal skips the signer identity check when proposalSigner is nil.
-	var proposalSigner *common.Address
 	for index, tx := range block.Transactions() {
-		if err, signer := cpow.VerifyWDCSystemTx(v.config, v.bc.WdcCache, tx, index == totalTxs-1, parent); err != nil {
+		if err := cpow.VerifyWDCSystemTx(v.config, v.bc.WdcCache, tx, index == totalTxs-1, parent); err != nil {
 			v.bc.reportBlock(block, nil, cpow.ErrBadSystemTx)
 			return err
-		} else if signer != nil {
-			proposalSigner = signer
 		}
 
 		if err := cpow.VerifyMiningTx(v.engine, v.config, tx, block.Header()); err != nil {
@@ -128,8 +124,13 @@ func (v *BlockValidator) ValidateBody(block *types.Block, parent *types.Header) 
 		}
 	}
 
+	miner := v.bc.WdcCache.GetMinerByNonce(header.Nonce.Uint64(), header.Number.Uint64())
+	if miner == nil {
+		return ErrUnknownMiner
+	}
+
 	// Verify the block proposal (root integrity, signature, tx sanity).
-	if err := cpow.VerifyFutureProposal(block.NumberU64(), header.ProposalHash, block.Body().Proposal, proposalSigner); err != nil {
+	if err := cpow.VerifyFutureProposal(block.NumberU64(), header.ProposalHash, block.Body().Proposal, &miner.Signer); err != nil {
 		v.bc.reportBlock(block, nil, ErrBadProposal)
 		return err
 	}

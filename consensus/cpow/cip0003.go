@@ -29,7 +29,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -49,13 +48,12 @@ var (
 )
 
 const (
-	WDCMinersArraySlot = 1
-	WDCMappingSlot     = 2
+	WDCMinersArraySlot = 2
 	EpochLength        = 16
 	// WDCStorageSlot is the position of 'minerNonces' in the contract variables.
 	// Check your solidity variable ordering carefully!
-	// 0: deposited, 1: miners array, 2: minerNonces mapping
-	WDCMapSlot = 2
+	// 0: deposited, 1: lastRecalculatedEpoch, 2: miners array, 3: minerNonces mapping
+	WDCMapSlot = 3
 )
 
 // CachedMiner represents a single efficient range entry
@@ -109,8 +107,8 @@ func (cache *WDCCache) getMiner(miner common.Address, block uint64) *CachedMiner
 	return &cached
 }
 
-// getMinerByNonce retrieves the cached miner info for a given nonce.
-func (cache *WDCCache) getMinerByNonce(nonce uint64, block uint64) *CachedMiner {
+// GetMinerByNonce retrieves the cached miner info for a given nonce.
+func (cache *WDCCache) GetMinerByNonce(nonce uint64, block uint64) *CachedMiner {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 
@@ -140,14 +138,14 @@ func (cache *WDCCache) getMinerByNonce(nonce uint64, block uint64) *CachedMiner 
 
 // Refresh reloads the cache from the state if necessary.
 func (cache *WDCCache) Refresh(state *state.StateDB, block uint64) bool {
-	if block%EpochLength != 0 {
-		return false
-	}
-
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
-	targetEpoch := block / EpochLength
+	targetEpoch := (block + 1) / EpochLength
+	if targetEpoch == cache.currentEpoch {
+		return false
+	}
+
 	// 1. Get Array Length
 	arrayLenHash := common.BigToHash(big.NewInt(WDCMinersArraySlot))
 	lenData := state.GetState(WdcAddress, arrayLenHash)
@@ -205,7 +203,6 @@ func (cache *WDCCache) Refresh(state *state.StateDB, block uint64) bool {
 	cache.ranges = newRanges
 	cache.currentEpoch = targetEpoch
 
-	log.Info("WDC Cache Refreshed for Epoch\n", "epoch", targetEpoch, "miners", len(newRanges))
 	return true
 }
 
@@ -290,7 +287,7 @@ func readMinerData(state *state.StateDB, miner common.Address) (uint64, uint64, 
 // Nonce and block is from the parent header
 func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint64, parentblock uint64, baseFee *big.Int) (*types.Transaction, error) {
 	// Get miner index from cac
-	miner := wdcCache.getMinerByNonce(nonce, parentblock)
+	miner := wdcCache.GetMinerByNonce(nonce, parentblock)
 
 	// WDC mined method signature: mined(uint64 nonce, uint64 blockNumber)
 	methodID := crypto.Keccak256([]byte("mined(uint64,uint64)"))[:4]
@@ -304,11 +301,11 @@ func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint
 		index = miner.Index
 	}
 
-	// Fill bytes (big endian)
-	big.NewInt(int64(nonce)).FillBytes(nonceBytes)
-	big.NewInt(int64(index)).FillBytes(minerIndexBytes)
-
-	log.Info("Generate new system tx for", "nonce", nonce, "index", index, "block", parentblock)
+	// Fill bytes (big endian). Must use SetUint64, not NewInt(int64(nonce)),
+	// because nonces > math.MaxInt64 would wrap to negative and FillBytes
+	// would encode the absolute value, producing a mismatched argNonce.
+	new(big.Int).SetUint64(nonce).FillBytes(nonceBytes)
+	new(big.Int).SetUint64(index).FillBytes(minerIndexBytes)
 
 	// ABI encode the parameters (padded to 32 bytes each)
 	data := append(methodID, nonceBytes...)
@@ -340,51 +337,51 @@ func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint
 // If the given transaction is a WDC system transaction, verify its correctness.
 // System transaction is a function mined(uint64 nonceFound, uint256 minerIndex) call to the WDC contract.
 // If not, make sure the sender is not a system transaction sender.
-func VerifyWDCSystemTx(config *params.ChainConfig, wdcCache *WDCCache, tx *types.Transaction, isLastTransaction bool, parent *types.Header) (error, *common.Address) {
+func VerifyWDCSystemTx(config *params.ChainConfig, wdcCache *WDCCache, tx *types.Transaction, isLastTransaction bool, parent *types.Header) error {
 	signer := types.MakeSigner(config, parent.Number)
 	from, err := types.Sender(signer, tx)
 	if err != nil {
-		return err, nil
+		return err
 	}
 
 	if !isLastTransaction {
 		if from == SystemTransactionSigner {
-			return ErrInvalidWDCSystemSender, nil
+			return ErrInvalidWDCSystemSender
 		}
-		return nil, nil
+		return nil
 	} else if from != SystemTransactionSigner {
-		return ErrInvalidWDCSystemSender, nil
+		return ErrInvalidWDCSystemSender
 	}
 
 	// Verify receiver
 	if tx.To() == nil || *tx.To() != WdcAddress {
-		return ErrInvalidWDCReceiver, nil
+		return ErrInvalidWDCReceiver
 	}
 
 	// Verify nonce
 	if tx.Nonce() != parent.Number.Uint64() {
-		return ErrInvalidWDCNonce, nil
+		return ErrInvalidWDCNonce
 	}
 
 	// Verify data length
 	if len(tx.Data()) != 4+32+32 {
-		return ErrInvalidWDCInput, nil
+		return ErrInvalidWDCInput
 	}
 
 	// Verify method ID
 	methodID := crypto.Keccak256([]byte("mined(uint64,uint64)"))[:4]
 	if !bytes.Equal(tx.Data()[:4], methodID) {
-		return ErrInvalidWDCInput, nil
+		return ErrInvalidWDCInput
 	}
 
 	// Extract and verify nonce argument
 	argNonce := new(big.Int).SetBytes(tx.Data()[4 : 4+32]).Uint64()
 	if argNonce != parent.Nonce.Uint64() {
-		return ErrWDCNonceMismatch, nil
+		return ErrWDCNonceMismatch
 	}
 
 	// Get miner index from cache
-	miner := wdcCache.getMinerByNonce(parent.Nonce.Uint64(), parent.Number.Uint64())
+	miner := wdcCache.GetMinerByNonce(parent.Nonce.Uint64(), parent.Number.Uint64())
 	index := uint64(0)
 	if miner != nil {
 		index = miner.Index
@@ -393,8 +390,8 @@ func VerifyWDCSystemTx(config *params.ChainConfig, wdcCache *WDCCache, tx *types
 	// Extract and verify miner index argument
 	argMinerIndex := new(big.Int).SetBytes(tx.Data()[4+32 : 4+32+32]).Uint64()
 	if argMinerIndex != index {
-		return ErrWDCBlockMismatch, nil
+		return ErrWDCBlockMismatch
 	}
 
-	return nil, &miner.Signer
+	return nil
 }

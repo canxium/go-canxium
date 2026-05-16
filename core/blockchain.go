@@ -536,6 +536,17 @@ func (bc *BlockChain) loadLastState() error {
 	if pivot := rawdb.ReadLastPivotNumber(bc.db); pivot != nil {
 		log.Info("Loaded last fast-sync pivot marker", "number", *pivot)
 	}
+
+	state, err := bc.StateAt(headBlock.Root())
+	if err != nil {
+		log.Error("Failed to load head block state", err)
+		return err
+	}
+
+	if !bc.WdcCache.Refresh(state, headBlock.NumberU64()) {
+		log.Error("Failed to update miners nonce")
+	}
+
 	return nil
 }
 
