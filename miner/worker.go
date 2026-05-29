@@ -600,15 +600,16 @@ func (w *worker) mainLoop() {
 func (w *worker) taskLoop() {
 	defer w.wg.Done()
 	var (
-		stopCh chan struct{}
-		prev   common.Hash
+		stopCh   chan struct{}
+		stopOnce *sync.Once
+		prev     common.Hash
 	)
 
-	// interrupt aborts the in-flight sealing task.
+	// interrupt aborts the in-flight sealing task. The Once is shared with the
+	// prepareNextWork goroutine so either side can close stopCh idempotently.
 	interrupt := func() {
-		if stopCh != nil {
-			close(stopCh)
-			stopCh = nil
+		if stopOnce != nil {
+			stopOnce.Do(func() { close(stopCh) })
 		}
 	}
 	for {
@@ -624,7 +625,7 @@ func (w *worker) taskLoop() {
 			}
 			// Interrupt previous sealing operation
 			interrupt()
-			stopCh, prev = make(chan struct{}), sealHash
+			stopCh, stopOnce, prev = make(chan struct{}), &sync.Once{}, sealHash
 
 			if w.skipSealHook != nil && w.skipSealHook(task) {
 				continue
@@ -636,11 +637,17 @@ func (w *worker) taskLoop() {
 			// Kick off background pre-execution for the next block only after the
 			// task has been accepted by taskLoop, so pendingTasks[sealHash] is
 			// guaranteed to exist when buildProposalForCurrentEnv looks it up.
-			go func() {
+			// If pre-execution fails (reorg, missing grandparent, etc.) we MUST
+			// abort the in-flight seal: without a valid proposal, resultLoop would
+			// commit a malformed block. The next commitWork event will rebuild and
+			// retry from a fresh head. Capture stopCh/stopOnce by value because the
+			// outer locals get reassigned on the next task.
+			go func(abortCh chan struct{}, abortOnce *sync.Once) {
 				if err := w.prepareNextWork(sealHash); err != nil {
-					log.Warn("Failed to prepare next work", "err", err)
+					log.Warn("Failed to prepare next work, aborting in-flight seal", "err", err)
+					abortOnce.Do(func() { close(abortCh) })
 				}
-			}()
+			}(stopCh, stopOnce)
 
 			// CIP-0003: push miner nonce range to ethash before sealing
 			blockNum := task.block.NumberU64()
@@ -699,6 +706,14 @@ func (w *worker) resultLoop() {
 			case <-task.proposalReady:
 			case <-w.exitCh:
 				return
+			}
+
+			// If prepareNextWork failed, proposalReady is closed but task.proposal
+			// is nil. Committing a block without a proposal produces malformed RLP
+			// on import. Discard and let commitWork rebuild from a fresh head.
+			if task.proposal == nil || task.proposalHash == nil {
+				log.Warn("Sealed block has no proposal, discarding", "number", block.Number(), "sealhash", sealhash)
+				continue
 			}
 
 			header.ProposalHash = task.proposalHash
