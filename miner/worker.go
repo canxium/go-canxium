@@ -1137,6 +1137,13 @@ func (w *worker) prepareNextWork(previousSealHash common.Hash) (retErr error) {
 	w.next.parentSealHash = previousSealHash
 	w.mu.Unlock()
 
+	log.Info("Prepared next work for Block N+1",
+		"current block", previous.header.Number,
+		"next block", env.header.Number,
+		"tx count", len(env.txs),
+		"previous seal hash", previousSealHash,
+	)
+
 	w.buildProposalForCurrentEnv(previousSealHash)
 	return nil
 }
@@ -1352,7 +1359,7 @@ func (w *worker) commitWork(interrupt *atomic.Int32, timestamp int64) {
 	}
 
 	chainSealHash := w.engine.SealHash(chainHead)
-	log.Info("Committing new work", "chainHead", chainHead.Number, "nonce", chainHead.Nonce.Uint64(), "chainHeadHash", chainHead.Hash(), "chainSealHash", chainSealHash, "elapsed", common.PrettyDuration(time.Since(start)))
+	log.Info("Committing new work", "head", chainHead.Number, "nonce", chainHead.Nonce.Uint64(), "head hash", chainHead.Hash(), "head seal hash", chainSealHash, "elapsed", common.PrettyDuration(time.Since(start)))
 
 	w.mu.Lock()
 
@@ -1370,9 +1377,11 @@ func (w *worker) commitWork(interrupt *atomic.Int32, timestamp int64) {
 		} else {
 			// Pipeline is stale (reorg or late head). Discard and rebuild.
 			log.Warn("Pre-executed next work is stale, discarding",
-				"next.parent", w.next.header.ParentHash,
-				"chainHead", chainHead.Hash(),
-				"chainHead.number", chainHead.Number)
+				"pre-build parent seal hash", w.next.parentSealHash,
+				"parent seal hash of chain head", chainSealHash,
+				"pre-build parent hash", w.next.header.ParentHash,
+				"head hash", chainHead.Hash(),
+				"head number", chainHead.Number)
 			w.next.discard()
 			w.next = nil
 		}
@@ -1383,15 +1392,15 @@ func (w *worker) commitWork(interrupt *atomic.Int32, timestamp int64) {
 	if w.current != nil && w.current.header.ParentHash != chainHead.Hash() && !useNext {
 		log.Debug("Current work is stale due to reorg, discarding",
 			"current.parent", w.current.header.ParentHash,
-			"chainHead", chainHead.Hash(),
-			"chainHead.number", chainHead.Number)
+			"head hash", chainHead.Hash(),
+			"head number", chainHead.Number)
 		w.current.discard()
 		w.current = nil
 	}
 
 	if useNext {
 		log.Info("Block pipeline hit: promoting pre-executed work",
-			"block", w.next.header.Number, "parent", w.next.header.ParentHash, "parentSealHash", w.next.parentSealHash, "chainHead", chainHead.Number)
+			"block", w.next.header.Number, "parent", w.next.header.ParentHash, "parent seal hash", w.next.parentSealHash, "head", chainHead.Number)
 		w.commit(w.next, chainHead, w.fullTaskHook, true, start)
 		w.current = w.next
 		w.next = nil
@@ -1399,7 +1408,7 @@ func (w *worker) commitWork(interrupt *atomic.Int32, timestamp int64) {
 	} else {
 		w.mu.Unlock()
 		log.Debug("Block pipeline miss: building work from chain head",
-			"chainHead", chainHead.Number)
+			"head", chainHead.Number)
 		work, err := w.newWork(interrupt, timestamp)
 		if err != nil {
 			log.Error("Failed to build new work from chain head", "err", err)
