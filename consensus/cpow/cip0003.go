@@ -46,6 +46,7 @@ var (
 	ErrWDCNonceMismatch       = errors.New("WDC system transaction nonce argument mismatch")
 	ErrWDCBlockMismatch       = errors.New("WDC system transaction block number argument mismatch")
 	ErrBadSystemTx            = errors.New("bad WDC system transaction")
+	ErrNoMinerForNonce         = errors.New("no miner found for given nonce in WDC cache"
 )
 
 const (
@@ -194,6 +195,7 @@ func (cache *WDCCache) Refresh(state *state.StateDB, block uint64) bool {
 
 		newRanges = append(newRanges, entry)
 		cache.miners[minerAddr] = entry
+		log.Info("Cached miner data", "address", minerAddr, "start", start, "end", end)
 	}
 
 	// 4. Sort
@@ -289,6 +291,10 @@ func readMinerData(state *state.StateDB, miner common.Address) (uint64, uint64, 
 func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint64, parentblock uint64, baseFee *big.Int) (*types.Transaction, error) {
 	// Get miner index from cac
 	miner := wdcCache.GetMinerByNonce(nonce, parentblock)
+	if miner == nil {
+		log.Warn("No miner found for nonce in WDC cache", "nonce", nonce, "parent block", parentblock)
+		return nil, ErrNoMinerForNonce
+	}
 
 	// WDC mined method signature: mined(uint64 nonce, uint64 blockNumber)
 	methodID := crypto.Keccak256([]byte("mined(uint64,uint64)"))[:4]
@@ -297,16 +303,11 @@ func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint
 	nonceBytes := make([]byte, 32)
 	minerIndexBytes := make([]byte, 32)
 
-	index := uint64(0)
-	if miner != nil {
-		index = miner.Index
-	}
-
 	// Fill bytes (big endian). Must use SetUint64, not NewInt(int64(nonce)),
 	// because nonces > math.MaxInt64 would wrap to negative and FillBytes
 	// would encode the absolute value, producing a mismatched argNonce.
 	new(big.Int).SetUint64(nonce).FillBytes(nonceBytes)
-	new(big.Int).SetUint64(index).FillBytes(minerIndexBytes)
+	new(big.Int).SetUint64(miner.Index).FillBytes(minerIndexBytes)
 
 	// ABI encode the parameters (padded to 32 bytes each)
 	data := append(methodID, nonceBytes...)
@@ -335,7 +336,7 @@ func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint
 	log.Info("Created WDC system transaction",
 		"parent block", parentblock,
 		"nonce", nonce,
-		"miner index", index,
+		"miner index", miner.Index,
 		"miner address", miner.Miner,
 	)
 
@@ -390,17 +391,17 @@ func VerifyWDCSystemTx(config *params.ChainConfig, wdcCache *WDCCache, tx *types
 
 	// Get miner index from cache
 	miner := wdcCache.GetMinerByNonce(parent.Nonce.Uint64(), parent.Number.Uint64())
-	index := uint64(0)
-	if miner != nil {
-		index = miner.Index
+	if miner == nil {
+		log.Warn("No miner found for nonce in WDC cache during transaction verification", "nonce", parent.Nonce.Uint64(), "parent block", parent.Number.Uint64())
+		return ErrNoMinerForNonce
 	}
 
 	// Extract and verify miner index argument
 	argMinerIndex := new(big.Int).SetBytes(tx.Data()[4+32 : 4+32+32]).Uint64()
-	if argMinerIndex != index {
+	if argMinerIndex != miner.Index {
 		log.Info("WDC system transaction verification failed",
 			"parent block", parent.Number.Uint64(),
-			"expected miner index", index,
+			"expected miner index", miner.Index,
 			"actual miner index", argMinerIndex,
 		)
 		return ErrWDCBlockMismatch
