@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
 )
 
@@ -331,6 +332,13 @@ func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint
 		return nil, err
 	}
 
+	log.Info("Created WDC system transaction",
+		"parent block", parentblock,
+		"nonce", nonce,
+		"miner index", index,
+		"miner address", miner.Miner,
+	)
+
 	return signedTx, nil
 }
 
@@ -390,6 +398,11 @@ func VerifyWDCSystemTx(config *params.ChainConfig, wdcCache *WDCCache, tx *types
 	// Extract and verify miner index argument
 	argMinerIndex := new(big.Int).SetBytes(tx.Data()[4+32 : 4+32+32]).Uint64()
 	if argMinerIndex != index {
+		log.Info("WDC system transaction verification failed",
+			"parent block", parent.Number.Uint64(),
+			"expected miner index", index,
+			"actual miner index", argMinerIndex,
+		)
 		return ErrWDCBlockMismatch
 	}
 
