@@ -46,7 +46,7 @@ var (
 	ErrWDCNonceMismatch       = errors.New("WDC system transaction nonce argument mismatch")
 	ErrWDCBlockMismatch       = errors.New("WDC system transaction block number argument mismatch")
 	ErrBadSystemTx            = errors.New("bad WDC system transaction")
-	ErrNoMinerForNonce         = errors.New("no miner found for given nonce in WDC cache"
+	ErrNoMinerForNonce         = errors.New("no miner found for given nonce in WDC cache")
 )
 
 const (
