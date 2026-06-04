@@ -124,7 +124,7 @@ func (v *BlockValidator) ValidateBody(block *types.Block, parent *types.Header) 
 		}
 	}
 
-	miner := v.bc.WdcCache.GetMinerByNonce(header.Nonce.Uint64(), header.Number.Uint64())
+	miner := v.bc.WdcCache.GetMinerByNonce(header.Nonce.Uint64(), header.Number.Uint64()-1)
 	if miner == nil {
 		return ErrUnknownMiner
 	}

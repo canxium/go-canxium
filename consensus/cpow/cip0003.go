@@ -46,7 +46,7 @@ var (
 	ErrWDCNonceMismatch       = errors.New("WDC system transaction nonce argument mismatch")
 	ErrWDCBlockMismatch       = errors.New("WDC system transaction block number argument mismatch")
 	ErrBadSystemTx            = errors.New("bad WDC system transaction")
-	ErrNoMinerForNonce         = errors.New("no miner found for given nonce in WDC cache")
+	ErrNoMinerForNonce        = errors.New("no miner found for given nonce in WDC cache")
 )
 
 const (
@@ -93,11 +93,14 @@ func (cache *WDCCache) GetMiner(miner common.Address, block uint64) *CachedMiner
 }
 
 // getMiner retrieves the cached miner info for a given address and block number.
+// this function is called by worker to get miner info for the next block, so it uses block-1 to determine the epoch.
+// This allows the worker to prepare the next work with the correct miner info before the new block is officially mined.
 func (cache *WDCCache) getMiner(miner common.Address, block uint64) *CachedMiner {
 	cache.mu.RLock()
 	defer cache.mu.RUnlock()
 
-	epoch := block / EpochLength
+	epoch := (block - 1) / EpochLength
+	log.Info("Looking up miner in WDC cache", "miner", miner, "block", block, "epoch", epoch, "cache epoch", cache.currentEpoch)
 	if epoch != cache.currentEpoch {
 		return nil
 	}
@@ -115,6 +118,7 @@ func (cache *WDCCache) GetMinerByNonce(nonce uint64, block uint64) *CachedMiner 
 	defer cache.mu.RUnlock()
 
 	epoch := block / EpochLength
+	log.Info("Looking up miner for nonce in WDC cache", "nonce", nonce, "block", block, "epoch", epoch, "cache epoch", cache.currentEpoch)
 	if epoch != cache.currentEpoch {
 		return nil
 	}
@@ -143,7 +147,8 @@ func (cache *WDCCache) Refresh(state *state.StateDB, block uint64) bool {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 
-	targetEpoch := (block + 1) / EpochLength
+	targetEpoch := block / EpochLength
+	log.Info("Refresh miner data for block", "block", block, "target epoch", targetEpoch, "current cache epoch", cache.currentEpoch)
 	if targetEpoch == cache.currentEpoch {
 		return false
 	}
@@ -195,7 +200,7 @@ func (cache *WDCCache) Refresh(state *state.StateDB, block uint64) bool {
 
 		newRanges = append(newRanges, entry)
 		cache.miners[minerAddr] = entry
-		log.Info("Cached miner data", "address", minerAddr, "start", start, "end", end)
+		log.Info("Cached miner data", "targetEpoch", targetEpoch, "address", minerAddr, "start", start, "end", end)
 	}
 
 	// 4. Sort
