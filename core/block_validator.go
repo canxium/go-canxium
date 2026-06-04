@@ -98,6 +98,13 @@ func (v *BlockValidator) ValidateBody(block *types.Block, parent *types.Header) 
 		return consensus.ErrUnknownParent
 	}
 
+	// Refresh the WDC cache from the parent block's state so that lookups below
+	// use the correct epoch even when validating a chain that diverges from the
+	// locally-mined canonical chain (e.g. during initial sync).
+	if parentState, err := v.bc.StateAt(parent.Root); err == nil {
+		v.bc.WdcCache.Refresh(parentState, parent.Number.Uint64())
+	}
+
 	// Verify system & mining transactions
 	totalTxs := len(block.Transactions())
 	numOfMiningTxs := 0
