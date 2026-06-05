@@ -631,23 +631,6 @@ func (w *worker) taskLoop() {
 				continue
 			}
 			w.pendingMu.Lock()
-			h := task.block.Header()
-			log.Info("SealHash header fields",
-				"number", h.Number,
-				"parentHash", h.ParentHash,
-				"uncleHash", h.UncleHash,
-				"coinbase", h.Coinbase,
-				"root", h.Root,
-				"txHash", h.TxHash,
-				"receiptHash", h.ReceiptHash,
-				"difficulty", h.Difficulty,
-				"gasLimit", h.GasLimit,
-				"gasUsed", h.GasUsed,
-				"time", h.Time,
-				"extra", h.Extra,
-				"baseFee", h.BaseFee,
-			)
-
 			w.pendingTasks[sealHash] = task
 			w.pendingMu.Unlock()
 

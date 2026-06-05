@@ -100,7 +100,6 @@ func (cache *WDCCache) getMiner(miner common.Address, block uint64) *CachedMiner
 	defer cache.mu.RUnlock()
 
 	epoch := (block - 1) / EpochLength
-	log.Info("Looking up miner in WDC cache", "miner", miner, "block", block, "epoch", epoch, "cache epoch", cache.currentEpoch)
 	if epoch != cache.currentEpoch {
 		return nil
 	}
@@ -118,7 +117,6 @@ func (cache *WDCCache) GetMinerByNonce(nonce uint64, block uint64) *CachedMiner 
 	defer cache.mu.RUnlock()
 
 	epoch := block / EpochLength
-	log.Info("Looking up miner for nonce in WDC cache", "nonce", nonce, "block", block, "epoch", epoch, "cache epoch", cache.currentEpoch)
 	if epoch != cache.currentEpoch {
 		return nil
 	}
@@ -148,7 +146,6 @@ func (cache *WDCCache) Refresh(state *state.StateDB, block uint64) bool {
 	defer cache.mu.Unlock()
 
 	targetEpoch := block / EpochLength
-	log.Info("Refresh miner data for block", "block", block, "target epoch", targetEpoch, "current cache epoch", cache.currentEpoch)
 	if targetEpoch == cache.currentEpoch {
 		return false
 	}
@@ -200,7 +197,6 @@ func (cache *WDCCache) Refresh(state *state.StateDB, block uint64) bool {
 
 		newRanges = append(newRanges, entry)
 		cache.miners[minerAddr] = entry
-		log.Info("Cached miner data", "targetEpoch", targetEpoch, "address", minerAddr, "start", start, "end", end)
 	}
 
 	// 4. Sort
@@ -297,7 +293,6 @@ func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint
 	// Get miner index from cac
 	miner := wdcCache.GetMinerByNonce(nonce, parentblock)
 	if miner == nil {
-		log.Warn("No miner found for nonce in WDC cache", "nonce", nonce, "parent block", parentblock)
 		return nil, ErrNoMinerForNonce
 	}
 
@@ -398,18 +393,12 @@ func VerifyWDCSystemTx(config *params.ChainConfig, wdcCache *WDCCache, tx *types
 	// Get miner index from cache
 	miner := wdcCache.GetMinerByNonce(parent.Nonce.Uint64(), parent.Number.Uint64())
 	if miner == nil {
-		log.Warn("No miner found for nonce in WDC cache during transaction verification", "nonce", parent.Nonce.Uint64(), "parent block", parent.Number.Uint64())
 		return ErrNoMinerForNonce
 	}
 
 	// Extract and verify miner index argument
 	argMinerIndex := new(big.Int).SetBytes(tx.Data()[4+32 : 4+32+32]).Uint64()
 	if argMinerIndex != miner.Index {
-		log.Info("WDC system transaction verification failed",
-			"parent block", parent.Number.Uint64(),
-			"expected miner index", miner.Index,
-			"actual miner index", argMinerIndex,
-		)
 		return ErrWDCBlockMismatch
 	}
 
