@@ -343,6 +343,7 @@ func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint
 		"nonce", nonce,
 		"miner index", miner.Index,
 		"miner address", miner.Miner,
+		"hash", signedTx.Hash(),
 	)
 
 	return signedTx, nil
