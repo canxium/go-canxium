@@ -964,26 +964,20 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 	if parent == nil {
 		return nil, fmt.Errorf("missing parent")
 	}
-	// Sanity check the timestamp correctness, recap the timestamp
-	// to parent+1 if the mutation is allowed.
-	timestamp := genParams.timestamp
-	if parent.Time >= timestamp {
-		if genParams.forceTime {
-			return nil, fmt.Errorf("invalid timestamp, parent %d given %d", parent.Time, timestamp)
-		}
-		timestamp = parent.Time + 1
+	// Time must be strictly greater than parent and identical across all nodes
+	// so that every node produces the same SealHash for the same block.
+	if genParams.forceTime && genParams.timestamp != parent.Time+1 {
+		return nil, fmt.Errorf("invalid timestamp, parent %d given %d", parent.Time, genParams.timestamp)
 	}
 	// Construct the sealing block header.
+	// Extra is intentionally left empty: node-specific extra data would make
+	// SealHash differ across nodes, breaking distributed PoW 2.0 verification.
 	header := &types.Header{
 		ParentHash: parent.Hash(),
 		Number:     new(big.Int).Add(parent.Number, common.Big1),
 		GasLimit:   core.CalcGasLimit(parent.GasLimit, w.config.GasCeil),
-		Time:       timestamp,
+		Time:       parent.Time + 2,
 		Coinbase:   genParams.coinbase,
-	}
-	// Set the extra field.
-	if len(w.extra) != 0 {
-		header.Extra = w.extra
 	}
 	// Set the randomness field from the beacon chain if it's available.
 	if genParams.random != (common.Hash{}) {
@@ -1039,7 +1033,6 @@ func (w *worker) prepareNextWork(previousSealHash common.Hash) (retErr error) {
 
 	w.mu.RLock()
 	previous := w.current
-	extra := w.extra
 	w.mu.RUnlock()
 
 	if previous == nil {
@@ -1057,19 +1050,13 @@ func (w *worker) prepareNextWork(previousSealHash common.Hash) (retErr error) {
 	// prepareNextWork is called right after commit(), so time.Now() may still
 	// be the same second as previous.header.Time — apply the same lower-bound
 	// guard that prepareWork uses.
-	blockTime := uint64(time.Now().Unix())
-	if blockTime <= previous.header.Time {
-		blockTime = previous.header.Time + 1
-	}
 	header := &types.Header{
 		ParentHash: common.Hash{}, // parent hash is not known until the block is sealed
 		Number:     new(big.Int).Add(previous.header.Number, common.Big1),
 		GasLimit:   core.CalcGasLimit(previous.header.GasLimit, w.config.GasCeil),
-		Time:       blockTime,
+		Time:       previous.header.Time + 1,
 		Coinbase:   cpow.WdcAddress,
-	}
-	if len(extra) != 0 {
-		header.Extra = extra
+		// Extra intentionally empty for SealHash consistency across nodes.
 	}
 	if w.chainConfig.IsLondon(header.Number) {
 		header.BaseFee = misc.CalcBaseFee(w.chainConfig, previous.header)
