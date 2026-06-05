@@ -1054,7 +1054,7 @@ func (w *worker) prepareNextWork(previousSealHash common.Hash) (retErr error) {
 		ParentHash: common.Hash{}, // parent hash is not known until the block is sealed
 		Number:     new(big.Int).Add(previous.header.Number, common.Big1),
 		GasLimit:   core.CalcGasLimit(previous.header.GasLimit, w.config.GasCeil),
-		Time:       previous.header.Time + 1,
+		Time:       previous.header.Time + 2,
 		Coinbase:   cpow.WdcAddress,
 		// Extra intentionally empty for SealHash consistency across nodes.
 	}
