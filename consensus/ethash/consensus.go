@@ -43,9 +43,20 @@ var (
 	ByzantiumBlockReward      = big.NewInt(3e+18) // Block reward in wei for successfully mining a block upward from Byzantium
 	ConstantinopleBlockReward = big.NewInt(2e+18) // Block reward in wei for successfully mining a block upward from Constantinople
 
-	CanxiumBlockFirstYearReward             = big.NewInt(25e16) // First year reward per block in canxium chain: 0.25 CLI
-	CanxiumFoundationRewardPercent          = big.NewInt(2)     // Foudation reward: 2%
-	CanxiumFoundationFirstYearRewardPercent = big.NewInt(25)    // First year Foudation reward: 25%
+	// PoW 2.0 emission schedule. The per-block reward halves every era and the
+	// cumulative emission is hard-capped, so total newly mined supply can never
+	// exceed Pow2MiningCap (28.5M CAU). With ~1.5M CAU pre-allocated in genesis
+	// this targets a grand total of ~30M CAU.
+	//
+	// Era length is 5 years at a 2s block time (365.25-day year):
+	//   5 * 365.25 * 86400 / 2 = 78,894,000 blocks.
+	// The era-0 reward is derived from the cap so the geometric series
+	// (R0 + R0/2 + R0/4 + ...) sums to the cap: R0 = cap / (2 * eraBlocks).
+	// Era 0 emits half the cap (~14.25M), and the reward integer-shifts to 0
+	// after ~58 eras (~290 years).
+	Pow2HalvingEraBlocks = uint64(78_894_000)                                         // Blocks per halving era (~5 years at 2s)
+	Pow2MiningCap        = new(big.Int).Mul(big.NewInt(28_500_000), big.NewInt(1e18)) // Hard cap on total mined supply, in wei
+	Pow2InitialReward    = new(big.Int).Div(Pow2MiningCap, big.NewInt(2*78_894_000))  // Era-0 reward per block, in wei (~0.1806 CAU)
 
 	maxUncles                     = 2        // Maximum number of uncles allowed in a single block
 	allowedFutureBlockTimeSeconds = int64(7) // Max seconds from current time allowed for blocks, before they're considered future blocks
@@ -717,28 +728,58 @@ func (ethash *Ethash) SealHash(header *types.Header) (hash common.Hash) {
 	return hash
 }
 
-// AccumulateRewards credits the coinbase of the given block with the mining
-// reward. The total reward consists of the static block reward and rewards for
-// included uncles. The coinbase of each uncle block is also rewarded.
+// accumulateRewards credits the coinbase of the given block with the mining
+// reward from the capped halving schedule. The full reward goes to the miner;
+// there is no foundation cut in PoW 2.0.
 func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header *types.Header) {
-	// Select the correct block reward based on chain progression
 	if !config.IsCanxium(header.Number) {
 		return
 	}
-
-	reward, foundation := calculateRewards(config, header)
-	state.AddBalance(header.Coinbase, reward)
-	state.AddBalance(config.Foundation, foundation)
+	state.AddBalance(header.Coinbase, blockReward(header.Number))
 }
 
-func calculateRewards(config *params.ChainConfig, header *types.Header) (*big.Int, *big.Int) {
-	blockReward := CanxiumBlockFirstYearReward
-	foundationPercent := CanxiumFoundationFirstYearRewardPercent
-	// Accumulate the rewards for the miner
-	reward := new(big.Int).Set(blockReward)
-	// send reward to foundation wallet
-	foundation := new(big.Int).Mul(foundationPercent, reward)
-	foundation.Div(foundation, big100)
-	reward.Sub(reward, foundation)
-	return reward, foundation
+// blockReward returns the mining reward for the block at the given number,
+// following the halving schedule (Pow2InitialReward, halved every
+// Pow2HalvingEraBlocks) and clamped so that cumulative emission never exceeds
+// Pow2MiningCap. The HydroBlock fork no longer affects the reward.
+func blockReward(number *big.Int) *big.Int {
+	n := number.Uint64()
+	era := n / Pow2HalvingEraBlocks
+	reward := new(big.Int).Rsh(Pow2InitialReward, uint(era))
+
+	// Enforce the hard cap: never mint past Pow2MiningCap.
+	remaining := new(big.Int).Sub(Pow2MiningCap, cumulativeEmission(n))
+	if remaining.Sign() <= 0 {
+		return new(big.Int)
+	}
+	if reward.Cmp(remaining) > 0 {
+		return remaining
+	}
+	return reward
+}
+
+// cumulativeEmission returns the total block reward minted by every block
+// strictly before block n (i.e. blocks 1..n-1). Block 0 is the genesis block
+// and is never mined, so its era-0 reward is excluded.
+func cumulativeEmission(n uint64) *big.Int {
+	total := new(big.Int)
+	if n <= 1 {
+		return total
+	}
+	last := n - 1 // highest already-minted block
+	lastEra := last / Pow2HalvingEraBlocks
+
+	// Full eras below the current one: Pow2HalvingEraBlocks blocks each.
+	eraBlocks := new(big.Int).SetUint64(Pow2HalvingEraBlocks)
+	for era := uint64(0); era < lastEra; era++ {
+		r := new(big.Int).Rsh(Pow2InitialReward, uint(era))
+		total.Add(total, r.Mul(r, eraBlocks))
+	}
+	// Partial current era: blocks [lastEra*eraBlocks, last].
+	count := new(big.Int).SetUint64(last - lastEra*Pow2HalvingEraBlocks + 1)
+	r := new(big.Int).Rsh(Pow2InitialReward, uint(lastEra))
+	total.Add(total, r.Mul(r, count))
+
+	// The loop/partial sum counts block 0 (genesis) in era 0; subtract it.
+	return total.Sub(total, Pow2InitialReward)
 }

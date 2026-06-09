@@ -29,12 +29,13 @@ const (
 	// whether difficulty should go up or down.
 	frontierDurationLimit = 13
 	// minimumDifficulty The minimum that the difficulty may ever be.
-	minimumDifficulty = 131072
+	// Must match params.MinimumDifficulty.
+	minimumDifficulty = 400000
 	// expDiffPeriod is the exponential difficulty period
 	expDiffPeriodUint = 100000
-	// difficultyBoundDivisorBitShift is the bound divisor of the difficulty (2048),
-	// This constant is the right-shifts to use for the division.
-	difficultyBoundDivisor = 11
+	// difficultyBoundDivisorBitShift is the bound divisor of the difficulty (1024),
+	// matching params.DifficultyBoundDivisor. Right-shift by 10 == divide by 1024.
+	difficultyBoundDivisor = 10
 )
 
 // CalcDifficultyFrontierU256 is the difficulty adjustment algorithm. It returns the
