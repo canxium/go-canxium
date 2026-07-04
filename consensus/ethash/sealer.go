@@ -33,7 +33,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 const (
@@ -48,7 +50,7 @@ var (
 
 // Seal implements consensus.Engine, attempting to find a nonce that satisfies
 // the block's difficulty requirements.
-func (ethash *Ethash) Seal(chain consensus.ChainHeaderReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
+func (ethash *Ethash) Seal(chain consensus.ChainHeaderReader, nonceStart uint64, nonceEnd uint64, state *state.StateDB, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
 	// If we're running a fake PoW, simply return a 0 nonce immediately
 	if ethash.config.PowMode == ModeFake || ethash.config.PowMode == ModeFullFake {
 		header := block.Header()
@@ -62,14 +64,15 @@ func (ethash *Ethash) Seal(chain consensus.ChainHeaderReader, block *types.Block
 	}
 	// If we're running a shared PoW, delegate sealing to it
 	if ethash.shared != nil {
-		return ethash.shared.Seal(chain, block, results, stop)
+		return ethash.shared.Seal(chain, nonceStart, nonceEnd, state, block, results, stop)
 	}
 	// Create a runner and the multiple search threads it directs
 	abort := make(chan struct{})
 
 	ethash.lock.Lock()
 	threads := ethash.threads
-	if ethash.rand == nil {
+	// Only initialize the random source when mining without a constrained nonce range.
+	if nonceEnd == 0 && ethash.rand == nil {
 		seed, err := crand.Int(crand.Reader, big.NewInt(math.MaxInt64))
 		if err != nil {
 			ethash.lock.Unlock()
@@ -86,18 +89,37 @@ func (ethash *Ethash) Seal(chain consensus.ChainHeaderReader, block *types.Block
 	}
 	// Push new work to remote sealer
 	if ethash.remote != nil {
-		ethash.remote.workCh <- &sealTask{block: block, results: results}
+		ethash.remote.workCh <- &sealTask{state: state, block: block, results: results, nonceStart: nonceStart, nonceEnd: nonceEnd}
 	}
 	var (
 		pend   sync.WaitGroup
 		locals = make(chan *types.Block)
 	)
-	for i := 0; i < threads; i++ {
-		pend.Add(1)
-		go func(id int, nonce uint64) {
-			defer pend.Done()
-			ethash.mine(block, id, nonce, abort, locals)
-		}(i, uint64(ethash.rand.Int63()))
+	if nonceEnd != 0 {
+		// CIP-0003: split the assigned nonce range evenly across threads so each
+		// thread searches a disjoint sub-range instead of all starting at nonceStart.
+		rangeSize := nonceEnd - nonceStart + 1
+		chunk := rangeSize
+		if threads > 0 {
+			chunk = rangeSize / uint64(threads)
+		}
+
+		for i := 0; i < threads; i++ {
+			seed := nonceStart + uint64(i)*chunk
+			// Last thread covers any remainder so no nonces are skipped.
+			end := seed + chunk - 1
+			if i == threads-1 {
+				end = nonceEnd
+			}
+			pend.Add(1)
+			go func(id int, nonce, threadEnd uint64) {
+				defer pend.Done()
+				ethash.mine(block, id, nonce, threadEnd, abort, locals)
+			}(i, seed, end)
+		}
+	} else {
+		log.Error("Ethash sealing without nonce range is deprecated and will be removed in a future release. Please use CIP-0003 to assign nonce ranges to miners.")
+		return errors.New("ethash sealing without nonce range is not supported")
 	}
 	// Wait until sealing is terminated or a nonce is found
 	go func() {
@@ -117,7 +139,7 @@ func (ethash *Ethash) Seal(chain consensus.ChainHeaderReader, block *types.Block
 		case <-ethash.update:
 			// Thread count was changed on user request, restart
 			close(abort)
-			if err := ethash.Seal(chain, block, results, stop); err != nil {
+			if err := ethash.Seal(chain, nonceStart, nonceEnd, state, block, results, stop); err != nil {
 				ethash.config.Log.Error("Failed to restart sealing after update", "err", err)
 			}
 		}
@@ -129,7 +151,7 @@ func (ethash *Ethash) Seal(chain consensus.ChainHeaderReader, block *types.Block
 
 // mine is the actual proof-of-work miner that searches for a nonce starting from
 // seed that results in correct final block difficulty.
-func (ethash *Ethash) mine(block *types.Block, id int, seed uint64, abort chan struct{}, found chan *types.Block) {
+func (ethash *Ethash) mine(block *types.Block, id int, seed uint64, end uint64, abort chan struct{}, found chan *types.Block) {
 	// Extract some data from the header
 	var (
 		header  = block.Header()
@@ -145,7 +167,7 @@ func (ethash *Ethash) mine(block *types.Block, id int, seed uint64, abort chan s
 		powBuffer = new(big.Int)
 	)
 	logger := ethash.config.Log.New("miner", id)
-	logger.Trace("Started ethash search for new nonces", "seed", seed)
+	logger.Info("Started ethash search for new nonces", "seed", nonce, "target", target, "number", number, "end", end)
 search:
 	for {
 		select {
@@ -179,6 +201,10 @@ search:
 				}
 				break search
 			}
+			if nonce == end {
+				logger.Error("Ethash nonce search exhausted assigned range", "start", seed, "end", end)
+				break search
+			}
 			nonce++
 		}
 	}
@@ -194,7 +220,7 @@ type remoteSealer struct {
 	works        map[common.Hash]*types.Block
 	rates        map[common.Hash]hashrate
 	currentBlock *types.Block
-	currentWork  [4]string
+	currentWork  [6]string
 	notifyCtx    context.Context
 	cancelNotify context.CancelFunc // cancels all notification requests
 	reqWG        sync.WaitGroup     // tracks notification request goroutines
@@ -214,8 +240,11 @@ type remoteSealer struct {
 
 // sealTask wraps a seal block with relative result channel for remote sealer thread.
 type sealTask struct {
-	block   *types.Block
-	results chan<- *types.Block
+	state      *state.StateDB
+	block      *types.Block
+	results    chan<- *types.Block
+	nonceStart uint64
+	nonceEnd   uint64
 }
 
 // mineResult wraps the pow solution parameters for the specified block.
@@ -239,7 +268,7 @@ type hashrate struct {
 // sealWork wraps a seal work package for remote sealer.
 type sealWork struct {
 	errc chan error
-	res  chan [4]string
+	res  chan [6]string
 }
 
 func startRemoteSealer(ethash *Ethash, urls []string, noverify bool) *remoteSealer {
@@ -281,7 +310,7 @@ func (s *remoteSealer) loop() {
 			// Update current work with new received block.
 			// Note same work can be past twice, happens when changing CPU threads.
 			s.results = work.results
-			s.makeWork(work.block)
+			s.makeWork(work)
 			s.notifyWork()
 
 		case work := <-s.fetchWorkCh:
@@ -344,16 +373,24 @@ func (s *remoteSealer) loop() {
 //	result[1], 32 bytes hex encoded seed hash used for DAG
 //	result[2], 32 bytes hex encoded boundary condition ("target"), 2^256/difficulty
 //	result[3], hex encoded block number
-func (s *remoteSealer) makeWork(block *types.Block) {
-	hash := s.ethash.SealHash(block.Header())
+func (s *remoteSealer) makeWork(task *sealTask) {
+	hash := s.ethash.SealHash(task.block.Header())
 	s.currentWork[0] = hash.Hex()
-	s.currentWork[1] = common.BytesToHash(SeedHash(block.NumberU64())).Hex()
-	s.currentWork[2] = common.BytesToHash(new(big.Int).Div(two256, block.Difficulty()).Bytes()).Hex()
-	s.currentWork[3] = hexutil.EncodeBig(block.Number())
+	s.currentWork[1] = common.BytesToHash(SeedHash(task.block.NumberU64())).Hex()
+	s.currentWork[2] = common.BytesToHash(new(big.Int).Div(two256, task.block.Difficulty()).Bytes()).Hex()
+	s.currentWork[3] = hexutil.EncodeBig(task.block.Number())
+	// CIP-0003: populate nonce range for remote miners
+	if task.nonceEnd != 0 {
+		s.currentWork[4] = hexutil.EncodeUint64(task.nonceStart)
+		s.currentWork[5] = hexutil.EncodeUint64(task.nonceEnd)
+	} else {
+		s.currentWork[4] = ""
+		s.currentWork[5] = ""
+	}
 
 	// Trace the seal work fetched by remote sealer.
-	s.currentBlock = block
-	s.works[hash] = block
+	s.currentBlock = task.block
+	s.works[hash] = task.block
 }
 
 // notifyWork notifies all the specified mining endpoints of the availability of
@@ -376,7 +413,7 @@ func (s *remoteSealer) notifyWork() {
 	}
 }
 
-func (s *remoteSealer) sendNotification(ctx context.Context, url string, json []byte, work [4]string) {
+func (s *remoteSealer) sendNotification(ctx context.Context, url string, json []byte, work [6]string) {
 	defer s.reqWG.Done()
 
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(json))
@@ -393,7 +430,7 @@ func (s *remoteSealer) sendNotification(ctx context.Context, url string, json []
 	if err != nil {
 		s.ethash.config.Log.Warn("Failed to notify remote miner", "err", err)
 	} else {
-		s.ethash.config.Log.Trace("Notified remote miner", "miner", url, "hash", work[0], "target", work[2])
+		s.ethash.config.Log.Trace("Notified remote miner", "miner", url, "hash", work[0], "target", work[2], "nonceRangeStart", work[4], "nonceRangeEnd", work[5])
 		resp.Body.Close()
 	}
 }

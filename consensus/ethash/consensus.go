@@ -28,11 +28,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/consensus"
-	"github.com/ethereum/go-ethereum/consensus/cpow"
 	"github.com/ethereum/go-ethereum/consensus/misc"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/ethereum/go-ethereum/trie"
@@ -45,9 +43,20 @@ var (
 	ByzantiumBlockReward      = big.NewInt(3e+18) // Block reward in wei for successfully mining a block upward from Byzantium
 	ConstantinopleBlockReward = big.NewInt(2e+18) // Block reward in wei for successfully mining a block upward from Constantinople
 
-	CanxiumBlockFirstYearReward             = big.NewInt(25e16) // First year reward per block in canxium chain: 0.25 CLI
-	CanxiumFoundationRewardPercent          = big.NewInt(2)     // Foudation reward: 2%
-	CanxiumFoundationFirstYearRewardPercent = big.NewInt(25)    // First year Foudation reward: 25%
+	// PoW 2.0 emission schedule. The per-block reward halves every era and the
+	// cumulative emission is hard-capped, so total newly mined supply can never
+	// exceed Pow2MiningCap (28.5M CAU). With ~1.5M CAU pre-allocated in genesis
+	// this targets a grand total of ~30M CAU.
+	//
+	// Era length is 5 years at a 2s block time (365.25-day year):
+	//   5 * 365.25 * 86400 / 2 = 78,894,000 blocks.
+	// The era-0 reward is derived from the cap so the geometric series
+	// (R0 + R0/2 + R0/4 + ...) sums to the cap: R0 = cap / (2 * eraBlocks).
+	// Era 0 emits half the cap (~14.25M), and the reward integer-shifts to 0
+	// after ~58 eras (~290 years).
+	Pow2HalvingEraBlocks = uint64(78_894_000)                                         // Blocks per halving era (~5 years at 2s)
+	Pow2MiningCap        = new(big.Int).Mul(big.NewInt(28_500_000), big.NewInt(1e18)) // Hard cap on total mined supply, in wei
+	Pow2InitialReward    = new(big.Int).Div(Pow2MiningCap, big.NewInt(2*78_894_000))  // Era-0 reward per block, in wei (~0.1806 CAU)
 
 	maxUncles                     = 2        // Maximum number of uncles allowed in a single block
 	allowedFutureBlockTimeSeconds = int64(7) // Max seconds from current time allowed for blocks, before they're considered future blocks
@@ -339,15 +348,15 @@ var (
 )
 
 // calcDifficultyEthPOW creates a difficultyCalculator with the origin Proof-of-work (PoW).
-// Remain old calculations & deleted fakeBlockNumber
+// Remain old calculations & deleted fakeBlockNumber.
+// Target block time: ~2 seconds.
+// The equilibrium is where x = 0, i.e. (dt // 2) = 1, meaning 2s <= dt < 4s.
 func calcDifficultyPoW(time uint64, parent *types.Header) *big.Int {
-	// Note, the calculations below looks at the parent number, which is 1 below
-	// the block number. Thus we remove one from the delay given
-	// https://github.com/ethereum/EIPs/issues/100.
 	// algorithm:
 	// diff = (parent_diff +
-	//         (parent_diff / 1024 * max((2 if len(parent.uncles) else 1) - ((timestamp - parent.timestamp) // 6), -99))
-	//        ) + 2^(periodCount - 2)
+	//         (parent_diff / DifficultyBoundDivisor * max((2 if len(parent.uncles) else 1) - ((timestamp - parent.timestamp) // 2), -99))
+	//        )
+	// Divisor of 2 targets ~2s block time: when dt==2s, (dt//2)==1 so x==0 (neutral).
 
 	bigTime := new(big.Int).SetUint64(time)
 	bigParentTime := new(big.Int).SetUint64(parent.Time)
@@ -356,24 +365,24 @@ func calcDifficultyPoW(time uint64, parent *types.Header) *big.Int {
 	x := new(big.Int)
 	y := new(big.Int)
 
-	// (2 if len(parent_uncles) else 1) - (block_timestamp - parent_timestamp) // 6
+	// (2 if len(parent_uncles) else 1) - (block_timestamp - parent_timestamp) // 2
 	x.Sub(bigTime, bigParentTime)
-	x.Div(x, big6)
+	x.Div(x, big2)
 	if parent.UncleHash == types.EmptyUncleHash {
 		x.Sub(big1, x)
 	} else {
 		x.Sub(big2, x)
 	}
-	// max((2 if len(parent_uncles) else 1) - (block_timestamp - parent_timestamp) // 6, -99)
+	// max((2 if len(parent_uncles) else 1) - (block_timestamp - parent_timestamp) // 2, -99)
 	if x.Cmp(bigMinus99) < 0 {
 		x.Set(bigMinus99)
 	}
-	// parent_diff + (parent_diff / 1024 * max((2 if len(parent.uncles) else 1) - ((timestamp - parent.timestamp) // 6), -99))
+	// parent_diff + (parent_diff / DifficultyBoundDivisor * max(...))
 	y.Div(parent.Difficulty, params.DifficultyBoundDivisor)
 	x.Mul(y, x)
 	x.Add(parent.Difficulty, x)
 
-	// minimum difficulty can ever be (before exponential factor)
+	// minimum difficulty can ever be
 	if x.Cmp(params.MinimumDifficulty) < 0 {
 		x.Set(params.MinimumDifficulty)
 	}
@@ -656,37 +665,6 @@ func (ethash *Ethash) VerifyEthashTxSeal(tx *types.Transaction, fulldag bool) er
 	return nil
 }
 
-// KawPow verification is need to be verified by ethash, because kawpow algorithm is based on ethash.
-func (ethash *Ethash) VerifyKawPowTxSeal(tx *types.Transaction) error {
-	if tx.AuxPoW() == nil {
-		return cpow.ErrInvalidNilBlock
-	}
-	if tx.Algorithm() != crosschain.KawPoWAlgorithm {
-		return ErrInvalidMiningAlgorithm
-	}
-
-	// Generate the KawPoW hash and mix hash
-	auxBlock := tx.AuxPoW()
-	calculatedMixHash, finalHash := ethash.KawPowHash(auxBlock.BlockNumber(), common.HexToHash(auxBlock.SealHash()), auxBlock.PowNonce())
-
-	// Verify the mix hash matches what's stored in the header
-
-	if calculatedMixHash.Hex() != auxBlock.MixHash() {
-		return fmt.Errorf("mix hash mismatch: expected %s, got %s", auxBlock.MixHash(), calculatedMixHash.Hex())
-	}
-
-	// Check if the final hash meets the difficulty target
-	target := kawpowBitsToTarget(uint32(auxBlock.Bits()))
-	finalHashBig := finalHash.Big()
-
-	// In PoW, the hash must be <= target to be valid
-	if finalHashBig.Cmp(target) <= 0 {
-		return nil // Valid KawPoW proof of work
-	}
-
-	return fmt.Errorf("final hash %s exceeds target %s", finalHash.Hex(), target.Text(16))
-}
-
 // Prepare implements consensus.Engine, initializing the difficulty field of a
 // header to conform to the ethash protocol. The changes are done inline.
 func (ethash *Ethash) Prepare(chain consensus.ChainHeaderReader, header *types.Header) error {
@@ -712,11 +690,6 @@ func (ethash *Ethash) FinalizeAndAssemble(chain consensus.ChainHeaderReader, hea
 	}
 	// Finalize block
 	ethash.Finalize(chain, header, state, txs, uncles, nil)
-
-	reward, foundation := calculateRewards(chain.Config(), header)
-	// Assign the final reward to header.
-	header.MinerReward = reward
-	header.FundReward = foundation
 
 	// Assign the final state root to header.
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
@@ -747,12 +720,6 @@ func (ethash *Ethash) SealHash(header *types.Header) (hash common.Hash) {
 	if header.BaseFee != nil {
 		enc = append(enc, header.BaseFee)
 	}
-	if header.MinerReward != nil {
-		enc = append(enc, header.MinerReward)
-	}
-	if header.FundReward != nil {
-		enc = append(enc, header.FundReward)
-	}
 	if header.WithdrawalsHash != nil {
 		panic("withdrawal hash set on ethash")
 	}
@@ -761,65 +728,58 @@ func (ethash *Ethash) SealHash(header *types.Header) (hash common.Hash) {
 	return hash
 }
 
-// AccumulateRewards credits the coinbase of the given block with the mining
-// reward. The total reward consists of the static block reward and rewards for
-// included uncles. The coinbase of each uncle block is also rewarded.
+// accumulateRewards credits the coinbase of the given block with the mining
+// reward from the capped halving schedule. The full reward goes to the miner;
+// there is no foundation cut in PoW 2.0.
 func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header *types.Header) {
-	// Select the correct block reward based on chain progression
 	if !config.IsCanxium(header.Number) {
 		return
 	}
-
-	reward, foundation := calculateRewards(config, header)
-	state.AddBalance(header.Coinbase, reward)
-	state.AddBalance(config.Foundation, foundation)
+	state.AddBalance(header.Coinbase, blockReward(header.Number))
 }
 
-func calculateRewards(config *params.ChainConfig, header *types.Header) (*big.Int, *big.Int) {
-	blockReward := CanxiumBlockFirstYearReward
-	foundationPercent := CanxiumFoundationFirstYearRewardPercent
-	// Accumulate the rewards for the miner
-	reward := new(big.Int).Set(blockReward)
-	// send reward to foundation wallet
-	foundation := new(big.Int).Mul(foundationPercent, reward)
-	foundation.Div(foundation, big100)
-	reward.Sub(reward, foundation)
-	return reward, foundation
+// blockReward returns the mining reward for the block at the given number,
+// following the halving schedule (Pow2InitialReward, halved every
+// Pow2HalvingEraBlocks) and clamped so that cumulative emission never exceeds
+// Pow2MiningCap. The HydroBlock fork no longer affects the reward.
+func blockReward(number *big.Int) *big.Int {
+	n := number.Uint64()
+	era := n / Pow2HalvingEraBlocks
+	reward := new(big.Int).Rsh(Pow2InitialReward, uint(era))
+
+	// Enforce the hard cap: never mint past Pow2MiningCap.
+	remaining := new(big.Int).Sub(Pow2MiningCap, cumulativeEmission(n))
+	if remaining.Sign() <= 0 {
+		return new(big.Int)
+	}
+	if reward.Cmp(remaining) > 0 {
+		return remaining
+	}
+	return reward
 }
 
-// bitsToTarget converts the compact "bits" representation to a big.Int target
-// This implements the exact same logic as Ravencoin's arith_uint256::SetCompact() method
-func kawpowBitsToTarget(bits uint32) *big.Int {
-	// Extract the size (exponent) and word (mantissa) following Ravencoin's SetCompact
-	nSize := int(bits >> 24)
-	nWord := bits & 0x007fffff // Note: 0x007fffff not 0x00ffffff (excludes sign bit)
-
-	var target *big.Int
-
-	if nSize <= 3 {
-		// For size <= 3, shift the word right
-		nWord >>= uint(8 * (3 - nSize))
-		target = big.NewInt(int64(nWord))
-	} else {
-		// For size > 3, shift the word left
-		target = big.NewInt(int64(nWord))
-		target.Lsh(target, uint(8*(nSize-3)))
+// cumulativeEmission returns the total block reward minted by every block
+// strictly before block n (i.e. blocks 1..n-1). Block 0 is the genesis block
+// and is never mined, so its era-0 reward is excluded.
+func cumulativeEmission(n uint64) *big.Int {
+	total := new(big.Int)
+	if n <= 1 {
+		return total
 	}
+	last := n - 1 // highest already-minted block
+	lastEra := last / Pow2HalvingEraBlocks
 
-	// Handle negative values and overflow cases like Ravencoin
-	// If the sign bit is set (0x00800000) and nWord != 0, it's negative
-	if nWord != 0 && (bits&0x00800000) != 0 {
-		// In Ravencoin, negative targets are invalid, return 0
-		return big.NewInt(0)
+	// Full eras below the current one: Pow2HalvingEraBlocks blocks each.
+	eraBlocks := new(big.Int).SetUint64(Pow2HalvingEraBlocks)
+	for era := uint64(0); era < lastEra; era++ {
+		r := new(big.Int).Rsh(Pow2InitialReward, uint(era))
+		total.Add(total, r.Mul(r, eraBlocks))
 	}
+	// Partial current era: blocks [lastEra*eraBlocks, last].
+	count := new(big.Int).SetUint64(last - lastEra*Pow2HalvingEraBlocks + 1)
+	r := new(big.Int).Rsh(Pow2InitialReward, uint(lastEra))
+	total.Add(total, r.Mul(r, count))
 
-	// Check for overflow like Ravencoin does
-	if nWord != 0 && ((nSize > 34) ||
-		(nWord > 0xff && nSize > 33) ||
-		(nWord > 0xffff && nSize > 32)) {
-		// Overflow case, return 0 (invalid)
-		return big.NewInt(0)
-	}
-
-	return target
+	// The loop/partial sum counts block 0 (genesis) in era 0; subtract it.
+	return total.Sub(total, Pow2InitialReward)
 }

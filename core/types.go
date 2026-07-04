@@ -29,7 +29,7 @@ import (
 // done by the specific consensus engines.
 type Validator interface {
 	// ValidateBody validates the given block's content.
-	ValidateBody(block *types.Block) error
+	ValidateBody(block *types.Block, parent *types.Header) error
 
 	// ValidateState validates the given statedb and optionally the receipts and
 	// gas used.

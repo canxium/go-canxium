@@ -39,25 +39,27 @@ type API struct {
 //	result[1] - 32 bytes hex encoded seed hash used for DAG
 //	result[2] - 32 bytes hex encoded boundary condition ("target"), 2^256/difficulty
 //	result[3] - hex encoded block number
-func (api *API) GetWork() ([4]string, error) {
+//	result[4] - hex encoded nonce range start
+//	result[5] - hex encoded nonce range end
+func (api *API) GetWork() ([6]string, error) {
 	if api.ethash.remote == nil {
-		return [4]string{}, errors.New("not supported")
+		return [6]string{}, errors.New("not supported")
 	}
 
 	var (
-		workCh = make(chan [4]string, 1)
+		workCh = make(chan [6]string, 1)
 		errc   = make(chan error, 1)
 	)
 	select {
 	case api.ethash.remote.fetchWorkCh <- &sealWork{errc: errc, res: workCh}:
 	case <-api.ethash.remote.exitCh:
-		return [4]string{}, errEthashStopped
+		return [6]string{}, errEthashStopped
 	}
 	select {
 	case work := <-workCh:
 		return work, nil
 	case err := <-errc:
-		return [4]string{}, err
+		return [6]string{}, err
 	}
 }
 

@@ -45,7 +45,8 @@ type Backend interface {
 
 // Config is the configuration parameters of mining.
 type Config struct {
-	Etherbase  common.Address `toml:",omitempty"` // Public address for block mining rewards
+	Etherbase  common.Address `toml:",omitempty"` // Public address for block mining nonces
+	Private    hexutil.Bytes  `toml:",omitempty"` // Private key to sign future transactions (Block N+2) proposed by miner
 	Notify     []string       `toml:",omitempty"` // HTTP URL list to be notified of new work packages (only useful in ethash).
 	NotifyFull bool           `toml:",omitempty"` // Notify with pending block headers instead of work packages
 	ExtraData  hexutil.Bytes  `toml:",omitempty"` // Block extra data set by the miner
@@ -228,23 +229,6 @@ func (miner *Miner) SetGasCeil(ceil uint64) {
 	miner.worker.setGasCeil(ceil)
 }
 
-// EnablePreseal turns on the preseal mining feature. It's enabled by default.
-// Note this function shouldn't be exposed to API, it's unnecessary for users
-// (miners) to actually know the underlying detail. It's only for outside project
-// which uses this library.
-func (miner *Miner) EnablePreseal() {
-	miner.worker.enablePreseal()
-}
-
-// DisablePreseal turns off the preseal mining feature. It's necessary for some
-// fake consensus engine which can seal blocks instantaneously.
-// Note this function shouldn't be exposed to API, it's unnecessary for users
-// (miners) to actually know the underlying detail. It's only for outside project
-// which uses this library.
-func (miner *Miner) DisablePreseal() {
-	miner.worker.disablePreseal()
-}
-
 // SubscribePendingLogs starts delivering logs from pending transactions
 // to the given channel.
 func (miner *Miner) SubscribePendingLogs(ch chan<- []*types.Log) event.Subscription {
@@ -253,5 +237,5 @@ func (miner *Miner) SubscribePendingLogs(ch chan<- []*types.Log) event.Subscript
 
 // BuildPayload builds the payload according to the provided parameters.
 func (miner *Miner) BuildPayload(args *BuildPayloadArgs) (*Payload, error) {
-	return miner.worker.buildPayload(args)
+	return nil, nil
 }

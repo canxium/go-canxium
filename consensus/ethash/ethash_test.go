@@ -17,6 +17,7 @@
 package ethash
 
 import (
+	"math"
 	"math/big"
 	"math/rand"
 	"os"
@@ -37,7 +38,7 @@ func TestTestMode(t *testing.T) {
 	defer ethash.Close()
 
 	results := make(chan *types.Block)
-	err := ethash.Seal(nil, types.NewBlockWithHeader(header), results, nil)
+	err := ethash.Seal(nil, 0, math.MaxUint64, nil, types.NewBlockWithHeader(header), results, nil)
 	if err != nil {
 		t.Fatalf("failed to seal block: %v", err)
 	}
@@ -112,10 +113,10 @@ func TestRemoteSealer(t *testing.T) {
 
 	// Push new work.
 	results := make(chan *types.Block)
-	ethash.Seal(nil, block, results, nil)
+	ethash.Seal(nil, 0, math.MaxUint64, nil, block, results, nil)
 
 	var (
-		work [4]string
+		work [6]string
 		err  error
 	)
 	if work, err = api.GetWork(); err != nil || work[0] != sealhash.Hex() {
@@ -129,7 +130,7 @@ func TestRemoteSealer(t *testing.T) {
 	header = &types.Header{Number: big.NewInt(1), Difficulty: big.NewInt(1000)}
 	block = types.NewBlockWithHeader(header)
 	sealhash = ethash.SealHash(header)
-	ethash.Seal(nil, block, results, nil)
+	ethash.Seal(nil, 0, math.MaxUint64, nil, block, results, nil)
 
 	if work, err = api.GetWork(); err != nil || work[0] != sealhash.Hex() {
 		t.Error("expect to return the latest pushed work")

@@ -20,8 +20,6 @@ const (
 	Sha256Algorithm
 	ScryptAlgorithm
 	KHeavyHashAlgorithm
-	RandomXAlgorithm
-	KawPoWAlgorithm
 )
 
 type CrossChain uint16
@@ -29,7 +27,6 @@ type CrossChain uint16
 const (
 	UnknownChain CrossChain = iota
 	KaspaChain
-	RavenChain
 )
 
 const (

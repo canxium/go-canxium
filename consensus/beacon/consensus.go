@@ -224,11 +224,6 @@ func (beacon *Beacon) VerifyEthashTxSeal(tx *types.Transaction, fulldag bool) er
 	return beacon.ethone.VerifyEthashTxSeal(tx, fulldag)
 }
 
-// VerifyKawPowTxSeal checks whether a mining transaction satisfies the KawPoW difficulty requirements.
-func (beacon *Beacon) VerifyKawPowTxSeal(tx *types.Transaction) error {
-	return beacon.ethone.VerifyKawPowTxSeal(tx)
-}
-
 // verifyHeader checks whether a header conforms to the consensus rules of the
 // stock Ethereum consensus engine. The difference between the beacon and classic is
 // (a) The following fields are expected to be constants:
@@ -397,9 +392,9 @@ func (beacon *Beacon) FinalizeAndAssemble(chain consensus.ChainHeaderReader, hea
 //
 // Note, the method returns immediately and will send the result async. More
 // than one result may also be returned depending on the consensus algorithm.
-func (beacon *Beacon) Seal(chain consensus.ChainHeaderReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
+func (beacon *Beacon) Seal(chain consensus.ChainHeaderReader, nonceStart uint64, nonceEnd uint64, state *state.StateDB, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
 	if !beacon.IsPoSHeader(block.Header()) {
-		return beacon.ethone.Seal(chain, block, results, stop)
+		return beacon.ethone.Seal(chain, nonceStart, nonceEnd, state, block, results, stop)
 	}
 	// The seal verification is done by the external consensus engine,
 	// return directly without pushing any block back. In another word

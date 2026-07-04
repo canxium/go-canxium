@@ -34,6 +34,7 @@ import (
 	"unsafe"
 
 	"github.com/edsrzf/mmap-go"
+	"github.com/ethereum/go-ethereum/common"
 	lrupkg "github.com/ethereum/go-ethereum/common/lru"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/log"
@@ -44,9 +45,6 @@ import (
 const (
 	ethashEpochLength    = 30000 // Blocks per epoch
 	ethashDatasetParents = 256   // Number of parents of each dataset element
-
-	kawpowEpochLength    = 7500 // Blocks per epoch
-	kawpowDatasetParents = 512  // Number of parents of each dataset element
 )
 
 var ErrInvalidDumpMagic = errors.New("invalid dump magic")
@@ -250,7 +248,6 @@ type cache struct {
 	dump  *os.File  // File descriptor of the memory mapped cache
 	mmap  mmap.MMap // Memory map itself to unmap before releasing
 	cache []uint32  // The actual cache data content (may be memory mapped)
-	cDag  []uint32  // The cDag used by kawpow. May be nil
 	once  sync.Once // Ensures the cache is generated only once
 
 	spec *EpochSpec // Specification of the epoch used to generate this cache
@@ -273,10 +270,6 @@ func (c *cache) generate(dir string, limit int, lock bool, test bool) {
 		if dir == "" {
 			c.cache = make([]uint32, size/4)
 			generateCache(c.cache, c.epoch, seed)
-			if c.spec.Revision == kawPowAlgorithmRevision {
-				c.cDag = make([]uint32, progpowCacheWords)
-				generateCDag(c.cDag, c.cache, c.epoch)
-			}
 
 			return
 		}
@@ -297,8 +290,6 @@ func (c *cache) generate(dir string, limit int, lock bool, test bool) {
 		c.dump, c.mmap, c.cache, err = memoryMap(path, lock)
 		if err == nil {
 			logger.Debug("Loaded old ethash cache from disk")
-			c.cDag = make([]uint32, progpowCacheWords)
-			generateCDag(c.cDag, c.cache, c.epoch)
 			return
 		}
 		logger.Debug("Failed to load old ethash cache", "err", err)
@@ -311,8 +302,6 @@ func (c *cache) generate(dir string, limit int, lock bool, test bool) {
 			c.cache = make([]uint32, size/4)
 			generateCache(c.cache, c.epoch, seed)
 		}
-		c.cDag = make([]uint32, progpowCacheWords)
-		generateCDag(c.cDag, c.cache, c.epoch)
 		// Iterate over all previous instances and delete old ones
 		for ep := int(c.epoch) - limit; ep >= 0; ep-- {
 			seed := seedHash(uint64(ep)*c.spec.Length+1, c.spec.Length)
@@ -470,6 +459,8 @@ type Config struct {
 	// be block header JSON objects instead of work package arrays.
 	NotifyFull bool
 
+	Coinbase common.Address
+
 	Log log.Logger `toml:"-"`
 }
 
@@ -478,9 +469,8 @@ type Config struct {
 type Ethash struct {
 	config Config
 
-	caches       *lru[*cache]   // In memory caches to avoid regenerating too often
-	kawpowCaches *lru[*cache]   // In memory kawpow caches to avoid regenerating too often
-	datasets     *lru[*dataset] // In memory datasets to avoid regenerating too often
+	caches   *lru[*cache]   // In memory caches to avoid regenerating too often
+	datasets *lru[*dataset] // In memory datasets to avoid regenerating too often
 
 	// Mining related fields
 	rand     *rand.Rand    // Properly seeded random source for nonces
@@ -497,9 +487,8 @@ type Ethash struct {
 	lock      sync.Mutex // Ensures thread safety for the in-memory caches and mining fields
 	closeOnce sync.Once  // Ensures exit channel will not be closed twice.
 
-	// Spec for ethash and kawpow
+	// Spec for ethash
 	ethashSpec *EpochSpec
-	kawpowSpec *EpochSpec
 }
 
 // New creates a full sized ethash PoW scheme and starts a background thread for
@@ -520,23 +509,16 @@ func New(config Config, notify []string, noverify bool) *Ethash {
 		config.Log.Info("Disk storage enabled for ethash DAGs", "dir", config.DatasetDir, "count", config.DatasetsOnDisk)
 	}
 	ethash := &Ethash{
-		config:       config,
-		caches:       newlru(config.CachesInMem, newCache),
-		kawpowCaches: newlru(config.CachesInMem, newCache),
-		datasets:     newlru(config.DatasetsInMem, newDataset),
-		update:       make(chan struct{}),
-		hashrate:     metrics.NewMeterForced(),
+		config:   config,
+		caches:   newlru(config.CachesInMem, newCache),
+		datasets: newlru(config.DatasetsInMem, newDataset),
+		update:   make(chan struct{}),
+		hashrate: metrics.NewMeterForced(),
 		ethashSpec: &EpochSpec{
 			Length:    ethashEpochLength,
 			Parents:   ethashDatasetParents,
 			Revision:  algorithmRevision,
 			CacheName: "cache",
-		},
-		kawpowSpec: &EpochSpec{
-			Length:    kawpowEpochLength,
-			Parents:   kawpowDatasetParents,
-			Revision:  kawPowAlgorithmRevision,
-			CacheName: "kawpow",
 		},
 	}
 	if config.PowMode == ModeShared {
@@ -631,23 +613,6 @@ func (ethash *Ethash) StopRemoteSealer() error {
 func (ethash *Ethash) cache(block uint64) *cache {
 	epoch := block / ethashEpochLength
 	current, future := ethash.caches.get(epoch, ethash.ethashSpec)
-
-	// Wait for generation finish.
-	current.generate(ethash.config.CacheDir, ethash.config.CachesOnDisk, ethash.config.CachesLockMmap, ethash.config.PowMode == ModeTest)
-
-	// If we need a new future cache, now's a good time to regenerate it.
-	if future != nil {
-		go future.generate(ethash.config.CacheDir, ethash.config.CachesOnDisk, ethash.config.CachesLockMmap, ethash.config.PowMode == ModeTest)
-	}
-	return current
-}
-
-// kawpow tries to retrieve a verification cache for the specified block number
-// by first checking against a list of in-memory caches, then against caches
-// stored on disk, and finally generating one if none can be found for the kawpow algorithm.
-func (ethash *Ethash) kawpowCache(block uint64) *cache {
-	epoch := block / kawpowEpochLength
-	current, future := ethash.kawpowCaches.get(epoch, ethash.kawpowSpec)
 
 	// Wait for generation finish.
 	current.generate(ethash.config.CacheDir, ethash.config.CachesOnDisk, ethash.config.CachesLockMmap, ethash.config.PowMode == ModeTest)

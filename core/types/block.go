@@ -82,35 +82,33 @@ type Header struct {
 	// BaseFee was added by EIP-1559 and is ignored in legacy headers.
 	BaseFee *big.Int `json:"baseFeePerGas" rlp:"optional"`
 
-	// Block reward was added in canxium chain
-	MinerReward *big.Int `json:"minerReward" rlp:"optional"`
-	FundReward  *big.Int `json:"fundReward" rlp:"optional"`
-
 	// WithdrawalsHash was added by EIP-4895 and is ignored in legacy headers.
-	WithdrawalsHash *common.Hash `json:"withdrawalsRoot" rlp:"optional"`
+	WithdrawalsHash *common.Hash `json:"withdrawalsRoot" rlp:"optional,nilString"`
 
 	// ExcessDataGas was added by EIP-4844 and is ignored in legacy headers.
 	ExcessDataGas *big.Int `json:"excessDataGas" rlp:"optional"`
+
+	// ProposalHash commits the FutureProposal carried in the block body (Canxium PoW 2.0).
+	ProposalHash *common.Hash `json:"proposalRoot" rlp:"optional,nilString"`
 
 	/*
 		TODO (MariusVanDerWijden) Add this field once needed
 		// Random was added during the merge and contains the BeaconState randomness
 		Random common.Hash `json:"random" rlp:"optional"`
 	*/
+
 }
 
 // field type overrides for gencodec
 type headerMarshaling struct {
-	Difficulty  *hexutil.Big
-	Number      *hexutil.Big
-	GasLimit    hexutil.Uint64
-	GasUsed     hexutil.Uint64
-	Time        hexutil.Uint64
-	Extra       hexutil.Bytes
-	BaseFee     *hexutil.Big
-	MinerReward *hexutil.Big
-	FundReward  *hexutil.Big
-	Hash        common.Hash `json:"hash"` // adds call to Hash() in MarshalJSON
+	Difficulty *hexutil.Big
+	Number     *hexutil.Big
+	GasLimit   hexutil.Uint64
+	GasUsed    hexutil.Uint64
+	Time       hexutil.Uint64
+	Extra      hexutil.Bytes
+	BaseFee    *hexutil.Big
+	Hash       common.Hash `json:"hash"` // adds call to Hash() in MarshalJSON
 }
 
 // Hash returns the block hash of the header, which is simply the keccak256 hash of its
@@ -152,21 +150,11 @@ func (h *Header) SanityCheck() error {
 			return fmt.Errorf("too large base fee: bitlen %d", bfLen)
 		}
 	}
-	if h.MinerReward != nil {
-		if bfLen := h.MinerReward.BitLen(); bfLen > 256 {
-			return fmt.Errorf("too large miner reward: bitlen %d", bfLen)
-		}
-	}
-	if h.FundReward != nil {
-		if bfLen := h.FundReward.BitLen(); bfLen > 256 {
-			return fmt.Errorf("too large fund reward: bitlen %d", bfLen)
-		}
-	}
 	return nil
 }
 
 // EmptyBody returns true if there is no additional 'body' to complete the header
-// that is: no transactions, no uncles and no withdrawals.
+// that is: no transactions, no uncles, no withdrawals, and no proposal.
 func (h *Header) EmptyBody() bool {
 	if h.WithdrawalsHash == nil {
 		return h.TxHash == EmptyTxsHash && h.UncleHash == EmptyUncleHash
@@ -179,11 +167,18 @@ func (h *Header) EmptyReceipts() bool {
 	return h.ReceiptHash == EmptyReceiptsHash
 }
 
+// FutureProposal represents the N+2 transaction commitment included in Block N.
+type FutureProposal struct {
+	TxHashes  []common.Hash // The list of transaction hashes for N+2
+	Signature []byte        // Signed by the miner of Block N
+}
+
 // Body is a simple (mutable, non-safe) data container for storing and moving
 // a block's data contents (transactions and uncles) together.
 type Body struct {
 	Transactions []*Transaction
 	Uncles       []*Header
+	Proposal     *FutureProposal
 	Withdrawals  []*Withdrawal `rlp:"optional"`
 }
 
@@ -193,6 +188,9 @@ type Block struct {
 	uncles       []*Header
 	transactions Transactions
 	withdrawals  Withdrawals
+
+	// Represents the N+2 transaction commitment included in Block N in PoW 2.0
+	proposal *FutureProposal
 
 	// caches
 	hash atomic.Value
@@ -209,6 +207,7 @@ type extblock struct {
 	Header      *Header
 	Txs         []*Transaction
 	Uncles      []*Header
+	Proposal    *FutureProposal
 	Withdrawals []*Withdrawal `rlp:"optional"`
 }
 
@@ -301,11 +300,9 @@ func CopyHeader(h *Header) *Header {
 		cpy.WithdrawalsHash = new(common.Hash)
 		*cpy.WithdrawalsHash = *h.WithdrawalsHash
 	}
-	if h.MinerReward != nil {
-		cpy.MinerReward = new(big.Int).Set(h.MinerReward)
-	}
-	if h.FundReward != nil {
-		cpy.FundReward = new(big.Int).Set(h.FundReward)
+	if h.ProposalHash != nil {
+		cpy.ProposalHash = new(common.Hash)
+		*cpy.ProposalHash = *h.ProposalHash
 	}
 	return &cpy
 }
@@ -317,7 +314,7 @@ func (b *Block) DecodeRLP(s *rlp.Stream) error {
 	if err := s.Decode(&eb); err != nil {
 		return err
 	}
-	b.header, b.uncles, b.transactions, b.withdrawals = eb.Header, eb.Uncles, eb.Txs, eb.Withdrawals
+	b.header, b.uncles, b.transactions, b.proposal, b.withdrawals = eb.Header, eb.Uncles, eb.Txs, eb.Proposal, eb.Withdrawals
 	b.size.Store(rlp.ListSize(size))
 	return nil
 }
@@ -328,6 +325,7 @@ func (b *Block) EncodeRLP(w io.Writer) error {
 		Header:      b.header,
 		Txs:         b.transactions,
 		Uncles:      b.uncles,
+		Proposal:    b.proposal,
 		Withdrawals: b.withdrawals,
 	})
 }
@@ -371,28 +369,18 @@ func (b *Block) BaseFee() *big.Int {
 	return new(big.Int).Set(b.header.BaseFee)
 }
 
-func (b *Block) MinerReward() *big.Int {
-	if b.header.MinerReward == nil {
-		return nil
-	}
-	return new(big.Int).Set(b.header.MinerReward)
-}
-
-func (b *Block) FundReward() *big.Int {
-	if b.header.FundReward == nil {
-		return nil
-	}
-	return new(big.Int).Set(b.header.FundReward)
-}
-
 func (b *Block) Withdrawals() Withdrawals {
 	return b.withdrawals
+}
+
+func (b *Block) Proposal() *FutureProposal {
+	return b.proposal
 }
 
 func (b *Block) Header() *Header { return CopyHeader(b.header) }
 
 // Body returns the non-header content of the block.
-func (b *Block) Body() *Body { return &Body{b.transactions, b.uncles, b.withdrawals} }
+func (b *Block) Body() *Body { return &Body{b.transactions, b.uncles, b.proposal, b.withdrawals} }
 
 // Size returns the true RLP encoded storage size of the block, either by encoding
 // and returning it, or returning a previously cached value.
@@ -436,6 +424,7 @@ func (b *Block) WithSeal(header *Header) *Block {
 		transactions: b.transactions,
 		uncles:       b.uncles,
 		withdrawals:  b.withdrawals,
+		proposal:     b.proposal,
 	}
 }
 
@@ -458,6 +447,20 @@ func (b *Block) WithWithdrawals(withdrawals []*Withdrawal) *Block {
 	if withdrawals != nil {
 		b.withdrawals = make([]*Withdrawal, len(withdrawals))
 		copy(b.withdrawals, withdrawals)
+	}
+	return b
+}
+
+// WithProposal sets the future proposal contents of a block (N+2 transaction commitment).
+// This is part of the PoW 2.0 pipeline mechanism.
+func (b *Block) WithProposal(proposal *FutureProposal) *Block {
+	if proposal != nil {
+		b.proposal = &FutureProposal{
+			TxHashes:  make([]common.Hash, len(proposal.TxHashes)),
+			Signature: make([]byte, len(proposal.Signature)),
+		}
+		copy(b.proposal.TxHashes, proposal.TxHashes)
+		copy(b.proposal.Signature, proposal.Signature)
 	}
 	return b
 }

@@ -4,15 +4,16 @@ import (
 	"bytes"
 	"errors"
 	"math/big"
-	"runtime"
-	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
 	"github.com/ethereum/go-ethereum/core/types"
-	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
-	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/params"
+)
+
+const (
+	// Maximum number of mining transaction per block
+	MaxMiningTransactionPerBlock = 10
 )
 
 var (
@@ -41,10 +42,19 @@ var (
 	errDifficultyUnderValue = errors.New("mining transaction difficulty under value")
 	errInvalidMiningTxValue = errors.New("invalid mining transaction value")
 	errInvalidMiningEpoch   = errors.New("invalid mining epoch, offline mining tx nonce must be < 30000 after Beryllium fork")
+	errMaxMiningTxsExceeded = errors.New("max mining transactions exceeded in block")
 )
 
 // VerifyMiningTx verifies a mining transaction
 func VerifyMiningTx(engine consensus.Engine, config *params.ChainConfig, tx *types.Transaction, block *types.Header) error {
+	if !tx.IsMiningTx() {
+		if IsUnauthorizedCrossMiningTx(config, tx) {
+			return ErrUnauthorizedCrossMiningTx
+		}
+
+		return nil
+	}
+
 	if err := VerifyMiningTxBasic(config, tx, block); err != nil {
 		return err
 	}
@@ -62,12 +72,9 @@ func VerifyMiningTxBasic(config *params.ChainConfig, tx *types.Transaction, bloc
 	return ErrInvalidMiningType
 }
 
-// verifyTxMiningSeal checks whether a mining transaction satisfies the proof of work requirement of the mining protocol, including ethash, kkHeavyHash, kawpow and more
+// verifyTxMiningSeal checks whether a mining transaction satisfies the proof of work requirement of the mining protocol, including ethash, kkHeavyHash and more
 func VerifyMiningTxSeal(engine consensus.Engine, config *params.ChainConfig, tx *types.Transaction, block *types.Header) error {
 	if tx.Type() == types.CrossMiningTxType {
-		if tx.Algorithm() == crosschain.KawPoWAlgorithm {
-			return engine.VerifyKawPowTxSeal(tx)
-		}
 		return VerifyCrossMiningSeal(tx)
 	}
 	// We only support ethash offline mining for the MiningTxType
@@ -77,121 +84,10 @@ func VerifyMiningTxSeal(engine consensus.Engine, config *params.ChainConfig, tx 
 	return ErrInvalidMiningType
 }
 
-// MiningEpoch returns the epoch number for a given mining transaction
-func MiningEpoch(tx *types.Transaction) uint64 {
-	if tx.Type() == types.CrossMiningTxType && tx.AuxPoW() != nil {
-		return tx.AuxPoW().Epoch()
-	}
-	// for the MiningTxType, the epoch number is calculated base on the nonce and only ethash is supported
-	if tx.Type() == types.MiningTxType {
-		return GetEthashEpochNumber(tx.Nonce())
-	}
-	return 0
-}
-
-// VerifyMiningTxs verifies a batch of mining transactions
-// concurrently. The method returns a quit channel to abort the operations and
-// a results channel to retrieve the async verifications.
-func VerifyMiningTxs(config *params.ChainConfig, engine consensus.Engine, txs types.Transactions, block *types.Header) <-chan int64 {
-	// If we're running a full engine faking, accept any input as valid
-	result := make(chan int64, 1)
-	defer close(result)
-	// After Beryllium fork, we only allow one epoch per mining algorithm in a block
-	if config.IsBerylliumTime(block.Time) {
-		epochMap := make(map[crosschain.PoWAlgorithm]uint64)
-		for _, tx := range txs {
-			if !tx.IsMiningTx() {
-				continue
-			}
-			epoch := MiningEpoch(tx)
-			if lastEpoch, ok := epochMap[tx.Algorithm()]; ok && lastEpoch != epoch {
-				log.Error("Multiple mining epochs in single block", "algorithm", tx.Algorithm(), "epoch1", lastEpoch, "epoch2", epoch)
-				result <- -1
-				return result
-			}
-			epochMap[tx.Algorithm()] = epoch
-		}
-	}
-	if len(txs) == 0 {
-		result <- 0
-		return result
-	}
-
-	// Spawn as many workers as allowed threads
-	workers := runtime.GOMAXPROCS(0)
-	if len(txs) < workers {
-		workers = len(txs)
-	}
-
-	// Create a task channel and spawn the verifiers
-	var (
-		inputs       = make(chan int)
-		done         = make(chan int, workers)
-		errors       = make([]error, len(txs))
-		numMiningTxs = int64(0)
-	)
-	for i := 0; i < workers; i++ {
-		go func() {
-			for index := range inputs {
-				if !txs[index].IsMiningTx() {
-					if IsUnauthorizedCrossMiningTx(config, txs[index]) {
-						errors[index] = ErrUnauthorizedCrossMiningTx
-					} else {
-						errors[index] = nil
-					}
-					done <- index
-					continue
-				}
-
-				atomic.AddInt64(&numMiningTxs, 1)
-				errors[index] = VerifyMiningTx(engine, config, txs[index], block)
-				done <- index
-			}
-		}()
-	}
-
-	sealCh := make(chan int64, 1)
-	go func() {
-		defer close(inputs)
-		defer close(sealCh)
-		var (
-			in, out = 0, 0
-			checked = make([]bool, len(txs))
-			inputs  = inputs
-		)
-		for {
-			select {
-			case inputs <- in:
-				if in++; in == len(txs) {
-					// Reached end of headers. Stop sending to workers.
-					inputs = nil
-				}
-			case index := <-done:
-				for checked[index] = true; checked[out]; out++ {
-					if errors[out] != nil {
-						sealCh <- -1
-						// if any of txs have error, return.
-						return
-					}
-
-					if out == len(txs)-1 {
-						sealCh <- atomic.LoadInt64(&numMiningTxs)
-						return
-					}
-				}
-			}
-		}
-	}()
-	return sealCh
-}
-
 // verifyTxMiningBasic checks whether an ethash offline mining satisfies the basic requirement of the offline mining protocol
 func verifyOfflineMiningBasic(config *params.ChainConfig, tx *types.Transaction, block *types.Header) error {
-	if !config.IsHydro(block.Number) {
-		return types.ErrTxTypeNotSupported
-	}
-	// After Beryllium fork, we don't allow legacy mining tx have nonce > 30,000
-	if config.IsBerylliumTime(block.Time) && tx.Nonce() >= ethashEpochLength {
+	// We don't allow legacy mining tx have nonce > 30,000
+	if tx.Nonce() >= ethashEpochLength {
 		return errInvalidMiningEpoch
 	}
 	// Ensure the receiver is the mining smart contract
@@ -231,9 +127,6 @@ func verifyOfflineMiningBasic(config *params.ChainConfig, tx *types.Transaction,
 
 // Calculate offline mining reward base on block number
 func TransactionMiningSubsidy(config *params.ChainConfig, block *big.Int) *big.Int {
-	if !config.IsHydro(block) {
-		return big0
-	}
 	blockPassed := new(big.Int).Sub(block, config.HydroBlock)
 	period := new(big.Int).Div(blockPassed, CanxiumMiningReduceBlock)
 	if period.Cmp(big0) == 0 {

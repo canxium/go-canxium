@@ -34,7 +34,6 @@ import (
 	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
-	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/event"
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
@@ -716,9 +715,6 @@ func (pool *TxPool) Pending(enforceTips bool) map[common.Address]types.Transacti
 
 	pending := make(map[common.Address]types.Transactions)
 
-	// Track epochs per mining algorithm type to ensure only one epoch per algorithm in a block
-	miningEpochSeen := make(map[crosschain.PoWAlgorithm]uint64)
-
 	for addr, list := range pool.pending {
 		txs := list.Flatten()
 
@@ -733,15 +729,6 @@ func (pool *TxPool) Pending(enforceTips bool) map[common.Address]types.Transacti
 			if tx.IsMiningTx() && !pool.all.IsMiningVerified(tx.Hash()) {
 				txs = txs[:i]
 				break
-			}
-			// For mining transactions, ensure only one epoch per algorithm type is included
-			if tx.IsMiningTx() {
-				var epoch = cpow.MiningEpoch(tx)
-				if existEpoch, ok := miningEpochSeen[tx.Algorithm()]; ok && epoch != existEpoch {
-					txs = txs[:i]
-					break
-				}
-				miningEpochSeen[tx.Algorithm()] = epoch
 			}
 		}
 		if len(txs) > 0 {

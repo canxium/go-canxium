@@ -25,12 +25,10 @@ import (
 	"math/big"
 	"math/rand"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/rlp"
 )
@@ -600,99 +598,4 @@ func TestTransactionSizes(t *testing.T) {
 			t.Errorf("test %d: (unmarshalled) size wrong, have %d want %d", i, have, want)
 		}
 	}
-}
-
-// TestUnmarshalTransactionHex tests unmarshaling a transaction hex and running IsValidBlock
-func TestUnmarshalTransactionHex(t *testing.T) {
-	// Transaction hex provided by user
-	txHex := "7ef9024682765f8205e38080830186a0943fd82f0968ed923aab67b32fa69b73272a65678d945fd4e99dc1efc12ebe5c5530d6c7b3860c819f9d878bd93b30550307b86497b8f2fc000000000000000000000000a2fec87f54a60a1d4b9d97b483cbbf659de7a0ea00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000017e38aa6088b9015c02f90158f87f8430000000a000000000000023f0cc2e30f0ac09574a2aac0f62db91013262ba4d4625b2521ea043b2fe0fe950ca3e3ed956add18dc66dbcd7733081fa42906bd3cc2304c12d2c8461d94225841b008148831ff8e68809e34100725860eea02dca4f5449cb87054e4e0234c0d757b5fa5c5bd5facb6aeec1736754da72f32ea2e1a0a5f411e970c10f57449c61a2b1381d2d5d1c5de08097d507118d6b461abc888af89101f841f83fa0000000000000000000000000000000000000000000000000000000000000000084ffffffff9203e6f81f002f666c79706f6f6c2e6f72672f84ffffffffc0f84ae085746a563ae09976a914cb6d3fedc3b50d5936a36601710c6008ff783fd188ace880a66a24aa21a9edd0033856c09d74613d4b97afa07d8864842fc4059d787ae37083805d00d27dc280a00000000000005f853888c817f3f4c021c42a56aab6a4285c0fdb09c109e2a45101a077a24516c7afef8017ffccc5bf95604badce5bfc9ab7308e1c35481efd571d91a053729e585b8af973360ba077ada7acb90b71fd842648bc440fb3c94e36b8802e"
-
-	// Remove 0x prefix if present
-	if strings.HasPrefix(txHex, "0x") {
-		txHex = txHex[2:]
-	}
-
-	var tx Transaction
-	if err := tx.UnmarshalBinary(common.FromHex(txHex)); err != nil {
-		t.Fatalf("Failed to unmarshal transaction: %v", err)
-	}
-
-	t.Logf("Transaction hash: %s", tx.Hash().Hex())
-	t.Run("Decode as Ethereum CrossMining Transaction", func(t *testing.T) {
-		crossTx := tx
-		t.Logf("✅ Successfully decoded CrossMining transaction:")
-		t.Logf("   ChainID: %d", crossTx.AuxPoW().Chain())
-		t.Logf("   From: %s", crossTx.From().String())
-		t.Logf("   To: %s", crossTx.To().String())
-		t.Logf("   Nonce: %d", crossTx.Nonce())
-		t.Logf("   Value: %s", crossTx.Value().String())
-
-		ravenBlock := crossTx.AuxPoW().(*crosschain.RavenBlock)
-		// Run IsValidBlock test
-		t.Run("IsValidBlock Test", func(t *testing.T) {
-			isValid := ravenBlock.IsValidBlock()
-			t.Logf("IsValidBlock result: %t", isValid)
-
-			// Test individual components
-			t.Logf("\n🔍 Detailed validation:")
-
-			if ravenBlock.Header == nil {
-				t.Fatalf("❌ Header is nil")
-			} else {
-				t.Logf("✅ Header is present")
-				t.Logf("   Nonce: %d (zero check: %t)", ravenBlock.Header.Nonce, ravenBlock.Header.Nonce == 0)
-				t.Logf("   Timestamp: %d (zero check: %t)", ravenBlock.Header.Timestamp, ravenBlock.Header.Timestamp == 0)
-				t.Logf("   Bits: %d (zero check: %t)", ravenBlock.Header.Bits, ravenBlock.Header.Bits == 0)
-			}
-
-			if ravenBlock.Coinbase == nil {
-				t.Fatalf("❌ Coinbase is nil")
-			} else {
-				t.Logf("✅ Coinbase is present")
-				t.Logf("   Outputs count: %d (empty check: %t)", len(ravenBlock.Coinbase.Outputs), len(ravenBlock.Coinbase.Outputs) == 0)
-
-				// Check if it's a proper coinbase transaction
-				if len(ravenBlock.Coinbase.Inputs) > 0 {
-					firstInput := ravenBlock.Coinbase.Inputs[0]
-					nullHash := common.Hash{}
-					isCoinbase := firstInput.PrevTxHash == nullHash && firstInput.PrevIndex == 0xFFFFFFFF
-					t.Logf("   Is coinbase transaction: %t", isCoinbase)
-				}
-			}
-
-			if !isValid {
-				t.Fatalf("❌ Block validation failed")
-			} else {
-				t.Log("✅ Block validation passed")
-			}
-		})
-
-		// Test additional methods
-		t.Run("Additional Block Methods", func(t *testing.T) {
-			t.Logf("\n🔍 Testing additional methods:")
-			t.Logf("   Chain(): %v", ravenBlock.Chain())
-			t.Logf("   PoWAlgorithm(): %v", ravenBlock.PoWAlgorithm())
-			t.Logf("   BlockHash(): %s", ravenBlock.BlockHash())
-			t.Logf("   Timestamp(): %d", ravenBlock.Timestamp())
-			t.Logf("   Difficulty(): %s", ravenBlock.Difficulty().String())
-			t.Logf("   PowNonce(): %d", ravenBlock.PowNonce())
-
-			// Test coinbase verification
-			coinbaseValid := ravenBlock.VerifyCoinbase()
-			t.Logf("   VerifyCoinbase(): %t", coinbaseValid)
-			if coinbaseValid {
-				t.Logf("✅ Coinbase is valid")
-			} else {
-				t.Fatalf("❌ Coinbase is invalid")
-			}
-
-			// Test miner address extraction
-			minerAddr, err := ravenBlock.GetMinerAddress()
-			if err != nil {
-				t.Fatalf("❌ GetMinerAddress(): error - %v", err)
-			} else {
-				t.Logf("✅ GetMinerAddress(): %s", minerAddr.Hex())
-			}
-		})
-	})
 }

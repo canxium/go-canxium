@@ -543,6 +543,11 @@ var (
 		Usage:    "0x prefixed public address for block mining rewards",
 		Category: flags.MinerCategory,
 	}
+	MinerSignerFlag = &cli.StringFlag{
+		Name:     "miner.signerkey",
+		Usage:    "0x private key for signing future proposed transactions for block N+2",
+		Category: flags.MinerCategory,
+	}
 	MinerExtraDataFlag = &cli.StringFlag{
 		Name:     "miner.extradata",
 		Usage:    "Block extra data set by the miner (default = client version)",
@@ -1364,6 +1369,23 @@ func setEtherbase(ctx *cli.Context, cfg *ethconfig.Config) {
 	cfg.Miner.Etherbase = common.BytesToAddress(b)
 }
 
+// setSigner retrieves the signer private key from the directly specified command line flags.
+func setSigner(ctx *cli.Context, cfg *ethconfig.Config) {
+	if !ctx.IsSet(MinerSignerFlag.Name) {
+		return
+	}
+	key := ctx.String(MinerSignerFlag.Name)
+	if strings.HasPrefix(key, "0x") || strings.HasPrefix(key, "0X") {
+		key = key[2:]
+	}
+	b, err := hex.DecodeString(key)
+	if err != nil || len(b) != 32 {
+		Fatalf("-%s: invalid signer private key %q", MinerSignerFlag.Name, key)
+		return
+	}
+	cfg.Miner.Private = b
+}
+
 // MakePasswordList reads password lines from the file specified by the global --password flag.
 func MakePasswordList(ctx *cli.Context) []string {
 	path := ctx.Path(PasswordFileFlag.Name)
@@ -1739,6 +1761,7 @@ func SetEthConfig(ctx *cli.Context, stack *node.Node, cfg *ethconfig.Config) {
 		log.Warn("LES server cannot serve old transaction status and cannot connect below les/4 protocol version if transaction lookup index is limited")
 	}
 	setEtherbase(ctx, cfg)
+	setSigner(ctx, cfg)
 	setGPO(ctx, &cfg.GPO, ctx.String(SyncModeFlag.Name) == "light")
 	setTxPool(ctx, &cfg.TxPool)
 	setEthash(ctx, cfg)
@@ -2234,7 +2257,7 @@ func MakeChain(ctx *cli.Context, stack *node.Node, readonly bool) (*core.BlockCh
 	if ctx.Bool(FakePoWFlag.Name) {
 		ethashConfig.PowMode = ethash.ModeFake
 	}
-	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, nil, false, chainDb)
+	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, nil, false, common.Address{}, chainDb)
 	if gcmode := ctx.String(GCModeFlag.Name); gcmode != "full" && gcmode != "archive" {
 		Fatalf("--%s must be either 'full' or 'archive'", GCModeFlag.Name)
 	}

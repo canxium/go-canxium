@@ -32,9 +32,9 @@ func (h Header) MarshalJSON() ([]byte, error) {
 		MixDigest       common.Hash    `json:"mixHash"`
 		Nonce           BlockNonce     `json:"nonce"`
 		BaseFee         *hexutil.Big   `json:"baseFeePerGas" rlp:"optional"`
-		MinerReward     *hexutil.Big   `json:"minerReward" rlp:"optional"`
-		FundReward      *hexutil.Big   `json:"fundReward" rlp:"optional"`
 		WithdrawalsHash *common.Hash   `json:"withdrawalsRoot" rlp:"optional"`
+		ExcessDataGas   *big.Int       `json:"excessDataGas" rlp:"optional"`
+		ProposalHash    *common.Hash   `json:"proposalRoot" rlp:"optional"`
 		Hash            common.Hash    `json:"hash"`
 	}
 	var enc Header
@@ -54,9 +54,9 @@ func (h Header) MarshalJSON() ([]byte, error) {
 	enc.MixDigest = h.MixDigest
 	enc.Nonce = h.Nonce
 	enc.BaseFee = (*hexutil.Big)(h.BaseFee)
-	enc.MinerReward = (*hexutil.Big)(h.MinerReward)
-	enc.FundReward = (*hexutil.Big)(h.FundReward)
 	enc.WithdrawalsHash = h.WithdrawalsHash
+	enc.ExcessDataGas = h.ExcessDataGas
+	enc.ProposalHash = h.ProposalHash
 	enc.Hash = h.Hash()
 	return json.Marshal(&enc)
 }
@@ -80,9 +80,9 @@ func (h *Header) UnmarshalJSON(input []byte) error {
 		MixDigest       *common.Hash    `json:"mixHash"`
 		Nonce           *BlockNonce     `json:"nonce"`
 		BaseFee         *hexutil.Big    `json:"baseFeePerGas" rlp:"optional"`
-		MinerReward     *hexutil.Big    `json:"minerReward" rlp:"optional"`
-		FundReward      *hexutil.Big    `json:"fundReward" rlp:"optional"`
 		WithdrawalsHash *common.Hash    `json:"withdrawalsRoot" rlp:"optional"`
+		ExcessDataGas   *big.Int        `json:"excessDataGas" rlp:"optional"`
+		ProposalHash    *common.Hash    `json:"proposalRoot" rlp:"optional"`
 	}
 	var dec Header
 	if err := json.Unmarshal(input, &dec); err != nil {
@@ -148,14 +148,14 @@ func (h *Header) UnmarshalJSON(input []byte) error {
 	if dec.BaseFee != nil {
 		h.BaseFee = (*big.Int)(dec.BaseFee)
 	}
-	if dec.MinerReward != nil {
-		h.MinerReward = (*big.Int)(dec.MinerReward)
-	}
-	if dec.FundReward != nil {
-		h.FundReward = (*big.Int)(dec.FundReward)
-	}
 	if dec.WithdrawalsHash != nil {
 		h.WithdrawalsHash = dec.WithdrawalsHash
+	}
+	if dec.ExcessDataGas != nil {
+		h.ExcessDataGas = dec.ExcessDataGas
+	}
+	if dec.ProposalHash != nil {
+		h.ProposalHash = dec.ProposalHash
 	}
 	return nil
 }

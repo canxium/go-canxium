@@ -1208,3 +1208,32 @@ func crossMiningStorageKey(address common.Address, chainID uint16) common.Hash {
 	storageKeyHash := common.BytesToHash(finalStorageKey)
 	return storageKeyHash
 }
+
+// ResetSnap re-points the snapshot and trie base to the layer at parentRoot.
+// This is needed in the PoW 2.0 block pipeline: state is built by copying a
+// previous task's StateDB rather than opening it fresh via StateAt, so both
+// s.snap and s.originalRoot still point to the original StateAt root (several
+// blocks back).
+//
+// s.snap: Commit() passes snap.Root() as the parent to snaps.Update, so a
+// stale snap causes every pipeline-hit block to register its snapshot with the
+// wrong parent, corrupting the snapshot chain.
+//
+// s.originalRoot: StartPrefetcher uses originalRoot to create the trie
+// prefetcher. IntermediateRoot replaces s.trie with the prefetched trie when
+// it is non-nil, which means the state root is computed on top of the OLD trie
+// base instead of the correct parent state, producing the wrong hash.
+func (s *StateDB) ResetSnap(parentRoot common.Hash) {
+	// Fix stale trie base: prefetcher is started with originalRoot; if stale,
+	// IntermediateRoot replaces s.trie with a wrong-base trie and computes an
+	// incorrect state root.
+	s.originalRoot = parentRoot
+	if s.snaps == nil {
+		return
+	}
+	snap := s.snaps.Snapshot(parentRoot)
+	if snap == nil {
+		return
+	}
+	s.snap = snap
+}

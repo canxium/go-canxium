@@ -124,9 +124,6 @@ const (
 	//  The following incompatible database changes were added:
 	//    * New scheme for contract code in order to separate the codes and trie nodes
 	BlockChainVersion uint64 = 8
-
-	// Maximum number of mining transaction per block
-	MaxMiningTransactionPerBlock = 100
 )
 
 // CacheConfig contains the configuration values for the trie database
@@ -218,6 +215,9 @@ type BlockChain struct {
 	// future blocks are blocks added for later processing
 	futureBlocks *lru.Cache[common.Hash, *types.Block]
 
+	// WDC miner's nonces cache to speed up system transaction verification
+	WdcCache *cpow.WDCCache
+
 	wg            sync.WaitGroup //
 	quit          chan struct{}  // shutdown signal, closed in Stop.
 	stopping      atomic.Bool    // false if chain is running, true when stopped
@@ -273,6 +273,7 @@ func NewBlockChain(db ethdb.Database, cacheConfig *CacheConfig, genesis *Genesis
 		blockCache:    lru.NewCache[common.Hash, *types.Block](blockCacheLimit),
 		txLookupCache: lru.NewCache[common.Hash, *rawdb.LegacyTxLookupEntry](txLookupCacheLimit),
 		futureBlocks:  lru.NewCache[common.Hash, *types.Block](maxFutureBlocks),
+		WdcCache:      cpow.NewWDCCache(),
 		engine:        engine,
 		vmConfig:      vmConfig,
 	}
@@ -535,6 +536,17 @@ func (bc *BlockChain) loadLastState() error {
 	if pivot := rawdb.ReadLastPivotNumber(bc.db); pivot != nil {
 		log.Info("Loaded last fast-sync pivot marker", "number", *pivot)
 	}
+
+	state, err := bc.StateAt(headBlock.Root())
+	if err != nil {
+		log.Error("Failed to load head block state", err)
+		return err
+	}
+
+	if !bc.WdcCache.Refresh(state, headBlock.NumberU64()) {
+		log.Error("Failed to update miners nonce")
+	}
+
 	return nil
 }
 
@@ -1458,6 +1470,8 @@ func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, receipts []*types
 	bc.futureBlocks.Remove(block.Hash())
 
 	if status == CanonStatTy {
+		// Update Wdc miner nonces cache if a canonical block is added
+		bc.WdcCache.Refresh(state, block.NumberU64())
 		bc.chainFeed.Send(ChainEvent{Block: block, Hash: block.Hash(), Logs: logs})
 		if len(logs) > 0 {
 			bc.logsFeed.Send(logs)
@@ -1755,20 +1769,9 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 			}
 		}
 
-		// Before insert block to the chain, make sure all mining transaction are valid
-		// This type of transaction requires special verification steps, which cannot be verified by conventional methods.
-		txSealCh := cpow.VerifyMiningTxs(bc.chainConfig, bc.engine, block.Transactions(), block.Header())
-		if txSealCh == nil {
-			return it.index, errInvalidEngine
-		}
-
-		numValidMiningTxs := <-txSealCh
-		if numValidMiningTxs < 0 || numValidMiningTxs > MaxMiningTransactionPerBlock {
-			// one of txs seal return error or more than MaxMiningTransactionPerBlock, abort this block
-			log.Warn("Found a bad block because of malicious mining transactions", "hash", block.Hash(), "miningTxs", numValidMiningTxs, "max", MaxMiningTransactionPerBlock)
-			bc.reportBlock(block, nil, ErrBadMiningTxs)
-			return it.index, ErrBadMiningTxs
-		}
+		// TODO: Verify system transaction for the PoW 2.0 blocks here
+		// First, update the miner nonces cached if necessary
+		bc.WdcCache.Refresh(statedb, block.NumberU64())
 
 		// Process block using the parent state as reference point
 		pstart := time.Now()

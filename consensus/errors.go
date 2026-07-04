@@ -38,4 +38,7 @@ var (
 	// ErrInvalidTerminalBlock is returned if a block is invalid wrt. the terminal
 	// total difficulty.
 	ErrInvalidTerminalBlock = errors.New("invalid terminal block")
+
+	// ErrUnknownParent is returned when a block's parent is unknown.
+	ErrUnknownParent = errors.New("unknown parent block")
 )

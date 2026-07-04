@@ -84,10 +84,6 @@ type Engine interface {
 	// rules of a given engine.
 	VerifyEthashTxSeal(tx *types.Transaction, fulldag bool) error
 
-	// VerifyKawPowTxSeal verifies that the given kawpow cross mining transaction conform to the consensus
-	// rules of a given engine.
-	VerifyKawPowTxSeal(tx *types.Transaction) error
-
 	// Prepare initializes the consensus fields of a block header according to the
 	// rules of a particular engine. The changes are executed inline.
 	Prepare(chain ChainHeaderReader, header *types.Header) error
@@ -113,7 +109,7 @@ type Engine interface {
 	//
 	// Note, the method returns immediately and will send the result async. More
 	// than one result may also be returned depending on the consensus algorithm.
-	Seal(chain ChainHeaderReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error
+	Seal(chain ChainHeaderReader, nonceStart uint64, nonceEnd uint64, state *state.StateDB, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error
 
 	// SealHash returns the hash of a block prior to it being sealed.
 	SealHash(header *types.Header) common.Hash

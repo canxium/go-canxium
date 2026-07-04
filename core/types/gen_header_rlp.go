@@ -5,8 +5,11 @@
 
 package types
 
-import "github.com/ethereum/go-ethereum/rlp"
-import "io"
+import (
+	"io"
+
+	"github.com/ethereum/go-ethereum/rlp"
+)
 
 func (obj *Header) EncodeRLP(_w io.Writer) error {
 	w := rlp.NewEncoderBuffer(_w)
@@ -40,34 +43,43 @@ func (obj *Header) EncodeRLP(_w io.Writer) error {
 	w.WriteBytes(obj.Extra)
 	w.WriteBytes(obj.MixDigest[:])
 	w.WriteBytes(obj.Nonce[:])
-	if obj.BaseFee == nil {
-		w.Write(rlp.EmptyString)
-	} else {
-		if obj.BaseFee.Sign() == -1 {
-			return rlp.ErrNegativeBigInt
+	_nonzero1 := obj.BaseFee != nil
+	_nonzero2 := obj.WithdrawalsHash != nil
+	_nonzero3 := obj.ExcessDataGas != nil
+	_nonzero4 := obj.ProposalHash != nil
+	if _nonzero1 || _nonzero2 || _nonzero3 || _nonzero4 {
+		if obj.BaseFee == nil {
+			w.Write(rlp.EmptyString)
+		} else {
+			if obj.BaseFee.Sign() == -1 {
+				return rlp.ErrNegativeBigInt
+			}
+			w.WriteBigInt(obj.BaseFee)
 		}
-		w.WriteBigInt(obj.BaseFee)
 	}
-	if obj.MinerReward == nil {
-		w.Write(rlp.EmptyString)
-	} else {
-		if obj.MinerReward.Sign() == -1 {
-			return rlp.ErrNegativeBigInt
+	if _nonzero2 || _nonzero3 || _nonzero4 {
+		if obj.WithdrawalsHash == nil {
+			w.Write(rlp.EmptyString)
+		} else {
+			w.WriteBytes(obj.WithdrawalsHash[:])
 		}
-		w.WriteBigInt(obj.MinerReward)
 	}
-	if obj.FundReward == nil {
-		w.Write(rlp.EmptyString)
-	} else {
-		if obj.FundReward.Sign() == -1 {
-			return rlp.ErrNegativeBigInt
+	if _nonzero3 || _nonzero4 {
+		if obj.ExcessDataGas == nil {
+			w.Write(rlp.EmptyString)
+		} else {
+			if obj.ExcessDataGas.Sign() == -1 {
+				return rlp.ErrNegativeBigInt
+			}
+			w.WriteBigInt(obj.ExcessDataGas)
 		}
-		w.WriteBigInt(obj.FundReward)
 	}
-	if obj.WithdrawalsHash == nil {
-		w.Write([]byte{})
-	} else {
-		w.WriteBytes(obj.WithdrawalsHash[:])
+	if _nonzero4 {
+		if obj.ProposalHash == nil {
+			w.Write(rlp.EmptyString)
+		} else {
+			w.WriteBytes(obj.ProposalHash[:])
+		}
 	}
 	w.ListEnd(_tmp0)
 	return w.Flush()

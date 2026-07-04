@@ -122,10 +122,11 @@ type headerFilterTask struct {
 // bodyFilterTask represents a batch of block bodies (transactions and uncles)
 // needing fetcher filtering.
 type bodyFilterTask struct {
-	peer         string                 // The source peer of block bodies
-	transactions [][]*types.Transaction // Collection of transactions per block bodies
-	uncles       [][]*types.Header      // Collection of uncles per block bodies
-	time         time.Time              // Arrival time of the blocks' contents
+	peer         string                  // The source peer of block bodies
+	transactions [][]*types.Transaction  // Collection of transactions per block bodies
+	uncles       [][]*types.Header       // Collection of uncles per block bodies
+	proposals    []*types.FutureProposal // Collection of N+2 proposals per block bodies
+	time         time.Time               // Arrival time of the blocks' contents
 }
 
 // blockOrHeaderInject represents a schedules import operation.
@@ -302,7 +303,7 @@ func (f *BlockFetcher) FilterHeaders(peer string, headers []*types.Header, time 
 
 // FilterBodies extracts all the block bodies that were explicitly requested by
 // the fetcher, returning those that should be handled differently.
-func (f *BlockFetcher) FilterBodies(peer string, transactions [][]*types.Transaction, uncles [][]*types.Header, time time.Time) ([][]*types.Transaction, [][]*types.Header) {
+func (f *BlockFetcher) FilterBodies(peer string, transactions [][]*types.Transaction, uncles [][]*types.Header, proposals []*types.FutureProposal, time time.Time) ([][]*types.Transaction, [][]*types.Header, []*types.FutureProposal) {
 	log.Trace("Filtering bodies", "peer", peer, "txs", len(transactions), "uncles", len(uncles))
 
 	// Send the filter channel to the fetcher
@@ -311,20 +312,20 @@ func (f *BlockFetcher) FilterBodies(peer string, transactions [][]*types.Transac
 	select {
 	case f.bodyFilter <- filter:
 	case <-f.quit:
-		return nil, nil
+		return nil, nil, nil
 	}
 	// Request the filtering of the body list
 	select {
-	case filter <- &bodyFilterTask{peer: peer, transactions: transactions, uncles: uncles, time: time}:
+	case filter <- &bodyFilterTask{peer: peer, transactions: transactions, uncles: uncles, proposals: proposals, time: time}:
 	case <-f.quit:
-		return nil, nil
+		return nil, nil, nil
 	}
 	// Retrieve the bodies remaining after filtering
 	select {
 	case task := <-filter:
-		return task.transactions, task.uncles
+		return task.transactions, task.uncles, task.proposals
 	case <-f.quit:
-		return nil, nil
+		return nil, nil, nil
 	}
 }
 
@@ -541,8 +542,8 @@ func (f *BlockFetcher) loop() {
 					case res := <-resCh:
 						res.Done <- nil
 						// Ignoring withdrawals here, since the block fetcher is not used post-merge.
-						txs, uncles, _ := res.Res.(*eth.BlockBodiesPacket).Unpack()
-						f.FilterBodies(peer, txs, uncles, time.Now())
+						txs, uncles, _, proposals := res.Res.(*eth.BlockBodiesPacket).Unpack()
+						f.FilterBodies(peer, txs, uncles, proposals, time.Now())
 
 					case <-timeout.C:
 						// The peer didn't respond in time. The request
@@ -686,7 +687,7 @@ func (f *BlockFetcher) loop() {
 						// Mark the body matched, reassemble if still unknown
 						matched = true
 						if f.getBlock(hash) == nil {
-							block := types.NewBlockWithHeader(announce.header).WithBody(task.transactions[i], task.uncles[i])
+							block := types.NewBlockWithHeader(announce.header).WithBody(task.transactions[i], task.uncles[i]).WithProposal(task.proposals[i])
 							block.ReceivedAt = task.time
 							blocks = append(blocks, block)
 						} else {

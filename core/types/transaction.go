@@ -46,8 +46,8 @@ const (
 	LegacyTxType = iota
 	AccessListTxType
 	DynamicFeeTxType
-	MiningTxType
 
+	MiningTxType      = 125
 	CrossMiningTxType = 126
 )
 

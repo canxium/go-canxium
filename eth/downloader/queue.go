@@ -68,6 +68,7 @@ type fetchResult struct {
 	Transactions types.Transactions
 	Receipts     types.Receipts
 	Withdrawals  types.Withdrawals
+	Proposal     *types.FutureProposal
 }
 
 func newFetchResult(header *types.Header, fastSync bool) *fetchResult {
@@ -76,12 +77,18 @@ func newFetchResult(header *types.Header, fastSync bool) *fetchResult {
 	}
 	if !header.EmptyBody() {
 		item.pending.Store(item.pending.Load() | (1 << bodyType))
-	} else if header.WithdrawalsHash != nil {
-		item.Withdrawals = make(types.Withdrawals, 0)
+	} else {
+		if header.WithdrawalsHash != nil {
+			item.Withdrawals = make(types.Withdrawals, 0)
+		}
+		if header.ProposalHash != nil {
+			item.pending.Store(item.pending.Load() | (1 << bodyType))
+		}
 	}
 	if fastSync && !header.EmptyReceipts() {
 		item.pending.Store(item.pending.Load() | (1 << receiptType))
 	}
+
 	return item
 }
 
@@ -772,7 +779,8 @@ func (q *queue) DeliverHeaders(id string, headers []*types.Header, hashes []comm
 // also wakes any threads waiting for data delivery.
 func (q *queue) DeliverBodies(id string, txLists [][]*types.Transaction, txListHashes []common.Hash,
 	uncleLists [][]*types.Header, uncleListHashes []common.Hash,
-	withdrawalLists [][]*types.Withdrawal, withdrawalListHashes []common.Hash) (int, error) {
+	withdrawalLists [][]*types.Withdrawal, withdrawalListHashes []common.Hash,
+	proposalList []*types.FutureProposal) (int, error) {
 	q.lock.Lock()
 	defer q.lock.Unlock()
 
@@ -796,6 +804,15 @@ func (q *queue) DeliverBodies(id string, txLists [][]*types.Transaction, txListH
 				return errInvalidBody
 			}
 		}
+		if header.ProposalHash == nil {
+			if proposalList[index] != nil {
+				return errInvalidBody
+			}
+		} else {
+			if proposalList[index] == nil {
+				return errInvalidBody
+			}
+		}
 		return nil
 	}
 
@@ -803,6 +820,7 @@ func (q *queue) DeliverBodies(id string, txLists [][]*types.Transaction, txListH
 		result.Transactions = txLists[index]
 		result.Uncles = uncleLists[index]
 		result.Withdrawals = withdrawalLists[index]
+		result.Proposal = proposalList[index]
 		result.SetBodyDone()
 	}
 	return q.deliver(id, q.blockTaskPool, q.blockTaskQueue, q.blockPendPool,

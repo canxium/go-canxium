@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/consensus"
+	"github.com/ethereum/go-ethereum/consensus/cpow"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/params"
@@ -49,7 +50,7 @@ func NewBlockValidator(config *params.ChainConfig, blockchain *BlockChain, engin
 // ValidateBody validates the given block's uncles and verifies the block
 // header's transaction and uncle roots. The headers are assumed to be already
 // validated at this point.
-func (v *BlockValidator) ValidateBody(block *types.Block) error {
+func (v *BlockValidator) ValidateBody(block *types.Block, parent *types.Header) error {
 	// Check whether the block is already imported.
 	if v.bc.HasBlockAndState(block.Hash(), block.NumberU64()) {
 		return ErrKnownBlock
@@ -79,6 +80,66 @@ func (v *BlockValidator) ValidateBody(block *types.Block) error {
 	} else if block.Withdrawals() != nil {
 		// Withdrawals are not allowed prior to shanghai fork
 		return fmt.Errorf("withdrawals present in block body")
+	}
+	// Proposal commitment is present when ProposalHash is set in the header.
+	if header.ProposalHash != nil {
+		if block.Proposal() == nil {
+			return fmt.Errorf("missing proposal in block body")
+		}
+	} else if block.Proposal() != nil {
+		return fmt.Errorf("unexpected proposal in block body")
+	}
+
+	if parent == nil {
+		parent = v.bc.GetHeader(block.ParentHash(), block.NumberU64()-1)
+	}
+
+	if parent == nil {
+		return consensus.ErrUnknownParent
+	}
+
+	// Refresh the WDC cache from the parent block's state so that lookups below
+	// use the correct epoch even when validating a chain that diverges from the
+	// locally-mined canonical chain (e.g. during initial sync).
+	if parentState, err := v.bc.StateAt(parent.Root); err == nil {
+		v.bc.WdcCache.Refresh(parentState, parent.Number.Uint64())
+	}
+
+	// Verify system & mining transactions
+	totalTxs := len(block.Transactions())
+	numOfMiningTxs := 0
+	// proposalSigner is nil when no WDC system tx is present (e.g. early blocks).
+	// VerifyFutureProposal skips the signer identity check when proposalSigner is nil.
+	for index, tx := range block.Transactions() {
+		if err := cpow.VerifyWDCSystemTx(v.config, v.bc.WdcCache, tx, index == totalTxs-1, parent); err != nil {
+			v.bc.reportBlock(block, nil, cpow.ErrBadSystemTx)
+			return err
+		}
+
+		if err := cpow.VerifyMiningTx(v.engine, v.config, tx, block.Header()); err != nil {
+			v.bc.reportBlock(block, nil, ErrBadMiningTxs)
+			return err
+		}
+
+		if tx.IsMiningTx() {
+			numOfMiningTxs++
+		}
+
+		if numOfMiningTxs > cpow.MaxMiningTransactionPerBlock {
+			v.bc.reportBlock(block, nil, ErrBadMiningTxs)
+			return ErrBadMiningTxs
+		}
+	}
+
+	miner := v.bc.WdcCache.GetMinerByNonce(header.Nonce.Uint64(), header.Number.Uint64()-1)
+	if miner == nil {
+		return ErrUnknownMiner
+	}
+
+	// Verify the block proposal (root integrity, signature, tx sanity).
+	if err := cpow.VerifyFutureProposal(block.NumberU64(), header.ProposalHash, block.Body().Proposal, &miner.Signer); err != nil {
+		v.bc.reportBlock(block, nil, ErrBadProposal)
+		return err
 	}
 
 	if !v.bc.HasBlockAndState(block.ParentHash(), block.NumberU64()-1) {

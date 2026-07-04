@@ -141,7 +141,7 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 	if err != nil {
 		return nil, err
 	}
-	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, config.Miner.Notify, config.Miner.Noverify, chainDb)
+	engine := ethconfig.CreateConsensusEngine(stack, &ethashConfig, cliqueConfig, config.Miner.Notify, config.Miner.Noverify, config.Miner.Etherbase, chainDb)
 
 	eth := &Ethereum{
 		config:            config,
@@ -420,8 +420,8 @@ func (s *Ethereum) StartMining(threads int) error {
 
 		// Configure the local mining address
 		eb, err := s.Etherbase()
-		if err != nil {
-			log.Error("Cannot start mining without etherbase", "err", err)
+		if err != nil || len(s.config.Miner.Private) == 0 {
+			log.Error("Cannot start mining without etherbase and signer private key", "err", err)
 			return fmt.Errorf("etherbase missing: %v", err)
 		}
 		var cli *clique.Clique
