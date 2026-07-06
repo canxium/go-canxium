@@ -373,7 +373,6 @@ func importPreimages(ctx *cli.Context) error {
 	defer stack.Close()
 
 	db := utils.MakeChainDatabase(ctx, stack, false)
-	defer db.Close()
 	start := time.Now()
 
 	if err := utils.ImportPreimages(db, ctx.Args().First()); err != nil {
@@ -469,6 +468,7 @@ func dump(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	defer db.Close()
 	config := &trie.Config{
 		Preimages: true, // always enable preimage lookup
 	}
