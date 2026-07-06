@@ -492,7 +492,6 @@ func dumpState(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer db.Close()
 	snapConfig := snapshot.Config{
 		CacheSize:  256,
 		Recovery:   false,
