@@ -23,6 +23,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	cmath "github.com/ethereum/go-ethereum/common/math"
+	"github.com/ethereum/go-ethereum/consensus/cpow"
 	"github.com/ethereum/go-ethereum/core/types"
 	crosschain "github.com/ethereum/go-ethereum/core/types/cross-chain"
 	"github.com/ethereum/go-ethereum/core/vm"
@@ -66,9 +67,9 @@ func (result *ExecutionResult) Revert() []byte {
 }
 
 // IntrinsicGas computes the 'intrinsic gas' for a message with the given data.
-func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation bool, isHomestead, isEIP2028 bool, isEIP3860 bool, isHydroFork bool, isMiningTx bool) (uint64, error) {
-	// Mining transaction have zero intrinsic gas
-	if isHydroFork && isMiningTx {
+func IntrinsicGas(data []byte, accessList types.AccessList, isContractCreation bool, isHomestead, isEIP2028 bool, isEIP3860 bool, isHydroFork bool, isCostFree bool) (uint64, error) {
+	// Cost-free transactions (mining / cross-mining / WDC system tx) have zero intrinsic gas
+	if isHydroFork && isCostFree {
 		return 0, nil
 	}
 	// Set the starting gas for the raw transaction
@@ -158,6 +159,10 @@ type Message struct {
 
 	// is mining tx or cross mining tx
 	IsMiningTx bool
+	// IsCostFree is true for transactions that pay no gas: mining/cross-mining
+	// txs and the WDC system reward tx. It gates the gas-free execution path
+	// (no gas purchase, zero intrinsic gas, base-fee check skipped).
+	IsCostFree bool
 	// to present dupplicate cross mining block, compare the block's timestamp
 	CrossMining *MergeMiningMessage
 }
@@ -196,7 +201,14 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 	}
 	var err error
 	msg.From, err = types.Sender(s, tx)
-	return msg, err
+	if err != nil {
+		return msg, err
+	}
+	// Cost-free transactions pay no gas: mining/cross-mining txs, and the WDC
+	// system reward tx (sent by the fixed system signer to the WDC contract).
+	msg.IsCostFree = msg.IsMiningTx ||
+		(msg.From == cpow.SystemTransactionSigner && msg.To != nil && *msg.To == cpow.WdcAddress)
+	return msg, nil
 }
 
 // ApplyMessage computes the new state by applying the given message
@@ -260,8 +272,8 @@ func (st *StateTransition) to() common.Address {
 }
 
 func (st *StateTransition) buyGas(contractCreation bool) error {
-	// mining tx is gas free
-	if st.msg.IsMiningTx {
+	// cost-free tx (mining / cross-mining / WDC system tx) buys gas for free
+	if st.msg.IsCostFree {
 		if err := st.gp.SubGas(st.msg.GasLimit); err != nil {
 			return err
 		}
@@ -350,8 +362,8 @@ func (st *StateTransition) preCheck(contractCreation bool) error {
 	// Make sure that transaction gasFeeCap is greater than the baseFee (post london)
 	if st.evm.ChainConfig().IsLondon(st.evm.Context.BlockNumber) {
 		// Skip the checks if gas fields are zero and baseFee was explicitly disabled (eth_call)
-		// Skip the checks if this is mining transaction
-		if !msg.IsMiningTx && !st.evm.Config.NoBaseFee || msg.GasFeeCap.BitLen() > 0 || msg.GasTipCap.BitLen() > 0 {
+		// Skip the checks if this is a cost-free transaction
+		if !msg.IsCostFree && !st.evm.Config.NoBaseFee || msg.GasFeeCap.BitLen() > 0 || msg.GasTipCap.BitLen() > 0 {
 			if l := msg.GasFeeCap.BitLen(); l > 256 {
 				return fmt.Errorf("%w: address %v, maxFeePerGas bit length: %d", ErrFeeCapVeryHigh,
 					msg.From.Hex(), l)
@@ -417,7 +429,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	)
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
-	gas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai, rules.IsHydro, msg.IsMiningTx)
+	gas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules.IsHomestead, rules.IsIstanbul, rules.IsShanghai, rules.IsHydro, msg.IsCostFree)
 	if err != nil {
 		return nil, err
 	}

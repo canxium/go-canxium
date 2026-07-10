@@ -1437,7 +1437,7 @@ func (w *worker) commit(env *environment, parent *types.Header, interval func(),
 		env.state.ResetSnap(parent.Root)
 		// Create and add the WDC reward transaction for PoW 2.0.
 
-		systemTx, err := cpow.CreateWDCMinedTx(w.chainConfig, w.chain.WdcCache, parent.Nonce.Uint64(), parent.Number.Uint64(), env.header.BaseFee)
+		systemTx, err := cpow.CreateWDCMinedTx(w.chainConfig, w.chain.WdcCache, parent.Nonce.Uint64(), parent.Number.Uint64())
 		if err != nil {
 			log.Error("Failed to create WDC reward transaction", "err", err)
 			return fmt.Errorf("failed to create WDC reward transaction: %w", err)

@@ -289,7 +289,7 @@ func readMinerData(state *state.StateDB, miner common.Address) (uint64, uint64, 
 
 // Create a system transaction to trigger the mined method on the WDC contract.
 // Nonce and block is from the parent header
-func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint64, parentblock uint64, baseFee *big.Int) (*types.Transaction, error) {
+func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint64, parentblock uint64) (*types.Transaction, error) {
 	// Get miner index from cac
 	miner := wdcCache.GetMinerByNonce(nonce, parentblock)
 	if miner == nil {
@@ -318,7 +318,7 @@ func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint
 		WdcAddress,    // To WDC contract
 		big.NewInt(0), // No value transfer
 		10000000,      // Gas limit
-		baseFee,       // Gas price
+		big.NewInt(0), // Gas price 0: WDC system tx is cost-free (see Message.IsCostFree)
 		data,          // Data payload
 	)
 
