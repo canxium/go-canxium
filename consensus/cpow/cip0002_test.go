@@ -226,14 +226,6 @@ func TestTimePassedSinceFork(t *testing.T) {
 	}
 }
 
-// Example usage with real-time timestamps
-func ExampleTimePassedSinceFork() {
-	forkTime := uint64(1704067200)   // Example: January 1, 2024, 00:00 UTC
-	now := uint64(time.Now().Unix()) // Current timestamp
-	days, months := timePassedSinceFork(forkTime, now)
-	println("Days since fork:", days, "Months since fork:", months)
-}
-
 // TestUnmarshalTransactionHex tests unmarshaling a transaction hex and running IsValidBlock
 func TestUnmarshalTransactionHex(t *testing.T) {
 	// Transaction hex provided by user
