@@ -649,12 +649,39 @@ func (w *worker) taskLoop() {
 				}
 			}(stopCh, stopOnce)
 
-			// CIP-0003: push miner nonce range to ethash before sealing
+			// CIP-0003: push miner nonce range to ethash before sealing. Derive the
+			// range from the PARENT state (state after N-1), which holds the ranges
+			// effective for block N — not task.state, which is post-execution and at
+			// an epoch boundary already carries the next epoch's recalculated ranges.
+			// abandonSeal drops this sealing attempt without killing taskLoop: it
+			// removes the pending task so resultLoop never waits on it, and lets the
+			// next commitWork cycle rebuild from a fresh head. Using continue (not
+			// return) is essential — returning would terminate taskLoop and stop the
+			// node from mining any further block.
+			abandonSeal := func() {
+				w.pendingMu.Lock()
+				delete(w.pendingTasks, sealHash)
+				w.pendingMu.Unlock()
+			}
+
 			blockNum := task.block.NumberU64()
-			miner := w.eth.BlockChain().WdcCache.GetMiner(w.coinbase, blockNum)
+			parentHeader := w.chain.GetHeader(task.block.ParentHash(), blockNum-1)
+			if parentHeader == nil {
+				log.Warn("No parent header found for sealing, skipping", "number", blockNum, "parent", task.block.ParentHash())
+				abandonSeal()
+				continue
+			}
+			parentState, err := w.chain.StateAt(parentHeader.Root)
+			if err != nil {
+				log.Warn("Failed to load parent state for sealing, skipping", "number", blockNum, "err", err)
+				abandonSeal()
+				continue
+			}
+			miner := w.chain.WdcCache.Miners(parentHeader.Root, parentState).ByAddress(w.coinbase)
 			if miner == nil {
-				log.Warn("No miner found for sealing", "number", blockNum, "coinbase", w.coinbase.Hex())
-				return
+				log.Warn("No miner found for sealing, skipping", "number", blockNum, "coinbase", w.coinbase.Hex())
+				abandonSeal()
+				continue
 			}
 
 			if err := w.engine.Seal(w.chain, miner.Start, miner.End, task.state, task.block, w.resultCh, stopCh); err != nil {
@@ -959,8 +986,14 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 		ParentHash: parent.Hash(),
 		Number:     new(big.Int).Add(parent.Number, common.Big1),
 		GasLimit:   core.CalcGasLimit(parent.GasLimit, w.config.GasCeil),
-		Time:       parent.Time + 2,
-		Coinbase:   genParams.coinbase,
+		// Placeholder timestamp, NOT the final block time. header.Time is excluded
+		// from SealHash and is stamped with the real wall-clock time by the winning
+		// miner in ethash.mine. parent.Time+1 seeds the floor: mine takes
+		// max(now, header.Time), so the sealed time is always strictly greater than
+		// the parent's even under clock skew or a sub-second interval. It also hands
+		// the sealer parent.Time (unavailable from the header otherwise).
+		Time:     parent.Time + 1,
+		Coinbase: genParams.coinbase,
 	}
 	// Set the randomness field from the beacon chain if it's available.
 	if genParams.random != (common.Hash{}) {
@@ -1001,16 +1034,18 @@ func (w *worker) prepareWork(genParams *generateParams) (*environment, error) {
 // which defines N+1's tx list), and builds the N+2 proposal for w.current.
 // Caller must NOT hold w.mu.
 func (w *worker) prepareNextWork(previousSealHash common.Hash) (retErr error) {
-	// On any error return, unblock resultLoop which may already be waiting on
-	// task.proposalReady after receiving the sealed block.
+	// Always unblock resultLoop, which may already be waiting on
+	// task.proposalReady after receiving the sealed block. buildProposalForCurrentEnv
+	// closes proposalReady on its success path, but it (and this function) have
+	// several early-return paths that leave it open; closing it unconditionally here
+	// guarantees resultLoop is never stuck. If the proposal was not populated,
+	// resultLoop sees a nil proposal and discards the block to be rebuilt.
 	defer func() {
-		if retErr != nil {
-			w.pendingMu.RLock()
-			task, exists := w.pendingTasks[previousSealHash]
-			w.pendingMu.RUnlock()
-			if exists {
-				task.proposalReadyOnce.Do(func() { close(task.proposalReady) })
-			}
+		w.pendingMu.RLock()
+		task, exists := w.pendingTasks[previousSealHash]
+		w.pendingMu.RUnlock()
+		if exists {
+			task.proposalReadyOnce.Do(func() { close(task.proposalReady) })
 		}
 	}()
 
@@ -1029,15 +1064,14 @@ func (w *worker) prepareNextWork(previousSealHash common.Hash) (retErr error) {
 	}
 
 	// Construct the sealing block header for Block N+1.
-	// Block N+1's timestamp must be strictly greater than Block N's timestamp.
-	// prepareNextWork is called right after commit(), so time.Now() may still
-	// be the same second as previous.header.Time — apply the same lower-bound
-	// guard that prepareWork uses.
+	// Block N+1's timestamp is parent.Time + 1 (1s block interval), matching
+	// prepareWork and the forceTime guard so the SealHash is identical on every
+	// node. It must not depend on wall-clock time, which differs across nodes.
 	header := &types.Header{
 		ParentHash: common.Hash{}, // parent hash is not known until the block is sealed
 		Number:     new(big.Int).Add(previous.header.Number, common.Big1),
 		GasLimit:   core.CalcGasLimit(previous.header.GasLimit, w.config.GasCeil),
-		Time:       previous.header.Time + 2,
+		Time:       previous.header.Time + 1,
 		Coinbase:   cpow.WdcAddress,
 		// Extra intentionally empty for SealHash consistency across nodes.
 	}
@@ -1048,13 +1082,20 @@ func (w *worker) prepareNextWork(previousSealHash common.Hash) (retErr error) {
 			header.GasLimit = core.CalcGasLimit(parentGasLimit, w.config.GasCeil)
 		}
 	}
-	// previous.header.UncleHash is the zero value until FinalizeAndAssemble sets it
-	// via types.NewBlock. CalcDifficulty branches on EmptyUncleHash vs anything
-	// else, so we must populate it explicitly. PoW 2.0 has no uncles, so the hash
-	// is always EmptyUncleHash.
-	parentForDiff := *previous.header
-	parentForDiff.UncleHash = types.EmptyUncleHash
-	header.Difficulty = ethash.CalcDifficulty(w.chainConfig, header.Time, &parentForDiff)
+	// Difficulty for N+1 is derived from the parent (N = previous.header) and the
+	// parent's ancestors. It keys off the grandparent's realized block time (see
+	// CalcDifficultyPoW2), so it depends only on already-sealed blocks and is
+	// stable even though N itself is not sealed yet and its real timestamp is
+	// unknown here. This is computed once and reused as-is when the fast path
+	// promotes w.next, so it must equal what verifyHeader recomputes.
+	//   parent            = N   = previous.header
+	//   grandparent       = N-1 = grandParent
+	//   greatGrandparent  = N-2 = grandParent's parent (nil if N-1 is genesis)
+	var greatGrandHeader *types.Header
+	if grandParent.NumberU64() > 0 {
+		greatGrandHeader = w.chain.GetHeaderByHash(grandParent.ParentHash())
+	}
+	header.Difficulty = ethash.CalcDifficultyPoW2(previous.header, grandParent.Header(), greatGrandHeader)
 
 	w.pendingMu.RLock()
 	task, exists := w.pendingTasks[previousSealHash]
@@ -1359,6 +1400,12 @@ func (w *worker) commitWork(interrupt *atomic.Int32, timestamp int64) {
 			if w.next.header.ParentHash != chainHead.Hash() {
 				w.next.header.ParentHash = chainHead.Hash()
 			}
+			// Refresh the timestamp floor against the real (now-sealed) parent. The
+			// pre-build used a placeholder derived from unsealed headers; the sealed
+			// head carries the winner's real time. Time is excluded from SealHash, so
+			// this changes neither the SealHash nor the pre-computed difficulty — it
+			// only ensures the sealer stamps a time strictly greater than the parent's.
+			w.next.header.Time = chainHead.Time + 1
 
 			useNext = true
 		} else {
@@ -1437,7 +1484,17 @@ func (w *worker) commit(env *environment, parent *types.Header, interval func(),
 		env.state.ResetSnap(parent.Root)
 		// Create and add the WDC reward transaction for PoW 2.0.
 
-		systemTx, err := cpow.CreateWDCMinedTx(w.chainConfig, w.chain.WdcCache, parent.Nonce.Uint64(), parent.Number.Uint64())
+		// Derive the miner set from the parent state (state after N-1), which holds
+		// the ranges effective for this block. Do NOT use env.state here: it is
+		// post-execution and at an epoch boundary already contains the next epoch's
+		// recalculated ranges.
+		parentState, err := w.chain.StateAt(parent.Root)
+		if err != nil {
+			log.Error("Failed to load parent state for WDC reward transaction", "err", err)
+			return fmt.Errorf("failed to load parent state for WDC reward transaction: %w", err)
+		}
+		miners := w.chain.WdcCache.Miners(parent.Root, parentState)
+		systemTx, err := cpow.CreateWDCMinedTx(w.chainConfig, miners, parent.Nonce.Uint64(), parent.Number.Uint64())
 		if err != nil {
 			log.Error("Failed to create WDC reward transaction", "err", err)
 			return fmt.Errorf("failed to create WDC reward transaction: %w", err)

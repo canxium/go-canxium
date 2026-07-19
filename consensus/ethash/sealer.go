@@ -192,6 +192,15 @@ search:
 				header.Nonce = types.EncodeNonce(nonce)
 				header.MixDigest = common.BytesToHash(digest)
 
+				// Stamp the real seal time so the difficulty adjustment reflects
+				// actual block production speed. Time is excluded from SealHash, so
+				// this does not invalidate the nonce just found. The worker seeds
+				// header.Time with parent.Time+1 as a floor, guaranteeing the block
+				// time strictly exceeds the parent's even if the clock hasn't ticked.
+				if now := uint64(time.Now().Unix()); now > header.Time {
+					header.Time = now
+				}
+
 				// Seal and return a block (if still needed)
 				select {
 				case found <- block.WithSeal(header):

@@ -23,10 +23,9 @@ import (
 	"errors"
 	"math/big"
 	"sort"
-	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/state"
+	"github.com/ethereum/go-ethereum/common/lru"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/log"
@@ -51,167 +50,127 @@ var (
 
 const (
 	WDCMinersArraySlot = 2
-	EpochLength        = 16
 	// WDCStorageSlot is the position of 'minerNonces' in the contract variables.
 	// Check your solidity variable ordering carefully!
 	// 0: deposited, 1: lastRecalculatedEpoch, 2: miners array, 3: minerNonces mapping
 	WDCMapSlot = 3
+	// wdcCacheSize bounds the number of distinct state roots whose miner sets we
+	// keep. A handful is enough: it deduplicates the several lookups done while
+	// processing a single block and covers a few recent blocks / competing forks.
+	wdcCacheSize = 16
 )
 
-// CachedMiner represents a single efficient range entry
+// WDCStateReader is the minimal state access the WDC lookups need. *state.StateDB
+// satisfies it; keeping the surface small also makes the logic unit-testable with
+// a fake reader.
+type WDCStateReader interface {
+	GetState(addr common.Address, key common.Hash) common.Hash
+}
+
+// CachedMiner represents a single miner's assigned nonce range.
 type CachedMiner struct {
-	Index  uint64 // Index in the array
+	Index  uint64 // Index in the contract miners[] array
 	Start  uint64
 	End    uint64
 	Miner  common.Address
 	Signer common.Address
 }
 
-// WDCCache manages the in-memory lookup of miner ranges.
-// It is thread-safe.
-type WDCCache struct {
-	mu           sync.RWMutex
-	currentEpoch uint64
-	ranges       []CachedMiner // Sorted by Start nonce
-	miners       map[common.Address]CachedMiner
+// MinerSet is an immutable snapshot of every miner's nonce range as recorded in
+// the WDC contract at one particular state. It is derived directly from that
+// state, so it is always correct for the block being processed regardless of
+// epoch, fork, or sync mode.
+type MinerSet struct {
+	ranges []CachedMiner // sorted by Start nonce
+	byAddr map[common.Address]CachedMiner
 }
 
-// NewWDCCache creates the cache. Call this when initializing your consensus engine.
-func NewWDCCache() *WDCCache {
-	return &WDCCache{
-		mu:           sync.RWMutex{},
-		currentEpoch: ^uint64(0), // Set to max uint64 to force initial load
-		ranges:       make([]CachedMiner, 0),
-		miners:       make(map[common.Address]CachedMiner),
-	}
-}
-
-// GetMiner retrieves the cached miner info for a given address and block number.
-// Returns nil if the miner is not registered or the cache epoch doesn't match.
-func (cache *WDCCache) GetMiner(miner common.Address, block uint64) *CachedMiner {
-	return cache.getMiner(miner, block)
-}
-
-// getMiner retrieves the cached miner info for a given address and block number.
-// this function is called by worker to get miner info for the next block, so it uses block-1 to determine the epoch.
-// This allows the worker to prepare the next work with the correct miner info before the new block is officially mined.
-func (cache *WDCCache) getMiner(miner common.Address, block uint64) *CachedMiner {
-	cache.mu.RLock()
-	defer cache.mu.RUnlock()
-
-	epoch := (block - 1) / EpochLength
-	if epoch != cache.currentEpoch {
-		return nil
-	}
-
-	cached, exists := cache.miners[miner]
-	if !exists {
-		return nil
-	}
-	return &cached
-}
-
-// GetMinerByNonce retrieves the cached miner info for a given nonce.
-func (cache *WDCCache) GetMinerByNonce(nonce uint64, block uint64) *CachedMiner {
-	cache.mu.RLock()
-	defer cache.mu.RUnlock()
-
-	epoch := block / EpochLength
-	if epoch != cache.currentEpoch {
-		return nil
-	}
-
-	// Binary search
-	low, high := 0, len(cache.ranges)-1
+// ByNonce returns the miner whose assigned range contains nonce, or nil.
+func (ms *MinerSet) ByNonce(nonce uint64) *CachedMiner {
+	low, high := 0, len(ms.ranges)-1
 	for low <= high {
 		mid := (low + high) / 2
-		entry := cache.ranges[mid]
-
+		entry := ms.ranges[mid]
 		if nonce < entry.Start {
 			high = mid - 1
 		} else if nonce > entry.End {
 			low = mid + 1
 		} else {
-			// Found: nonce >= Start && nonce <= End
 			return &entry
 		}
 	}
-
 	return nil
 }
 
-// Refresh reloads the cache from the state if necessary.
-func (cache *WDCCache) Refresh(state *state.StateDB, block uint64) bool {
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-
-	targetEpoch := block / EpochLength
-	if targetEpoch == cache.currentEpoch {
-		return false
+// ByAddress returns the miner registered under addr, or nil.
+func (ms *MinerSet) ByAddress(addr common.Address) *CachedMiner {
+	if entry, ok := ms.byAddr[addr]; ok {
+		return &entry
 	}
+	return nil
+}
 
-	// 1. Get Array Length
+// LoadMiners scans the WDC contract's miners[] array from the given state and
+// builds a MinerSet. This is a pure function of the state; no shared mutable
+// epoch snapshot is involved, so it is correct under mining, sync and reorg.
+func LoadMiners(r WDCStateReader) *MinerSet {
+	ms := &MinerSet{byAddr: make(map[common.Address]CachedMiner)}
+
 	arrayLenHash := common.BigToHash(big.NewInt(WDCMinersArraySlot))
-	lenData := state.GetState(WdcAddress, arrayLenHash)
-	arrayLen := new(big.Int).SetBytes(lenData[:]).Uint64()
-
-	// Reset map for new epoch
-	cache.miners = make(map[common.Address]CachedMiner)
-
+	arrayLen := new(big.Int).SetBytes(r.GetState(WdcAddress, arrayLenHash).Bytes()).Uint64()
 	if arrayLen == 0 {
-		cache.ranges = make([]CachedMiner, 0)
-		cache.currentEpoch = targetEpoch
-		return true
+		return ms
 	}
 
-	// 2. Pre-allocate slice
-	newRanges := make([]CachedMiner, 0, arrayLen)
+	ms.ranges = make([]CachedMiner, 0, arrayLen)
 	arrayBaseSlot := crypto.Keccak256Hash(arrayLenHash[:])
-
-	// 3. Loop and Read
 	for i := uint64(0); i < arrayLen; i++ {
-		// A. Get Miner Address
-		elemSlotBig := new(big.Int).Add(arrayBaseSlot.Big(), new(big.Int).SetUint64(i))
-		elemSlot := common.BigToHash(elemSlotBig)
-		minerAddrBytes := state.GetState(WdcAddress, elemSlot)
-		minerAddr := common.BytesToAddress(minerAddrBytes[:])
-
+		elemSlot := common.BigToHash(new(big.Int).Add(arrayBaseSlot.Big(), new(big.Int).SetUint64(i)))
+		minerAddr := common.BytesToAddress(r.GetState(WdcAddress, elemSlot).Bytes())
 		if minerAddr == (common.Address{}) {
 			continue
 		}
 
-		// B. Get Range & Signer
-		start, end, signer := readMinerData(state, minerAddr)
-
+		start, end, signer := readMinerData(r, minerAddr)
 		if start == 0 && end == 0 {
 			continue
 		}
 
-		entry := CachedMiner{
-			Index:  i,
-			Start:  start,
-			End:    end,
-			Miner:  minerAddr,
-			Signer: signer,
-		}
-
-		newRanges = append(newRanges, entry)
-		cache.miners[minerAddr] = entry
+		entry := CachedMiner{Index: i, Start: start, End: end, Miner: minerAddr, Signer: signer}
+		ms.ranges = append(ms.ranges, entry)
+		ms.byAddr[minerAddr] = entry
 	}
 
-	// 4. Sort
-	sort.Slice(newRanges, func(i, j int) bool {
-		return newRanges[i].Start < newRanges[j].Start
-	})
+	sort.Slice(ms.ranges, func(i, j int) bool { return ms.ranges[i].Start < ms.ranges[j].Start })
+	return ms
+}
 
-	cache.ranges = newRanges
-	cache.currentEpoch = targetEpoch
+// WDCCache is a small, thread-safe LRU of MinerSets keyed by state root. The root
+// is a free, fork-safe key: identical root ⇒ identical WDC storage ⇒ identical
+// ranges. It only avoids recomputing LoadMiners for the same state; it never
+// serves one state's ranges for another (the bug of the old epoch-keyed cache).
+type WDCCache struct {
+	sets *lru.Cache[common.Hash, *MinerSet]
+}
 
-	return true
+// NewWDCCache creates the cache. Call this when initializing your consensus engine.
+func NewWDCCache() *WDCCache {
+	return &WDCCache{sets: lru.NewCache[common.Hash, *MinerSet](wdcCacheSize)}
+}
+
+// Miners returns the MinerSet for the state identified by root, deriving it from
+// r on a cache miss. root must identify the state that r reads (e.g. parent.Root).
+func (cache *WDCCache) Miners(root common.Hash, r WDCStateReader) *MinerSet {
+	if ms, ok := cache.sets.Get(root); ok {
+		return ms
+	}
+	ms := LoadMiners(r)
+	cache.sets.Add(root, ms)
+	return ms
 }
 
 // / Read miner data (start, end, signer) from state for a given miner address.
-func readMinerData(state *state.StateDB, miner common.Address) (uint64, uint64, common.Address) {
+func readMinerData(state WDCStateReader, miner common.Address) (uint64, uint64, common.Address) {
 	// ---------------------------------------------------------
 	// 1. Calculate the Base Slot for minerNonces[miner]
 	//    Formula: keccak256( abi.encode(miner) . abi.encode(map_slot) )
@@ -289,9 +248,9 @@ func readMinerData(state *state.StateDB, miner common.Address) (uint64, uint64, 
 
 // Create a system transaction to trigger the mined method on the WDC contract.
 // Nonce and block is from the parent header
-func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint64, parentblock uint64) (*types.Transaction, error) {
-	// Get miner index from cac
-	miner := wdcCache.GetMinerByNonce(nonce, parentblock)
+func CreateWDCMinedTx(config *params.ChainConfig, miners *MinerSet, nonce uint64, parentblock uint64) (*types.Transaction, error) {
+	// Get miner index from the parent state's miner set
+	miner := miners.ByNonce(nonce)
 	if miner == nil {
 		return nil, ErrNoMinerForNonce
 	}
@@ -347,7 +306,7 @@ func CreateWDCMinedTx(config *params.ChainConfig, wdcCache *WDCCache, nonce uint
 // If the given transaction is a WDC system transaction, verify its correctness.
 // System transaction is a function mined(uint64 nonceFound, uint256 minerIndex) call to the WDC contract.
 // If not, make sure the sender is not a system transaction sender.
-func VerifyWDCSystemTx(config *params.ChainConfig, wdcCache *WDCCache, tx *types.Transaction, isLastTransaction bool, parent *types.Header) error {
+func VerifyWDCSystemTx(config *params.ChainConfig, miners *MinerSet, tx *types.Transaction, isLastTransaction bool, parent *types.Header) error {
 	signer := types.MakeSigner(config, parent.Number)
 	from, err := types.Sender(signer, tx)
 	if err != nil {
@@ -390,8 +349,8 @@ func VerifyWDCSystemTx(config *params.ChainConfig, wdcCache *WDCCache, tx *types
 		return ErrWDCNonceMismatch
 	}
 
-	// Get miner index from cache
-	miner := wdcCache.GetMinerByNonce(parent.Nonce.Uint64(), parent.Number.Uint64())
+	// Get miner index from the parent state's miner set
+	miner := miners.ByNonce(parent.Nonce.Uint64())
 	if miner == nil {
 		return ErrNoMinerForNonce
 	}

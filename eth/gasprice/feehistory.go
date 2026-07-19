@@ -119,7 +119,15 @@ func (oracle *Oracle) processBlock(bf *blockFees, percentiles []float64) {
 
 	sorter := make(sortGasAndReward, len(bf.block.Transactions()))
 	for i, tx := range bf.block.Transactions() {
-		reward, _ := tx.EffectiveGasTip(bf.block.BaseFee())
+		reward, err := tx.EffectiveGasTip(bf.block.BaseFee())
+		// Cost-free txs (WDC/mining system txs, CIP-0003) carry a gas price below
+		// baseFee, which yields a negative effective tip and an ErrGasFeeCapTooLow.
+		// Clamp to zero: a below-baseFee tx contributes no priority fee. Leaving it
+		// negative serializes to "-0x..." in eth_feeHistory, which unsigned-U256
+		// clients (cast, etc.) reject.
+		if err != nil || reward == nil || reward.Sign() < 0 {
+			reward = new(big.Int)
+		}
 		sorter[i] = txGasAndReward{gasUsed: bf.receipts[i].GasUsed, reward: reward}
 	}
 	sort.Stable(sorter)

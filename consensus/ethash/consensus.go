@@ -48,15 +48,21 @@ var (
 	// exceed Pow2MiningCap (28.5M CAU). With ~1.5M CAU pre-allocated in genesis
 	// this targets a grand total of ~30M CAU.
 	//
-	// Era length is 5 years at a 2s block time (365.25-day year):
-	//   5 * 365.25 * 86400 / 2 = 78,894,000 blocks.
+	// Era length is 5 years at a 3s block time (365.25-day year):
+	//   5 * 365.25 * 86400 / 3 = 52,596,000 blocks.
 	// The era-0 reward is derived from the cap so the geometric series
 	// (R0 + R0/2 + R0/4 + ...) sums to the cap: R0 = cap / (2 * eraBlocks).
 	// Era 0 emits half the cap (~14.25M), and the reward integer-shifts to 0
-	// after ~58 eras (~290 years).
-	Pow2HalvingEraBlocks = uint64(78_894_000)                                         // Blocks per halving era (~5 years at 2s)
+	// after ~58 eras (~290 years). Emission is anchored to wall-clock time, so a
+	// change in block time scales the era's block count and the per-block reward
+	// inversely, leaving total mined supply and the time-based schedule unchanged.
+	Pow2HalvingEraBlocks = uint64(52_596_000)                                        // Blocks per halving era (~5 years at 3s)
 	Pow2MiningCap        = new(big.Int).Mul(big.NewInt(28_500_000), big.NewInt(1e18)) // Hard cap on total mined supply, in wei
-	Pow2InitialReward    = new(big.Int).Div(Pow2MiningCap, big.NewInt(2*78_894_000))  // Era-0 reward per block, in wei (~0.1806 CAU)
+	Pow2InitialReward    = new(big.Int).Div(Pow2MiningCap, big.NewInt(2*52_596_000))  // Era-0 reward per block, in wei (~0.2709 CAU)
+
+	// Pow2TargetBlockSeconds is the target block interval the difficulty
+	// adjustment aims for. See calcDifficultyPoW2.
+	Pow2TargetBlockSeconds = uint64(3)
 
 	maxUncles                     = 2        // Maximum number of uncles allowed in a single block
 	allowedFutureBlockTimeSeconds = int64(7) // Max seconds from current time allowed for blocks, before they're considered future blocks
@@ -108,7 +114,8 @@ func (ethash *Ethash) VerifyHeader(chain consensus.ChainHeaderReader, header *ty
 		return consensus.ErrUnknownAncestor
 	}
 	// Sanity checks passed, do a proper verification
-	return ethash.verifyHeader(chain, header, parent, false, seal, time.Now().Unix())
+	grandparent, greatGrandparent := difficultyAncestors(chain, nil, parent)
+	return ethash.verifyHeader(chain, header, parent, grandparent, greatGrandparent, false, seal, time.Now().Unix())
 }
 
 // VerifyHeaders is similar to VerifyHeader, but verifies a batch of headers
@@ -187,7 +194,41 @@ func (ethash *Ethash) verifyHeaderWorker(chain consensus.ChainHeaderReader, head
 	if parent == nil {
 		return consensus.ErrUnknownAncestor
 	}
-	return ethash.verifyHeader(chain, headers[index], parent, false, seals[index], unixNow)
+	// Resolve the difficulty ancestors from the in-flight batch first: during
+	// sync the grandparent/great-grandparent may be earlier in this same batch and
+	// not yet committed to the chain.
+	grandparent, greatGrandparent := difficultyAncestors(chain, headers, parent)
+	return ethash.verifyHeader(chain, headers[index], parent, grandparent, greatGrandparent, false, seals[index], unixNow)
+}
+
+// difficultyAncestors resolves the grandparent and great-grandparent of the block
+// whose parent is given — the two ancestors CalcDifficultyPoW2 needs beyond the
+// parent. Each lookup prefers the in-flight batch (see ancestorHeader) and falls
+// back to the committed chain. Either result may be nil near genesis.
+func difficultyAncestors(chain consensus.ChainHeaderReader, batch []*types.Header, parent *types.Header) (grandparent, greatGrandparent *types.Header) {
+	if parent.Number.Sign() > 0 {
+		grandparent = ancestorHeader(chain, batch, parent.ParentHash, parent.Number.Uint64()-1)
+	}
+	if grandparent != nil && grandparent.Number.Sign() > 0 {
+		greatGrandparent = ancestorHeader(chain, batch, grandparent.ParentHash, grandparent.Number.Uint64()-1)
+	}
+	return grandparent, greatGrandparent
+}
+
+// ancestorHeader returns the header for (hash, number), preferring the in-flight
+// verification batch (contiguous, ascending by number) over the committed chain.
+// This matters during sync: a block's difficulty ancestors can be earlier headers
+// in the same batch that have not been written to the chain yet.
+func ancestorHeader(chain consensus.ChainHeaderReader, batch []*types.Header, hash common.Hash, number uint64) *types.Header {
+	if len(batch) > 0 {
+		base := batch[0].Number.Uint64()
+		if number >= base && number < base+uint64(len(batch)) {
+			if h := batch[number-base]; h.Hash() == hash {
+				return h
+			}
+		}
+	}
+	return chain.GetHeader(hash, number)
 }
 
 // VerifyUncles verifies that the given block's uncles conform to the consensus
@@ -246,7 +287,9 @@ func (ethash *Ethash) VerifyUncles(chain consensus.ChainReader, block *types.Blo
 		if ancestors[uncle.ParentHash] == nil || uncle.ParentHash == block.ParentHash() {
 			return errDanglingUncle
 		}
-		if err := ethash.verifyHeader(chain, uncle, ancestors[uncle.ParentHash], true, true, time.Now().Unix()); err != nil {
+		uncleParent := ancestors[uncle.ParentHash]
+		uncleGrand, uncleGreatGrand := difficultyAncestors(chain, nil, uncleParent)
+		if err := ethash.verifyHeader(chain, uncle, uncleParent, uncleGrand, uncleGreatGrand, true, true, time.Now().Unix()); err != nil {
 			return err
 		}
 	}
@@ -256,7 +299,7 @@ func (ethash *Ethash) VerifyUncles(chain consensus.ChainReader, block *types.Blo
 // verifyHeader checks whether a header conforms to the consensus rules of the
 // stock Ethereum ethash engine.
 // See YP section 4.3.4. "Block Header Validity"
-func (ethash *Ethash) verifyHeader(chain consensus.ChainHeaderReader, header, parent *types.Header, uncle bool, seal bool, unixNow int64) error {
+func (ethash *Ethash) verifyHeader(chain consensus.ChainHeaderReader, header, parent, grandparent, greatGrandparent *types.Header, uncle bool, seal bool, unixNow int64) error {
 	// Ensure that the header's extra-data section is of a reasonable size
 	if uint64(len(header.Extra)) > params.MaximumExtraDataSize {
 		return fmt.Errorf("extra-data too long: %d > %d", len(header.Extra), params.MaximumExtraDataSize)
@@ -270,8 +313,11 @@ func (ethash *Ethash) verifyHeader(chain consensus.ChainHeaderReader, header, pa
 	if header.Time <= parent.Time {
 		return errOlderBlockTime
 	}
-	// Verify the block's difficulty based on its timestamp and parent's difficulty
-	expected := ethash.CalcDifficulty(chain, header.Time, parent)
+	// Verify the block's difficulty. PoW 2.0 difficulty is derived from the
+	// parent and its ancestors (CalcDifficultyPoW2); the ancestors are resolved by
+	// the caller so that during batched sync verification they can come from the
+	// in-flight batch, not only from the committed chain.
+	expected := CalcDifficultyPoW2(parent, grandparent, greatGrandparent)
 
 	if expected.Cmp(header.Difficulty) != 0 {
 		return fmt.Errorf("invalid difficulty: have %v, want %v", header.Difficulty, expected)
@@ -320,18 +366,66 @@ func (ethash *Ethash) verifyHeader(chain consensus.ChainHeaderReader, header, pa
 	return nil
 }
 
-// CalcDifficulty is the difficulty adjustment algorithm. It returns
-// the difficulty that a new block should have when created at time
-// given the parent block's time and difficulty.
+// CalcDifficulty is the difficulty adjustment algorithm. In PoW 2.0 the
+// difficulty of a block is a function of its parent's ancestors, not of `time`
+// (the new block's own timestamp), which is stamped at seal and unknown while
+// the block is being built. It walks two ancestors back from parent to feed
+// calcDifficultyPoW2.
 func (ethash *Ethash) CalcDifficulty(chain consensus.ChainHeaderReader, time uint64, parent *types.Header) *big.Int {
-	return CalcDifficulty(chain.Config(), time, parent)
+	var grandparent, greatGrandparent *types.Header
+	if parent.Number.Sign() > 0 {
+		grandparent = chain.GetHeader(parent.ParentHash, parent.Number.Uint64()-1)
+	}
+	if grandparent != nil && grandparent.Number.Sign() > 0 {
+		greatGrandparent = chain.GetHeader(grandparent.ParentHash, grandparent.Number.Uint64()-1)
+	}
+	return CalcDifficultyPoW2(parent, grandparent, greatGrandparent)
 }
 
-// CalcDifficulty is the difficulty adjustment algorithm. It returns
-// the difficulty that a new block should have when created at time
-// given the parent block's time and difficulty.
+// CalcDifficulty (package form) is retained for tooling (e.g. the evm t8n
+// command) that has no chain reader to walk ancestors. Without the ancestors
+// the realized block time cannot be measured, so it holds the parent difficulty.
+// The live chain always uses the chain-aware method form above.
 func CalcDifficulty(config *params.ChainConfig, time uint64, parent *types.Header) *big.Int {
-	return calcDifficultyPoW(time, parent)
+	return CalcDifficultyPoW2(parent, nil, nil)
+}
+
+// CalcDifficultyPoW2 computes the PoW 2.0 block difficulty from the parent and
+// the parent's ancestors. The adjustment keys off the realized block time of the
+// grandparent (grandparent.Time - greatGrandparent.Time) rather than the block's
+// own or its parent's time. Rationale:
+//
+//   - The block's own timestamp is stamped by the winning miner at seal time and
+//     is excluded from SealHash, so it is not knowable when difficulty is fixed.
+//   - The miner pipeline pre-builds block N+1 while block N is still being mined,
+//     so N's (the parent's) real timestamp is also not yet known. The grandparent
+//     and great-grandparent are always sealed and identical on every node, so the
+//     speculatively pre-built difficulty matches what verifyHeader recomputes.
+//
+// This is a two-block adjustment lag; at a 3s target the extra ~6s of reaction is
+// immaterial to stability. grandparent/greatGrandparent are nil near genesis, in
+// which case difficulty is held at the parent's value (floored at MinimumDifficulty).
+func CalcDifficultyPoW2(parent, grandparent, greatGrandparent *types.Header) *big.Int {
+	diff := new(big.Int).Set(parent.Difficulty)
+	if grandparent != nil && greatGrandparent != nil {
+		// algorithm:
+		// diff = parent_diff + parent_diff/DifficultyBoundDivisor * max(1 - dt/target, -99)
+		// where dt is the grandparent's realized block time in seconds. Neutral
+		// (x==0) when target <= dt < 2*target; faster raises difficulty, slower lowers it.
+		dt := grandparent.Time - greatGrandparent.Time
+
+		x := new(big.Int).SetInt64(1 - int64(dt/Pow2TargetBlockSeconds))
+		if x.Cmp(bigMinus99) < 0 {
+			x.Set(bigMinus99)
+		}
+		y := new(big.Int).Div(parent.Difficulty, params.DifficultyBoundDivisor)
+		x.Mul(y, x)
+		diff.Add(parent.Difficulty, x)
+	}
+	if diff.Cmp(params.MinimumDifficulty) < 0 {
+		diff.Set(params.MinimumDifficulty)
+	}
+	return diff
 }
 
 // Some weird constants to avoid constant memory allocs for them.
@@ -347,47 +441,6 @@ var (
 	bigMinus99    = big.NewInt(-99)
 )
 
-// calcDifficultyEthPOW creates a difficultyCalculator with the origin Proof-of-work (PoW).
-// Remain old calculations & deleted fakeBlockNumber.
-// Target block time: ~2 seconds.
-// The equilibrium is where x = 0, i.e. (dt // 2) = 1, meaning 2s <= dt < 4s.
-func calcDifficultyPoW(time uint64, parent *types.Header) *big.Int {
-	// algorithm:
-	// diff = (parent_diff +
-	//         (parent_diff / DifficultyBoundDivisor * max((2 if len(parent.uncles) else 1) - ((timestamp - parent.timestamp) // 2), -99))
-	//        )
-	// Divisor of 2 targets ~2s block time: when dt==2s, (dt//2)==1 so x==0 (neutral).
-
-	bigTime := new(big.Int).SetUint64(time)
-	bigParentTime := new(big.Int).SetUint64(parent.Time)
-
-	// holds intermediate values to make the algo easier to read & audit
-	x := new(big.Int)
-	y := new(big.Int)
-
-	// (2 if len(parent_uncles) else 1) - (block_timestamp - parent_timestamp) // 2
-	x.Sub(bigTime, bigParentTime)
-	x.Div(x, big2)
-	if parent.UncleHash == types.EmptyUncleHash {
-		x.Sub(big1, x)
-	} else {
-		x.Sub(big2, x)
-	}
-	// max((2 if len(parent_uncles) else 1) - (block_timestamp - parent_timestamp) // 2, -99)
-	if x.Cmp(bigMinus99) < 0 {
-		x.Set(bigMinus99)
-	}
-	// parent_diff + (parent_diff / DifficultyBoundDivisor * max(...))
-	y.Div(parent.Difficulty, params.DifficultyBoundDivisor)
-	x.Mul(y, x)
-	x.Add(parent.Difficulty, x)
-
-	// minimum difficulty can ever be
-	if x.Cmp(params.MinimumDifficulty) < 0 {
-		x.Set(params.MinimumDifficulty)
-	}
-	return x
-}
 
 // makeDifficultyCalculator creates a difficultyCalculator with the given bomb-delay.
 // the difficulty is calculated with Byzantium rules, which differs from Homestead in
@@ -714,7 +767,11 @@ func (ethash *Ethash) SealHash(header *types.Header) (hash common.Hash) {
 		header.Number,
 		header.GasLimit,
 		header.GasUsed,
-		header.Time,
+		// header.Time is intentionally excluded: PoW 2.0 stamps the real seal time
+		// into the block after the nonce is found (see ethash.mine), and every
+		// miner must agree on one SealHash before the timestamp exists. Difficulty
+		// is derived from sealed ancestors (CalcDifficultyPoW2), not from Time, so
+		// excluding it here is safe.
 		header.Extra,
 	}
 	if header.BaseFee != nil {

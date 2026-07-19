@@ -98,12 +98,15 @@ func (v *BlockValidator) ValidateBody(block *types.Block, parent *types.Header) 
 		return consensus.ErrUnknownParent
 	}
 
-	// Refresh the WDC cache from the parent block's state so that lookups below
-	// use the correct epoch even when validating a chain that diverges from the
-	// locally-mined canonical chain (e.g. during initial sync).
-	if parentState, err := v.bc.StateAt(parent.Root); err == nil {
-		v.bc.WdcCache.Refresh(parentState, parent.Number.Uint64())
+	// Derive the miner set directly from the parent block's state. This is
+	// correct for any chain position — head, initial sync, or a diverging fork —
+	// because it reads the WDC contract storage of the exact parent being built
+	// on, rather than a shared epoch-keyed snapshot.
+	parentState, err := v.bc.StateAt(parent.Root)
+	if err != nil {
+		return fmt.Errorf("cannot load parent state %x for WDC miner lookup: %w", parent.Root, err)
 	}
+	miners := v.bc.WdcCache.Miners(parent.Root, parentState)
 
 	// Verify system & mining transactions
 	totalTxs := len(block.Transactions())
@@ -111,7 +114,7 @@ func (v *BlockValidator) ValidateBody(block *types.Block, parent *types.Header) 
 	// proposalSigner is nil when no WDC system tx is present (e.g. early blocks).
 	// VerifyFutureProposal skips the signer identity check when proposalSigner is nil.
 	for index, tx := range block.Transactions() {
-		if err := cpow.VerifyWDCSystemTx(v.config, v.bc.WdcCache, tx, index == totalTxs-1, parent); err != nil {
+		if err := cpow.VerifyWDCSystemTx(v.config, miners, tx, index == totalTxs-1, parent); err != nil {
 			v.bc.reportBlock(block, nil, cpow.ErrBadSystemTx)
 			return err
 		}
@@ -131,7 +134,7 @@ func (v *BlockValidator) ValidateBody(block *types.Block, parent *types.Header) 
 		}
 	}
 
-	miner := v.bc.WdcCache.GetMinerByNonce(header.Nonce.Uint64(), header.Number.Uint64()-1)
+	miner := miners.ByNonce(header.Nonce.Uint64())
 	if miner == nil {
 		return ErrUnknownMiner
 	}

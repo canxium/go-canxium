@@ -537,16 +537,6 @@ func (bc *BlockChain) loadLastState() error {
 		log.Info("Loaded last fast-sync pivot marker", "number", *pivot)
 	}
 
-	state, err := bc.StateAt(headBlock.Root())
-	if err != nil {
-		log.Error("Failed to load head block state", err)
-		return err
-	}
-
-	if !bc.WdcCache.Refresh(state, headBlock.NumberU64()) {
-		log.Error("Failed to update miners nonce")
-	}
-
 	return nil
 }
 
@@ -1470,8 +1460,6 @@ func (bc *BlockChain) writeBlockAndSetHead(block *types.Block, receipts []*types
 	bc.futureBlocks.Remove(block.Hash())
 
 	if status == CanonStatTy {
-		// Update Wdc miner nonces cache if a canonical block is added
-		bc.WdcCache.Refresh(state, block.NumberU64())
 		bc.chainFeed.Send(ChainEvent{Block: block, Hash: block.Hash(), Logs: logs})
 		if len(logs) > 0 {
 			bc.logsFeed.Send(logs)
@@ -1768,10 +1756,6 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals, setHead bool)
 				}(time.Now(), followup, throwaway)
 			}
 		}
-
-		// TODO: Verify system transaction for the PoW 2.0 blocks here
-		// First, update the miner nonces cached if necessary
-		bc.WdcCache.Refresh(statedb, block.NumberU64())
 
 		// Process block using the parent state as reference point
 		pstart := time.Now()
